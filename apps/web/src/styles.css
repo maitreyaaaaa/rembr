@@ -309,6 +309,12 @@ h1, h2, h3, p { margin-top: 0; }
 .phase2-filter-grid input, .phase2-filter-grid select, .phase2-form input:not([type='checkbox']):not([type='file']), .phase2-form select, .phase2-form textarea, .phase2-inline-form input, .phase2-panel > input { width: 100%; min-height: 44px; border: 1px solid #dfe1e6; border-radius: 10px; padding: 10px 12px; background: #fff; color: var(--text); font: inherit; font-size: 13px; }
 .phase2-form textarea { min-height: 110px; resize: vertical; line-height: 1.6; }
 .phase2-filter-grid input:focus-visible, .phase2-filter-grid select:focus-visible, .phase2-form input:focus-visible, .phase2-form select:focus-visible, .phase2-form textarea:focus-visible, .phase2-inline-form input:focus-visible { outline: 0; border-color: var(--primary); box-shadow: 0 0 0 4px rgb(49 92 255 / 13%); }
+.phase2-filter-summary { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding-top: 13px; margin-top: 16px; border-top: 1px solid var(--line); }
+.phase2-filter-summary p { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.phase2-filter-summary strong { color: var(--text); font-weight: 700; }
+.phase2-filter-summary .phase2-text-button { flex: 0 0 auto; justify-self: auto; padding: 6px 0; }
+.phase2-retry-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.phase2-retry-notice .quiet-button { flex: 0 0 auto; }
 .phase2-panel .item-list { margin-top: 16px; }
 .phase2-pagination { display: flex; align-items: center; justify-content: end; gap: 10px; margin-top: 16px; color: var(--muted); font-size: 11px; }
 .phase2-pagination > span { margin-right: auto; }
@@ -389,6 +395,8 @@ h1, h2, h3, p { margin-top: 0; }
   .phase2-filter-grid { grid-template-columns: 1fr; }
   .phase2-pagination { flex-wrap: wrap; justify-content: space-between; }
   .phase2-pagination > span { width: 100%; }
+  .phase2-filter-summary, .phase2-retry-notice { align-items: flex-start; flex-direction: column; }
+  .phase2-filter-summary .phase2-text-button { align-self: flex-start; }
   .phase2-option-grid, .phase2-collection-grid { grid-template-columns: 1fr; }
   .phase2-inline-form { grid-template-columns: 1fr; }
   .phase2-inline-form .primary-button { width: 100%; }
