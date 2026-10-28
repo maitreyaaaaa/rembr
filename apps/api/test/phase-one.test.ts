@@ -1,18 +1,21 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { createServer } from 'node:http';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import { test } from 'node:test';
 import { createApp } from '../src/app.js';
+import { config } from '../src/config.js';
 import { createTestDatabase } from '../src/db/database.js';
 import { extractPage } from '../src/items/extract.js';
 import { createItemRepository } from '../src/items/repository.js';
 import { CaptureError, fetchPublicPage, validatePublicUrl } from '../src/items/safe-fetch.js';
-import { processNextJob } from '../src/worker/process-job.js';
+import { claimNextJob, processNextJob } from '../src/worker/process-job.js';
 
 const origin = 'http://127.0.0.1:5173';
 const password = 'correct-horse-battery-staple';
 
-async function withApi(run: (baseUrl: string) => Promise<void>) {
+async function withApi(run: (baseUrl: string, database: ReturnType<typeof createTestDatabase>) => Promise<void>) {
   const database = createTestDatabase();
   const app = createApp(database, {
     validateUrl: async (input) => ({ url: new URL(input), address: '93.184.216.34', family: 4 }),
@@ -21,7 +24,7 @@ async function withApi(run: (baseUrl: string) => Promise<void>) {
   await once(server, 'listening');
   const address = server.address() as AddressInfo;
   try {
-    await run(`http://127.0.0.1:${address.port}`);
+    await run(`http://127.0.0.1:${address.port}`, database);
   } finally {
     server.close();
     await once(server, 'close');
@@ -57,10 +60,14 @@ test('API denies private library access without a verified session', async () =>
 });
 
 test('session cookie is HttpOnly and a signed-out session is immediately revoked', async () => {
-  await withApi(async (baseUrl) => {
+  await withApi(async (baseUrl, database) => {
     const account = await register(baseUrl, 'sessions@example.test');
     assert.match(account.setCookie, /HttpOnly/i);
     assert.match(account.setCookie, /SameSite=Lax/i);
+    const token = account.cookie.slice(account.cookie.indexOf('=') + 1);
+    const storedHash = database.prepare('SELECT token_hash FROM sessions').get() as { token_hash: string };
+    assert.equal(storedHash.token_hash, createHash('sha256').update(decodeURIComponent(token)).digest('hex'));
+    assert.notEqual(storedHash.token_hash, decodeURIComponent(token));
     const sessionResponse = await fetch(`${baseUrl}/api/auth/session`, { headers: { Cookie: account.cookie } });
     assert.equal(sessionResponse.status, 200);
     const logout = await fetch(`${baseUrl}/api/auth/logout`, { method: 'POST', headers: { Cookie: account.cookie, Origin: origin } });
@@ -78,8 +85,22 @@ test('session cookie is HttpOnly and a signed-out session is immediately revoked
   });
 });
 
+test('expired sessions cannot restore an authenticated principal', async () => {
+  await withApi(async (baseUrl, database) => {
+    const account = await register(baseUrl, 'expired@example.test');
+    const token = account.cookie.slice(account.cookie.indexOf('=') + 1);
+    const tokenHash = createHash('sha256').update(decodeURIComponent(token)).digest('hex');
+    const result = database.prepare('UPDATE sessions SET expires_at = ? WHERE token_hash = ?')
+      .run('2000-01-01T00:00:00.000Z', tokenHash);
+    assert.equal(result.changes, 1);
+    const response = await fetch(`${baseUrl}/api/auth/session`, { headers: { Cookie: account.cookie } });
+    assert.equal(response.status, 401);
+    assert.equal((await response.json() as { error: { code: string } }).error.code, 'unauthorized');
+  });
+});
+
 test('registration, capture, owner isolation, and deletion stay in one account boundary', async () => {
-  await withApi(async (baseUrl) => {
+  await withApi(async (baseUrl, database) => {
     const first = await register(baseUrl, 'one@example.test');
     const second = await register(baseUrl, 'two@example.test');
     const capture = await fetch(`${baseUrl}/api/items`, {
@@ -91,6 +112,9 @@ test('registration, capture, owner isolation, and deletion stay in one account b
     const created = await capture.json() as { item: { id: string; status: string }; duplicate: boolean };
     assert.equal(created.item.status, 'queued');
     assert.equal(created.duplicate, false);
+    const persistedJob = database.prepare('SELECT status FROM processing_jobs WHERE item_id = ? AND owner_id = ?')
+      .get(created.item.id, first.user.user.id) as { status: string } | undefined;
+    assert.equal(persistedJob?.status, 'queued');
 
     const visibleToOwner = await fetch(`${baseUrl}/api/items`, { headers: { Cookie: first.cookie } });
     assert.equal((await visibleToOwner.json() as { items: unknown[] }).items.length, 1);
@@ -189,6 +213,93 @@ test('every redirect target is revalidated before a new connection', async () =>
     requestPage: async () => ({ statusCode: 302, location: 'http://127.0.0.1/admin', contentType: 'text/html', body: '' }),
   }), (error: unknown) => error instanceof CaptureError && error.code === 'blocked_target');
   assert.equal(targets.length, 2);
+});
+
+test('bounded fetch rejects compressed, unsupported, and oversized responses', async () => {
+  const server = createServer((request, response) => {
+    if (request.url === '/compressed') {
+      response.writeHead(200, { 'content-type': 'text/html', 'content-encoding': 'gzip' });
+      response.end('not actually compressed');
+    } else if (request.url === '/unsupported') {
+      response.writeHead(200, { 'content-type': 'application/pdf' });
+      response.end('pdf');
+    } else if (request.url === '/declared-large') {
+      response.writeHead(200, { 'content-type': 'text/html', 'content-length': config.MAX_CAPTURE_BYTES + 1 });
+      response.end('small body');
+    } else {
+      response.writeHead(200, { 'content-type': 'text/html', 'transfer-encoding': 'chunked' });
+      response.end(Buffer.alloc(config.MAX_CAPTURE_BYTES + 1, 'a'));
+    }
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const address = server.address() as AddressInfo;
+  const validateLocalTestTarget = async (input: string) => ({
+    url: new URL(input), address: '127.0.0.1', family: 4 as const,
+  });
+  try {
+    const base = `http://127.0.0.1:${address.port}`;
+    for (const [path, code] of [
+      ['/compressed', 'unsupported_content'],
+      ['/unsupported', 'unsupported_content'],
+      ['/declared-large', 'page_too_large'],
+      ['/streamed-large', 'page_too_large'],
+    ] as const) {
+      await assert.rejects(fetchPublicPage(`${base}${path}`, { validateUrl: validateLocalTestTarget }),
+        (error: unknown) => error instanceof CaptureError && error.code === code, path);
+    }
+  } finally {
+    server.close();
+    await once(server, 'close');
+  }
+});
+
+test('transient worker failures retry and expired leases are fenced on reclaim', async () => {
+  const database = createTestDatabase();
+  try {
+    database.prepare('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)')
+      .run('user-retry', 'retry@example.test', 'unused', new Date().toISOString());
+    const repository = createItemRepository(database);
+    const item = repository.create('user-retry', 'https://example.com/retry', 'https://example.com/retry', 'example.com');
+    assert.ok(await processNextJob(database, async () => { throw new Error('temporary network fault'); }));
+    let job = database.prepare('SELECT status, attempts, error_code FROM processing_jobs WHERE item_id = ?')
+      .get(item.id) as { status: string; attempts: number; error_code: string | null };
+    assert.equal(job.status, 'queued');
+    assert.equal(job.attempts, 1);
+    assert.equal(job.error_code, 'fetch_failed');
+    database.prepare('UPDATE processing_jobs SET available_at = ? WHERE item_id = ?')
+      .run('2000-01-01T00:00:00.000Z', item.id);
+    assert.ok(await processNextJob(database, async () => ({
+      finalUrl: item.url, contentType: 'text/html', html: '<main>Retry recovered</main>',
+    })));
+    job = database.prepare('SELECT status, attempts, error_code FROM processing_jobs WHERE item_id = ?')
+      .get(item.id) as { status: string; attempts: number; error_code: string | null };
+    assert.equal(job.status, 'completed');
+    assert.equal(job.attempts, 2);
+    assert.equal(repository.get('user-retry', item.id)?.status, 'ready');
+
+    const leased = repository.create('user-retry', 'https://example.com/lease', 'https://example.com/lease', 'example.com');
+    database.prepare(`UPDATE processing_jobs SET status='processing', attempts=1, lease_token='stale-token',
+      lease_expires_at='2000-01-01T00:00:00.000Z' WHERE item_id=?`).run(leased.id);
+    database.prepare("UPDATE saved_items SET status='processing' WHERE id=?").run(leased.id);
+    const reclaimed = claimNextJob(database);
+    assert.equal(reclaimed?.item_id, leased.id);
+    assert.equal(reclaimed?.attempts, 2);
+    assert.notEqual(reclaimed?.lease_token, 'stale-token');
+
+    const exhausted = repository.create('user-retry', 'https://example.com/exhausted', 'https://example.com/exhausted', 'example.com');
+    database.prepare(`UPDATE processing_jobs SET status='processing', attempts=max_attempts,
+      lease_token='exhausted-token', lease_expires_at='2000-01-01T00:00:00.000Z' WHERE item_id=?`).run(exhausted.id);
+    database.prepare("UPDATE saved_items SET status='processing' WHERE id=?").run(exhausted.id);
+    assert.equal(claimNextJob(database), undefined);
+    const failedJob = database.prepare('SELECT status,error_code FROM processing_jobs WHERE item_id=?')
+      .get(exhausted.id) as { status: string; error_code: string };
+    assert.equal(failedJob.status, 'failed');
+    assert.equal(failedJob.error_code, 'worker_interrupted');
+    assert.equal(repository.get('user-retry', exhausted.id)?.status, 'failed');
+  } finally {
+    database.close();
+  }
 });
 
 test('HTML extraction removes script content and bounds derived fields', () => {

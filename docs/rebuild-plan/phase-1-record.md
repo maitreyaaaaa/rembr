@@ -1,6 +1,6 @@
 # Phase 1 — Core foundation and vertical slice
 
-**Status:** In progress. This record tracks implementation and evidence; it does not mark the Phase 1 gate as passed.
+**Status:** Passed — 2026-10-28. This records the local Phase 1 gate; hosted GitHub CI has not run because this repository has no remote configured.
 
 ## Scope
 
@@ -22,30 +22,32 @@ Deliver the narrow authenticated journey defined in the [phase roadmap](phase-ga
 - URL capture API, account-scoped duplicate detection, list/search/detail and delete.
 - Separate worker process with claim lease, bounded retry, deterministic extraction, owner/lease-fenced writes, and deletion-race protection.
 - Responsive login/account/library UI with progress, status, empty/error states, search, source links and delete confirmation.
-- Nine automated tests cover unauthenticated access, hostile origins, session cookie/logout behavior, two-user isolation, duplicate canonical URLs, worker extraction, deletion during processing, private URL blocking, redirect revalidation, and script removal.
+- Twelve automated tests cover unauthenticated access, hostile origins, hashed session storage/expiry/logout, two-user isolation, durable capture acceptance, duplicate canonical URLs, worker extraction/deletion races, private URL blocking, redirect revalidation, bounded response handling, retry/expired-lease recovery, and script removal.
 
 ## Evidence recorded so far
 
 | Check | Result | Notes |
 |---|---|---|
-| `npm install` | Passed | 0 reported vulnerabilities. |
-| `npm run typecheck` | Passed | API and web. |
-| `npm run lint` | Passed | API and web. |
-| `npm test` | Passed | 9 tests. |
-| `npm run build` | Passed | API TypeScript and web production build. |
+| Clean install (`npm ci`) | Passed | Clean workspace install; 0 vulnerabilities reported. npm emitted upstream package deprecation notices. |
+| `npm run check` | Passed | Same command used by the repository CI workflow: API/web typecheck and lint, all 12 tests, and both production builds. |
 | Local DB migrations | Passed | In-memory tests and persistent local SQLite API/worker smoke. |
-| Live API + worker + browser UI | Partial | Dev API and UI started; account creation and capture acceptance were exercised in the browser. The login screen was visually reviewed at the desktop viewport. Browser interaction did not advance the page during this final review, so loading/success/failure captures and narrow viewport review remain open. |
-| Cross-user persistence and deletion race | Passed in automated tests | Uses two synthetic users and a controlled in-flight worker. |
-| Live public-site extraction | Passed | Authenticated local API submitted `https://example.com/`; worker persisted `ready` with title “Example Domain” and 156 characters of extracted text. Temporary synthetic test account was removed after the smoke. |
-| GitHub CI | Not run | Workflow added; first hosted run requires a push/PR. |
+| Live API + worker + browser UI | Passed | Browser account creation/sign-in/out, URL submission, queued status, ready content, refresh persistence, and unsafe URL feedback were exercised. Worker was paused to hold a queued job, then restarted; the item recovered to ready. |
+| Visual states and responsive layout | Passed | Screenshot review at 390px and 320px covered queued/loading, ready, and private-URL failure. At 320px a 15px horizontal overflow was found, fixed by removing the forced body minimum width, and rechecked: `scrollWidth === clientWidth === 305`. Screenshot captures are present in the task run; no separate image files were saved in the repository. |
+| Cross-user persistence and deletion race | Passed in automated tests | Uses two synthetic users and a controlled in-flight worker; cross-user read/delete are denied, and deleted content cannot be recreated. |
+| Live public-site extraction | Passed | Authenticated browser UI submitted `https://example.com/`; worker persisted `ready` with title “Example Domain” and readable text. Synthetic accounts and rows were removed after smoke runs. |
+| GitHub CI | Not run | Local clean-install workflow-equivalent commands passed. This Git repository has no remote, so no hosted run was triggered. |
 
-## Open Phase 1 work
+## Defects found and fixed during Phase 1
 
-1. Complete a visual browser review of loading, success, failure, and narrow viewport states; browser input actions did not advance the page during the final review.
-2. Expand the automated security and reliability matrix for session expiry, unsupported/oversized responses, and worker retry/expired-lease recovery.
-3. Verify a private-address rejection and redirect pivot through the live worker path (the current private-address and redirect checks are controlled automated tests).
-4. Repeat the full check after addressing any newly found issues.
-5. Evaluate all Phase 1 gate criteria before starting Phase 2; this record does not mark the gate as passed.
+- The initial `body { min-width: 320px }` caused horizontal overflow when a 320px viewport's vertical scrollbar reduced the usable client width to 305px. Removed the forced minimum and rechecked both the rendered page and document scroll width at 320px.
+- Node 24's HTTP request lookup callback uses a different callback shape when `options.all` is true. The pinned-address fetch now handles both forms; live public capture completed successfully afterward.
+- Remote servers that ignored `Accept-Encoding: identity` could return compressed bytes that would be decoded as text. The fetch now rejects non-identity encodings explicitly, with a regression test.
+
+## Residual limits (not Phase 1 blockers)
+
+- Hosted GitHub Actions has not run because the local repository has no remote. The exact workflow commands passed from a clean `npm ci` installation.
+- Production Postgres/Supabase, hosted RLS, deployment egress restrictions, and production deployment remain later-phase decisions/checks; this phase proves the local SQLite adapter only.
+- Screenshot evidence was reviewed through the active browser session but is not committed as image files. Repeat visual captures when preparing the reviewer/demo artifact.
 
 ## Related documents
 

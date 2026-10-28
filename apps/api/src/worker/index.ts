@@ -12,7 +12,7 @@ async function run() {
     try {
       const jobId = await processNextJob(database);
       if (!jobId) await delay(1000);
-      else console.info('rembr_job_finished', { jobId });
+      else console.info('rembr_job_processed', { jobId });
     } catch (error) {
       console.error('rembr_worker_error', { errorType: error instanceof Error ? error.name : 'unknown' });
       await delay(1000);

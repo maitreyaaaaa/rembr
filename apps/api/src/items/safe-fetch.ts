@@ -100,7 +100,13 @@ function requestAtPinnedAddress(target: ValidatedUrl, maxBytes: number): Promise
       const statusCode = response.statusCode ?? 0;
       const location = response.headers.location;
       const contentType = String(response.headers['content-type'] ?? '').split(';')[0]?.trim().toLowerCase() ?? '';
+      const contentEncoding = String(response.headers['content-encoding'] ?? 'identity').trim().toLowerCase();
       const contentLength = Number(response.headers['content-length'] ?? 0);
+      if (contentEncoding !== 'identity') {
+        response.resume();
+        reject(new CaptureError('unsupported_content', 'Compressed page responses are not supported yet.'));
+        return;
+      }
       if (contentLength > maxBytes) {
         response.destroy();
         reject(new CaptureError('page_too_large', 'This page is larger than Rembr can process.'));

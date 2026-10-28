@@ -4,7 +4,7 @@ Rembr is a fresh, source-informed rebuild of IScraper. It has its own code and h
 
 ## Current phase
 
-Phase 1 is in progress. The authoritative phase definition is [the roadmap](docs/rebuild-plan/phase-gated-roadmap.md). This scaffold is not yet Phase 1 complete: the gate requires authenticated capture, durable processing, library retrieval, deletion safety, and recorded checks.
+Phase 1's local gate passed on October 28, 2026. The evidence and residual hosted-environment limits are recorded in [the Phase 1 record](docs/rebuild-plan/phase-1-record.md). The authoritative phase definition remains [the roadmap](docs/rebuild-plan/phase-gated-roadmap.md).
 
 ## Requirements
 
@@ -16,8 +16,8 @@ Phase 1 uses a local SQLite database for a repeatable offline development path. 
 ## Setup
 
 ```powershell
-npm install
-Copy-Item .env.example .env
+npm ci
+if (!(Test-Path .env)) { Copy-Item .env.example .env }
 npm run dev
 ```
 
