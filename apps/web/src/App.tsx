@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 
 interface User {
   id: string;
@@ -45,6 +45,7 @@ function formatDate(value: string): string {
 }
 
 export function App() {
+  const motionRoot = useRef<HTMLElement | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [checkingSession, setCheckingSession] = useState(true);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
@@ -57,6 +58,7 @@ export function App() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [motionReady, setMotionReady] = useState(false);
 
   const loadItems = useCallback(async (query = search) => {
     const result = await api<{ items: SavedItem[] }>(`/api/items?search=${encodeURIComponent(query)}`);
@@ -71,6 +73,31 @@ export function App() {
       .finally(() => { if (alive) setCheckingSession(false); });
     return () => { alive = false; };
   }, []);
+
+  useEffect(() => {
+    const root = motionRoot.current;
+    if (!root) return undefined;
+
+    const targets = Array.from(root.querySelectorAll<HTMLElement>('[data-reveal]'));
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduceMotion || !('IntersectionObserver' in window)) {
+      setMotionReady(false);
+      targets.forEach((target) => target.classList.add('is-visible'));
+      return undefined;
+    }
+
+    setMotionReady(true);
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        entry.target.classList.add('is-visible');
+        observer.unobserve(entry.target);
+      });
+    }, { threshold: 0.12, rootMargin: '0px 0px -24px 0px' });
+
+    targets.forEach((target) => observer.observe(target));
+    return () => observer.disconnect();
+  }, [checkingSession, user, items.length, search, expanded]);
 
   useEffect(() => {
     if (!user) return;
@@ -134,12 +161,37 @@ export function App() {
 
   if (!user) {
     return (
-      <main className="auth-shell">
-        <section className="auth-card" aria-labelledby="auth-title">
+      <main ref={motionRoot} className="auth-shell" data-motion-ready={motionReady}>
+        <section className="auth-story" aria-labelledby="auth-title" data-reveal>
           <a className="wordmark" href="/" aria-label="Rembr home">rembr<span aria-hidden="true">.</span></a>
-          <p className="eyebrow">A quieter place for the web</p>
-          <h1 id="auth-title">Keep what matters.<br /><span>Find it when you need it.</span></h1>
-          <p className="auth-copy">Save a public page to your private library. Rembr stores the original link and builds a readable copy for you.</p>
+          <div className="story-copy">
+            <p className="eyebrow"><span className="eyebrow-mark" aria-hidden="true" />Your reading, kept</p>
+            <h1 id="auth-title">The web moves.<br /><span>Your good reads stay.</span></h1>
+            <p className="auth-copy">Save a public page once. Come back to a clean, readable copy whenever you need it.</p>
+          </div>
+          <div className="paper-scene" aria-hidden="true">
+            <div className="paper-orbit paper-orbit-one" />
+            <div className="paper-orbit paper-orbit-two" />
+            <div className="paper-sheet paper-sheet-back"><span /><span /><span /></div>
+            <article className="paper-sheet paper-sheet-front">
+              <div className="paper-meta"><span>FIELD NOTES</span><span>04 MIN READ</span></div>
+              <div className="paper-rule" />
+              <strong>A little more room<br />to think.</strong>
+              <p>Good ideas are worth finding again.</p>
+              <div className="paper-lines"><i /><i /><i /></div>
+              <span className="paper-bookmark">↗</span>
+            </article>
+            <span className="paper-sticker">SAVED<br />FOR LATER</span>
+          </div>
+          <div className="story-footer"><span className="story-check" aria-hidden="true">✓</span> Private by design <span className="story-footer-dot">·</span> Made for the long read</div>
+        </section>
+
+        <section className="auth-card" aria-labelledby="auth-form-title" data-reveal>
+          <div className="auth-card-heading">
+            <p className="eyebrow">Your space on the web</p>
+            <h2 id="auth-form-title">Welcome back.</h2>
+            <p>Sign in or make a library of your own.</p>
+          </div>
           <div className="auth-tabs" role="tablist" aria-label="Account access">
             <button type="button" role="tab" aria-selected={authMode === 'login'} onClick={() => { setAuthMode('login'); setError(''); }}>Sign in</button>
             <button type="button" role="tab" aria-selected={authMode === 'register'} onClick={() => { setAuthMode('register'); setError(''); }}>Create account</button>
@@ -154,23 +206,23 @@ export function App() {
             {message && <p className="notice success" role="status">{message}</p>}
             <button className="primary-button" type="submit" disabled={busy}>{busy ? 'Please wait…' : authMode === 'register' ? 'Create your library' : 'Sign in to Rembr'}</button>
           </form>
-          <p className="privacy-note">Your library is private to your account. Only public web pages can be captured in this first build.</p>
+          <p className="privacy-note"><span aria-hidden="true">✳</span>Your library is private to your account. Only public web pages can be captured in this first build.</p>
         </section>
       </main>
     );
   }
 
   return (
-    <main className="workspace">
-      <header className="topbar">
+    <main ref={motionRoot} className="workspace" data-motion-ready={motionReady}>
+      <header className="topbar" data-reveal>
         <a className="wordmark" href="/" aria-label="Rembr home">rembr<span aria-hidden="true">.</span></a>
         <div className="account-menu"><span>{user.email}</span><button type="button" className="quiet-button" onClick={() => void signOut()}>Sign out</button></div>
       </header>
-      <section className="welcome-row">
-        <div><p className="eyebrow">Your private library</p><h1>Good to have you back.</h1><p>Save a page now. Rembr will keep a readable copy with its source link.</p></div>
+      <section className="welcome-row" data-reveal>
+        <div><p className="eyebrow"><span className="eyebrow-mark" aria-hidden="true" />Your private library</p><h1>Good to have you back.</h1><p>Save a page now. Rembr will keep a readable copy with its source link.</p></div>
         <div className="library-count"><strong>{items.length}</strong><span>saved {items.length === 1 ? 'page' : 'pages'}</span></div>
       </section>
-      <section className="capture-card" aria-labelledby="capture-title">
+      <section className="capture-card" aria-labelledby="capture-title" data-reveal>
         <div className="capture-heading"><span className="capture-icon" aria-hidden="true">↗</span><div><h2 id="capture-title">Save a page</h2><p>Use a public article or web page URL.</p></div></div>
         <form className="capture-form" onSubmit={submitUrl}>
           <label className="visually-hidden" htmlFor="page-url">Page URL</label>
@@ -180,7 +232,7 @@ export function App() {
         {error && <p className="notice error" role="alert">{error}</p>}
         {message && <p className="notice success" role="status">{message}</p>}
       </section>
-      <section className="library-section" aria-labelledby="library-title">
+      <section className="library-section" aria-labelledby="library-title" data-reveal>
         <div className="section-heading"><div><p className="eyebrow">Everything you kept</p><h2 id="library-title">Your library</h2></div>{activeCount > 0 && <p className="processing-note" role="status">{activeCount} {activeCount === 1 ? 'page is' : 'pages are'} being processed</p>}</div>
         <div className="search-row"><label className="visually-hidden" htmlFor="library-search">Search saved pages</label><span aria-hidden="true">⌕</span><input id="library-search" type="search" placeholder="Search by title or URL" maxLength={120} value={search} onChange={(event) => { setSearch(event.target.value); void loadItems(event.target.value); }} /></div>
         {items.length === 0 ? <div className="empty-state"><span aria-hidden="true">✳</span><h3>{search ? 'No pages match that search.' : 'Your library is ready for its first page.'}</h3><p>{search ? 'Try a different title or address.' : 'Save a public page above and it will appear here.'}</p></div> : (
