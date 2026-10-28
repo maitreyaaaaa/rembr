@@ -90,7 +90,7 @@ INSERT INTO processing_jobs (id, owner_id, item_id, correlation_id, generation, 
   max_attempts, available_at, lease_token, lease_expires_at, error_code, created_at, updated_at)
 SELECT old.id, old.owner_id, old.item_id, old.id, 1,
   CASE old.status WHEN 'completed' THEN 'completed' ELSE old.status END,
-  old.attempts, 5, old.available_at, old.lease_token, old.lease_expires_at,
+  old.attempts, old.max_attempts, old.available_at, old.lease_token, old.lease_expires_at,
   old.error_code, old.created_at, old.updated_at
 FROM processing_jobs_v1 AS old;
 DROP TABLE processing_jobs_v1;

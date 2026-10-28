@@ -34,7 +34,7 @@ export function createLibraryRouter(database: DatabaseHandle, storage: LocalAsse
   router.get('/items', signedIn, profile, (req, res) => {
     const parsed = z.object({
       search: z.string().max(120).default(''), type: z.enum(['page', 'note']).optional(),
-      status: z.enum(['queued', 'processing', 'ready', 'failed']).optional(), tagId: z.string().optional(),
+      status: z.enum(['queued', 'processing', 'retry_wait', 'cancel_requested', 'cancelled', 'paused', 'partial', 'ready', 'failed']).optional(), tagId: z.string().optional(),
       collectionId: z.string().optional(), sort: z.enum(['created_desc', 'created_asc', 'title_asc', 'title_desc']).default('created_desc'),
       limit: z.coerce.number().int().min(1).max(100).default(25), cursor: z.string().max(2048).optional(),
     }).safeParse(req.query);

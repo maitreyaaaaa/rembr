@@ -272,7 +272,7 @@ test('transient worker failures retry and expired leases are fenced on reclaim',
     assert.ok(await processNextJob(database, async () => { throw new Error('temporary network fault'); }));
     let job = database.prepare('SELECT status, attempts, error_code FROM processing_jobs WHERE item_id = ?')
       .get(item.id) as { status: string; attempts: number; error_code: string | null };
-    assert.equal(job.status, 'queued');
+    assert.equal(job.status, 'retry_wait');
     assert.equal(job.attempts, 1);
     assert.equal(job.error_code, 'fetch_failed');
     database.prepare('UPDATE processing_jobs SET available_at = ? WHERE item_id = ?')

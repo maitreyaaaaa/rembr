@@ -10,6 +10,9 @@ import { createSession, destroySession, requireUser } from './auth/sessions.js';
 import { createAccountRouter, createProfileGate } from './account/routes.js';
 import { createLibraryRouter } from './library/routes.js';
 import { createOrganizationRouter } from './organization/routes.js';
+import { createImportRouter } from './imports/routes.js';
+import { LocalImportStorage } from './imports/storage.js';
+import { createJobRouter } from './jobs/routes.js';
 import { LocalAssetStorage } from './assets/storage.js';
 import type { DatabaseHandle } from './db/database.js';
 import { CaptureError, validatePublicUrl } from './items/safe-fetch.js';
@@ -24,9 +27,10 @@ function errorResponse(code: string, message: string, requestId?: string) {
   return { error: { code, message, ...(requestId ? { requestId } : {}) } };
 }
 
-export function createApp(database: DatabaseHandle, options: { validateUrl?: typeof validatePublicUrl; assetDirectory?: string; assetStorage?: LocalAssetStorage } = {}) {
+export function createApp(database: DatabaseHandle, options: { validateUrl?: typeof validatePublicUrl; assetDirectory?: string; assetStorage?: LocalAssetStorage; importDirectory?: string; importStorage?: LocalImportStorage } = {}) {
   const app = express();
   const assetStorage = options.assetStorage ?? new LocalAssetStorage(options.assetDirectory ?? config.assetDirectory);
+  const importStorage = options.importStorage ?? new LocalImportStorage(options.importDirectory ?? config.importDirectory);
   const library = createLibraryService(database, assetStorage);
   const validateUrl = options.validateUrl ?? validatePublicUrl;
   app.disable('x-powered-by');
@@ -136,6 +140,8 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
   });
   app.use('/api', createLibraryRouter(database, assetStorage));
   app.use('/api', createOrganizationRouter(database, assetStorage));
+  app.use('/api', createImportRouter(database, assetStorage, importStorage));
+  app.use('/api', createJobRouter(database, assetStorage));
 
   app.use((_req, res) => res.status(404).json(errorResponse('not_found', 'This route does not exist.', res.getHeader('X-Request-Id')?.toString())));
 
@@ -144,6 +150,10 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
     if (error instanceof multer.MulterError) {
       const isSize = error.code === 'LIMIT_FILE_SIZE' || error.code === 'LIMIT_FIELD_VALUE';
       res.status(isSize ? 413 : 400).json(errorResponse(isSize ? 'payload_too_large' : 'invalid_multipart', isSize ? 'The uploaded file or field exceeds the allowed size.' : 'The multipart upload is invalid or exceeds the allowed file count.', requestId));
+      return;
+    }
+    if (error && typeof error === 'object' && 'type' in error && error.type === 'entity.too.large') {
+      res.status(413).json(errorResponse('payload_too_large', 'The uploaded part exceeds the 25 MiB limit.', requestId));
       return;
     }
     if (error instanceof SyntaxError && 'body' in error) {

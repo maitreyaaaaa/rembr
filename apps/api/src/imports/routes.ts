@@ -1,0 +1,58 @@
+import express from 'express';
+import { z } from 'zod';
+import type { DatabaseHandle } from '../db/database.js';
+import { requireUser } from '../auth/sessions.js';
+import { createProfileGate } from '../account/routes.js';
+import { LocalAssetStorage } from '../assets/storage.js';
+import { createImportService, ImportServiceError, IMPORT_FILE_LIMIT, IMPORT_TOTAL_LIMIT } from './service.js';
+import { LocalImportStorage } from './storage.js';
+
+const createSchema = z.object({ files: z.array(z.object({ name: z.string().min(1).max(255), mime: z.string().max(120).default('application/octet-stream'), size: z.number().int(), chunks: z.number().int() }).strict()).min(1).max(20) }).strict();
+function param(req: express.Request, key: string): string { const value = req.params[key]; return Array.isArray(value) ? value[0] ?? '' : value ?? ''; }
+function fail(res: express.Response, status: number, code: string, message: string, requestId?: string) {
+  return res.status(status).json({ error: { code, message, ...(requestId ? { requestId } : {}) } });
+}
+
+export function createImportRouter(database: DatabaseHandle, assetStorage: LocalAssetStorage, storage: LocalImportStorage) {
+  const router = express.Router(); const signedIn = requireUser(database); const profile = createProfileGate(database, assetStorage);
+  const imports = createImportService(database, storage);
+
+  router.get('/imports', signedIn, profile, (req, res) => res.json({ imports: imports.list(req.user!.id) }));
+  router.get('/imports/:id', signedIn, profile, (req, res) => {
+    const result = imports.get(req.user!.id, param(req, 'id'));
+    return result ? res.json(result) : fail(res, 404, 'not_found', 'Import not found.', req.requestId);
+  });
+
+  router.post('/imports', signedIn, profile, (req, res) => {
+    const parsed = createSchema.safeParse(req.body);
+    if (!parsed.success) return fail(res, 400, 'invalid_import', 'Provide supported files with their sizes and chunk counts.', req.requestId);
+    const total = parsed.data.files.reduce((sum, file) => sum + file.size, 0);
+    if (total > IMPORT_TOTAL_LIMIT) return fail(res, 413, 'import_size_limit', 'An import cannot exceed 100 MiB total.', req.requestId);
+    try {
+      const result = imports.create(req.user!.id, req.requestId ?? '', parsed.data.files);
+      return res.status(201).json({ importId: result.id, status: 'uploading', files: result.files.map((file) => ({ fileId: file.id, name: file.name, size: file.size, chunks: file.chunks })) });
+    } catch (cause) {
+      const code = cause instanceof ImportServiceError ? cause.code : 'invalid_import';
+      const status = ['file_size_limit', 'import_size_limit'].includes(code) ? 413 : 400;
+      return fail(res, status, code, 'One or more files are unsupported or exceed the upload limits.', req.requestId);
+    }
+  });
+
+  router.put('/imports/:id/files/:fileId/chunks/:chunkIndex', signedIn, profile,
+    express.raw({ type: 'application/octet-stream', limit: IMPORT_FILE_LIMIT }), async (req, res) => {
+      if (!Buffer.isBuffer(req.body)) return fail(res, 415, 'invalid_chunk_type', 'Upload each part as application/octet-stream.', req.requestId);
+      const index = Number(param(req, 'chunkIndex'));
+      try {
+        const result = await imports.uploadChunk(req.user!.id, param(req, 'id'), param(req, 'fileId'), index, req.body);
+        return res.status(result.complete ? 202 : 200).json({ importId: param(req, 'id'), status: result.status, complete: result.complete });
+      } catch (cause) {
+        const code = cause instanceof ImportServiceError ? cause.code : 'chunk_upload_failed';
+        if (code === 'not_found') return fail(res, 404, code, 'Import file not found.', req.requestId);
+        if (code === 'chunk_conflict') return fail(res, 409, code, 'This chunk index already contains different data.', req.requestId);
+        const status = ['invalid_chunk_size', 'import_byte_limit'].includes(code) ? 413 : 400;
+        return fail(res, status, code, 'The upload part could not be accepted.', req.requestId);
+      }
+    });
+
+  return router;
+}

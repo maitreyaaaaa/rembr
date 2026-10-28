@@ -120,6 +120,8 @@ All Phase 2 feature rows and screen states pass, ownership rules agree across UI
 
 ## Phase 3 — Ingestion, durable jobs, and content processing
 
+**Status (2026-10-28):** Design approved; implementation in progress. Current checkpoint and remaining gate work are tracked in [Phase 3 architecture](../architecture/phase-3-architecture-design.md). The local workspace check currently passes, but media downloads, fault/restart/concurrency coverage, and browser/accessibility review remain open; do not proceed to Phase 4 or mark Phase 3 complete yet.
+
 ### Work
 
 - Add all in-scope import/capture formats and upload flows, parsing, normalization, deduplication, private storage, and the audited source auto-queue behavior after successful parsing.

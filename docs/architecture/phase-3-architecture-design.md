@@ -1,6 +1,6 @@
 # Phase 3 Architecture Design — Ingestion, Durable Jobs, and Content Processing
 
-**Status:** Design approved by the user on 2026-10-28; Phase 3 implementation is starting.
+**Status:** Design approved; Phase 3 implementation is in progress. Latest local check passed on 2026-10-28; the phase gate is not passed.
 
 **Scope source:** [Phase-gated roadmap](../rebuild-plan/phase-gated-roadmap.md), [feature and acceptance matrix](../rebuild-plan/feature-and-acceptance-matrix.md), [screen/workflow matrix](../rebuild-plan/screen-workflow-phase-matrix.md), and [source import flow](../backend/storage-import-flow.md).
 **Current product baseline:** [Phase 1 record](../rebuild-plan/phase-1-record.md), [Phase 2 record](../rebuild-plan/phase-2-record.md), and [Phase 2 architecture](./phase-2-architecture-design.md).
@@ -19,6 +19,12 @@ Phase 1 and Phase 2 passed their local gates. Phase 3 design choices below were 
 | Upload limits | Keep source limits: up to 20 files, 25 MiB per file, and at most 100 chunks. Cap total import bytes at 100 MiB; cap each expanded ZIP at 100 MiB and 5,000 entries. |
 | Raw archive retention | Delete raw upload files after successful parse and durable import/job acceptance; cleanup is retryable. Do not retain archives as a reprocessing source. |
 | Worker health visibility | Do not expose global worker health to owners. Keep health/correlation diagnostics internal; defer detailed operator/admin UI to Phase 6. Per-item job state and owner recovery controls remain visible. |
+
+### Implementation checkpoint (2026-10-28)
+
+Implemented locally: additive import/job migrations; owner-scoped manifests and chunk upload; bounded Instagram/Pinterest/X parsers; ZIP safety checks; automatic item/job acceptance with deduplication; retryable raw-file cleanup; persisted job attempts/generations; owner cancel/retry/reprocess routes; library status projection and upload/import UI. The full local `npm run check` passed: API/web typecheck and lint, 32 API tests, and API/web production builds. This is an implementation checkpoint, not Phase 3 completion evidence.
+
+Still required before the Phase 3 gate: safe media downloads and persisted media metadata/artifact provenance; broader injected storage/crash/concurrency/restart coverage; review of pause-state behavior and import cleanup/deletion ordering; browser walkthrough and keyboard/narrow viewport checks for the completed import and recovery screens. Hosted CI, production database, and hosted storage remain unverified.
 
 No additional product approval is required for these choices. API names, internal table layout, parser library, and validated timeout/backoff constants remain engineering design details to document as implementation proceeds.
 
@@ -41,7 +47,7 @@ The current source audit documents these paths in [stored upload import flow](..
 | Manual link | HTTP(S) URL | Normalize and deduplicate; enqueue processing only after durable acceptance. Phase 1 already implements the narrow URL path. |
 | Instagram saved export | HTML, HTM, JSON, ZIP | Recognize expected saved-post/collection names; extract post/reel URL, caption, owner/date, hashtags, and collections when present. |
 | Pinterest export | Direct JSON, CSV, HTML, HTM; ZIP entries may also include TXT | Normalize pin URLs and collections; fix hostname-boundary errors and avoid attaching unrelated file-wide hashtags to each pin. Preserve the direct-file vs archive-member distinction. |
-| X/Twitter bookmarks | JS, JSON, CSV, TXT; direct or ZIP | Handle export JS assignment wrappers, supported bookmark paths, recognized CSV fields, URL/text fallback, author/date, and source metadata. Fix multiline quoted CSV handling; explicitly test the source parser's literal `pauch` bookmark-path token and retain it only if a real export fixture justifies it. |
+| X/Twitter bookmarks | JS, JSON, CSV, TXT; direct or ZIP | Handle export JS assignment wrappers, supported bookmark paths, recognized CSV fields, URL/text fallback, author/date, and source metadata. Fix multiline quoted CSV handling. Preserve the source parser's literal `pauch` token for compatibility because it is explicitly recognized in the source code; a real export fixture remains unverified. |
 
 Parser support is not the same as upload support: extension, MIME, size, archive entry names, and route behavior all constrain what the product accepts. The import screen must show parsed/new/duplicate/skipped/failed counts after enqueue and give a useful result for malformed, empty, mixed, or unsupported exports. Archives do not pause for human approval.
 
@@ -61,7 +67,7 @@ The user approved automatic queueing after parse, preserving the audited source 
 
 ## 4. Proposed data and job contracts
 
-Use an additive migration `003`; preserve all Phase 1 and 2 users, sessions, profiles, items, jobs, artifacts, notes, assets, tags, and collections. Do not rewrite `001` or `002`.
+Migrations `003`–`006` are implemented additively; preserve all Phase 1 and 2 users, sessions, profiles, items, jobs, artifacts, notes, assets, tags, and collections. Do not rewrite `001` or `002`.
 
 The schema proposal is to add an owner-scoped import record and import-entry rows for uploaded files, parse outcomes, source provenance, aggregate counts, and item/job links. There is no review/approval state. Extend job persistence additively for correlation, explicit execution generation, lease heartbeat/renewal, bounded scheduling, pause/cancel/reprocess state, and sanitized failure classification. Keep every job/entry relation constrained to the same owner as its parent item. Record attempts or state transitions durably enough to explain retries and preserve a previous good artifact during a reprocess.
 
