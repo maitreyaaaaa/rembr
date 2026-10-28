@@ -41,24 +41,26 @@ Rembr is an early personal library for public web pages a person chooses to save
 
 ## Marketing visual system: Soft Serve Editorial
 
-The marketing identity is deliberately separate from the Daybreak application palette. It uses a warm paper field, dark cocoa text, fruit-sorbet accents, soft paper cards, and an editorial composition. The visual signature is an illustrated saved-page card with overlapping “scoop” shapes and small collectible stickers. It should read as tactile and friendly, not as a literal dessert shop.
+The marketing identity is deliberately separate from the Daybreak application palette. It uses a warm paper field with a fine grid, deep plum text, butter-yellow and hot-pink keyword highlights, mint panels, soft paper cards, and an editorial composition. The visual signature is an illustrated saved-page card with overlapping “scoop” shapes and small collectible stickers. It should read as tactile and friendly, not as a literal dessert shop. The headline treatment takes inspiration from [Teak](https://teak.io/?ref=unsection.com); Rembr keeps its own copy, illustration, layout, and identity.
 
 | Role | Token | Value | Usage |
 |---|---|---|---|
-| Canvas | `--ice-cream` | `#FFF9EF` | Main page background |
-| Surface | `--ice-paper` | `#FFFDF8` | Cards and form surfaces |
-| Text | `--ice-ink` | `#352528` | Headings, controls and primary action |
-| Muted text | `--ice-muted` | `#75666A` | Body copy and secondary links |
-| Primary flavor | `--ice-cherry` | `#DC5368` | Highlight and small CTA emphasis |
-| Secondary flavor | `--ice-blueberry` | `#6874C8` | Illustrations, secondary emphasis |
-| Accent flavor | `--ice-pistachio` | `#A8BD82` | Decorative notes and illustration |
-| Supporting flavor | `--ice-peach` | `#F5C9AC` | Card art and warm panels |
+| Canvas | `--ice-cream` | `#F7F6EF` | Main page background and grid |
+| Surface | `--ice-paper` | `#FFFEFB` | Cards and form surfaces |
+| Text | `--ice-ink` | `#35191F` | Headings, controls, and primary action |
+| Muted text | `--ice-muted` | `#65545A` | Body copy and secondary links |
+| Primary | `--ice-peach` | `#F2DD43` | Main CTA and yellow keyword highlight |
+| Secondary | `--ice-pistachio` | `#C9F1DF` | Announcement bar, panels, and mint keyword highlight |
+| Accent | `--ice-cherry` | `#ED5BA2` | Pink keyword highlight and small accents |
+| Supporting green | `--ice-blueberry` | `#1D8061` | Illustration and focus contrast |
 
-The marketing site uses Space Grotesk Bold for display and DM Sans for body/UI. The app uses its approved product scale: Space Grotesk Bold for all application headings and DM Sans for body, metadata, and controls; the Daybreak palette stays scoped to product screens. The Rembr wordmark may retain Open Sauce Sans if used in the application. The marketing wordmark uses Space Grotesk. These identities should not bleed into each other through global selectors.
+The application keeps its approved Daybreak palette and type scale. The marketing site uses Space Grotesk Bold for display and DM Sans for body/UI; Integrate is reserved for one highlighted keyword in a heading or subheading. The marketing wordmark uses Space Grotesk. These identities should not bleed into each other through global selectors. An Integrate webfont asset is not currently present in the repository, so the CSS falls back to Space Grotesk until a webfont-licensed asset is supplied. Creative Fabrica lists web-font embedding under its Enterprise Web Font license; do not bundle the font under a license that does not grant that right ([license terms](https://www.creativefabrica.com/enterprise-license/)).
 
 ## Reference boundary
 
 The live IScraper marketing page was visually reviewed on 2026-10-28. Its dark canvas, white display type, neon lime CTA, orange highlights, motion, and oversized hero informed hierarchy and energy only. Rembr's cream-and-sorbet palette, wordmark, copy, illustration, and page composition are independent. Do not reuse IScraper's logo, text, page assets, or brand colors.
+
+The Teak homepage was visually reviewed on 2026-10-28 for the oversized heavy headlines, single retro keyword highlight, compact announcement strip, and crisp contrast. Treat this as a visual reference only; keep Rembr's product claims and original composition.
 
 ## Motion and access
 
