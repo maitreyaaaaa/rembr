@@ -10,7 +10,7 @@ const environmentSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   API_PORT: z.coerce.number().int().min(1).max(65535).default(4000),
   WEB_ORIGIN: z.string().url().default('http://127.0.0.1:5173'),
-  DATABASE_PATH: z.string().default('./data/rembr.sqlite'),
+  DATABASE_URL: z.preprocess((value) => value === '' ? undefined : value, z.string().url().optional()),
   ASSET_DIRECTORY: z.string().default('./data/assets'),
   IMPORT_DIRECTORY: z.string().default('./data/imports'),
   MEDIA_DIRECTORY: z.string().default('./data/media'),
@@ -25,7 +25,7 @@ if (!parsed.success) {
 
 export const config = {
   ...parsed.data,
-  databasePath: resolve(projectRoot, parsed.data.DATABASE_PATH),
+  databaseUrl: parsed.data.DATABASE_URL,
   assetDirectory: resolve(projectRoot, parsed.data.ASSET_DIRECTORY),
   importDirectory: resolve(projectRoot, parsed.data.IMPORT_DIRECTORY),
   mediaDirectory: resolve(projectRoot, parsed.data.MEDIA_DIRECTORY),

@@ -15,8 +15,8 @@ import { claimNextJob, processNextJob } from '../src/worker/process-job.js';
 const origin = 'http://127.0.0.1:5173';
 const password = 'correct-horse-battery-staple';
 
-async function withApi(run: (baseUrl: string, database: ReturnType<typeof createTestDatabase>) => Promise<void>) {
-  const database = createTestDatabase();
+async function withApi(run: (baseUrl: string, database: Awaited<ReturnType<typeof createTestDatabase>>) => Promise<void>) {
+  const database = await createTestDatabase();
   const app = createApp(database, {
     validateUrl: async (input) => ({ url: new URL(input), address: '93.184.216.34', family: 4 }),
   });
@@ -28,7 +28,7 @@ async function withApi(run: (baseUrl: string, database: ReturnType<typeof create
   } finally {
     server.close();
     await once(server, 'close');
-    database.close();
+    await database.close();
   }
 }
 
@@ -73,7 +73,7 @@ test('session cookie is HttpOnly and a signed-out session is immediately revoked
     assert.match(account.setCookie, /HttpOnly/i);
     assert.match(account.setCookie, /SameSite=Lax/i);
     const token = account.cookie.slice(account.cookie.indexOf('=') + 1);
-    const storedHash = database.prepare('SELECT token_hash FROM sessions').get() as { token_hash: string };
+    const storedHash = await database.prepare('SELECT token_hash FROM sessions').get() as { token_hash: string };
     assert.equal(storedHash.token_hash, createHash('sha256').update(decodeURIComponent(token)).digest('hex'));
     assert.notEqual(storedHash.token_hash, decodeURIComponent(token));
     const sessionResponse = await fetch(`${baseUrl}/api/auth/session`, { headers: { Cookie: account.cookie } });
@@ -98,7 +98,7 @@ test('expired sessions cannot restore an authenticated principal', async () => {
     const account = await register(baseUrl, 'expired@example.test');
     const token = account.cookie.slice(account.cookie.indexOf('=') + 1);
     const tokenHash = createHash('sha256').update(decodeURIComponent(token)).digest('hex');
-    const result = database.prepare('UPDATE sessions SET expires_at = ? WHERE token_hash = ?')
+    const result = await database.prepare('UPDATE sessions SET expires_at = ? WHERE token_hash = ?')
       .run('2000-01-01T00:00:00.000Z', tokenHash);
     assert.equal(result.changes, 1);
     const response = await fetch(`${baseUrl}/api/auth/session`, { headers: { Cookie: account.cookie } });
@@ -120,7 +120,7 @@ test('registration, capture, owner isolation, and deletion stay in one account b
     const created = await capture.json() as { item: { id: string; status: string }; duplicate: boolean };
     assert.equal(created.item.status, 'queued');
     assert.equal(created.duplicate, false);
-    const persistedJob = database.prepare('SELECT status FROM processing_jobs WHERE item_id = ? AND owner_id = ?')
+    const persistedJob = await database.prepare('SELECT status FROM processing_jobs WHERE item_id = ? AND owner_id = ?')
       .get(created.item.id, first.user.user.id) as { status: string } | undefined;
     assert.equal(persistedJob?.status, 'queued');
 
@@ -154,35 +154,35 @@ test('same-account duplicate capture does not create another job', async () => {
 });
 
 test('worker stores a deterministic readable artifact for the owning account', async () => {
-  const database = createTestDatabase();
+  const database = await createTestDatabase();
   try {
-    database.prepare('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)')
+    await database.prepare('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)')
       .run('user-1', 'worker@example.test', 'unused', new Date().toISOString());
     const repository = createItemRepository(database);
-    const item = repository.create('user-1', 'https://example.com/article', 'https://example.com/article', 'example.com');
+    const item = await repository.create('user-1', 'https://example.com/article', 'https://example.com/article', 'example.com');
     const processed = await processNextJob(database, async () => ({
       finalUrl: 'https://example.com/article',
       contentType: 'text/html',
       html: '<html><head><title>Useful page</title><meta name="description" content="A source description"></head><body><main><p>Readable source text.</p><script>privateCode()</script></main></body></html>',
     }));
     assert.ok(processed);
-    const saved = repository.get('user-1', item.id);
+    const saved = await repository.get('user-1', item.id);
     assert.equal(saved?.status, 'ready');
     assert.equal(saved?.title, 'Useful page');
     assert.match(saved?.text ?? '', /Readable source text/);
     assert.doesNotMatch(saved?.text ?? '', /privateCode/);
   } finally {
-    database.close();
+    await database.close();
   }
 });
 
 test('a deleted item cannot be recreated by an in-flight worker', async () => {
-  const database = createTestDatabase();
+  const database = await createTestDatabase();
   try {
-    database.prepare('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)')
+    await database.prepare('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)')
       .run('user-2', 'race@example.test', 'unused', new Date().toISOString());
     const repository = createItemRepository(database);
-    const item = repository.create('user-2', 'https://example.com/race', 'https://example.com/race', 'example.com');
+    const item = await repository.create('user-2', 'https://example.com/race', 'https://example.com/race', 'example.com');
     let releaseFetch!: (value: { finalUrl: string; contentType: string; html: string }) => void;
     let signalStarted!: () => void;
     const started = new Promise<void>((resolve) => { signalStarted = resolve; });
@@ -191,13 +191,13 @@ test('a deleted item cannot be recreated by an in-flight worker', async () => {
       return new Promise((resolve) => { releaseFetch = resolve; });
     });
     await started;
-    assert.equal(repository.delete('user-2', item.id), true);
+    assert.equal(await repository.delete('user-2', item.id), true);
     releaseFetch({ finalUrl: item.url, contentType: 'text/html', html: '<main>Deleted during capture</main>' });
     assert.equal(await processing, null);
-    assert.equal(repository.get('user-2', item.id), undefined);
-    assert.equal(database.prepare('SELECT count(*) AS count FROM extracted_artifacts').get() && (database.prepare('SELECT count(*) AS count FROM extracted_artifacts').get() as { count: number }).count, 0);
+    assert.equal(await repository.get('user-2', item.id), undefined);
+    assert.equal(await database.prepare('SELECT count(*) AS count FROM extracted_artifacts').get() && (await database.prepare('SELECT count(*) AS count FROM extracted_artifacts').get() as { count: number }).count, 0);
   } finally {
-    database.close();
+    await database.close();
   }
 });
 
@@ -285,50 +285,50 @@ test('media fetch validates redirect targets and enforces bounded image content'
 });
 
 test('transient worker failures retry and expired leases are fenced on reclaim', async () => {
-  const database = createTestDatabase();
+  const database = await createTestDatabase();
   try {
-    database.prepare('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)')
+    await database.prepare('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)')
       .run('user-retry', 'retry@example.test', 'unused', new Date().toISOString());
     const repository = createItemRepository(database);
-    const item = repository.create('user-retry', 'https://example.com/retry', 'https://example.com/retry', 'example.com');
+    const item = await repository.create('user-retry', 'https://example.com/retry', 'https://example.com/retry', 'example.com');
     assert.ok(await processNextJob(database, async () => { throw new Error('temporary network fault'); }));
-    let job = database.prepare('SELECT status, attempts, error_code FROM processing_jobs WHERE item_id = ?')
+    let job = await database.prepare('SELECT status, attempts, error_code FROM processing_jobs WHERE item_id = ?')
       .get(item.id) as { status: string; attempts: number; error_code: string | null };
     assert.equal(job.status, 'retry_wait');
     assert.equal(job.attempts, 1);
     assert.equal(job.error_code, 'fetch_failed');
-    database.prepare('UPDATE processing_jobs SET available_at = ? WHERE item_id = ?')
+    await database.prepare('UPDATE processing_jobs SET available_at = ? WHERE item_id = ?')
       .run('2000-01-01T00:00:00.000Z', item.id);
     assert.ok(await processNextJob(database, async () => ({
       finalUrl: item.url, contentType: 'text/html', html: '<main>Retry recovered</main>',
     })));
-    job = database.prepare('SELECT status, attempts, error_code FROM processing_jobs WHERE item_id = ?')
+    job = await database.prepare('SELECT status, attempts, error_code FROM processing_jobs WHERE item_id = ?')
       .get(item.id) as { status: string; attempts: number; error_code: string | null };
     assert.equal(job.status, 'completed');
     assert.equal(job.attempts, 2);
-    assert.equal(repository.get('user-retry', item.id)?.status, 'ready');
+    assert.equal((await repository.get('user-retry', item.id))?.status, 'ready');
 
-    const leased = repository.create('user-retry', 'https://example.com/lease', 'https://example.com/lease', 'example.com');
-    database.prepare(`UPDATE processing_jobs SET status='processing', attempts=1, lease_token='stale-token',
+    const leased = await repository.create('user-retry', 'https://example.com/lease', 'https://example.com/lease', 'example.com');
+    await database.prepare(`UPDATE processing_jobs SET status='processing', attempts=1, lease_token='stale-token',
       lease_expires_at='2000-01-01T00:00:00.000Z' WHERE item_id=?`).run(leased.id);
-    database.prepare("UPDATE saved_items SET status='processing' WHERE id=?").run(leased.id);
+    await database.prepare("UPDATE saved_items SET status='processing' WHERE id=?").run(leased.id);
     const reclaimed = claimNextJob(database);
     assert.equal(reclaimed?.item_id, leased.id);
     assert.equal(reclaimed?.attempts, 2);
     assert.notEqual(reclaimed?.lease_token, 'stale-token');
 
-    const exhausted = repository.create('user-retry', 'https://example.com/exhausted', 'https://example.com/exhausted', 'example.com');
-    database.prepare(`UPDATE processing_jobs SET status='processing', attempts=max_attempts,
+    const exhausted = await repository.create('user-retry', 'https://example.com/exhausted', 'https://example.com/exhausted', 'example.com');
+    await database.prepare(`UPDATE processing_jobs SET status='processing', attempts=max_attempts,
       lease_token='exhausted-token', lease_expires_at='2000-01-01T00:00:00.000Z' WHERE item_id=?`).run(exhausted.id);
-    database.prepare("UPDATE saved_items SET status='processing' WHERE id=?").run(exhausted.id);
+    await database.prepare("UPDATE saved_items SET status='processing' WHERE id=?").run(exhausted.id);
     assert.equal(claimNextJob(database), undefined);
-    const failedJob = database.prepare('SELECT status,error_code FROM processing_jobs WHERE item_id=?')
+    const failedJob = await database.prepare('SELECT status,error_code FROM processing_jobs WHERE item_id=?')
       .get(exhausted.id) as { status: string; error_code: string };
     assert.equal(failedJob.status, 'failed');
     assert.equal(failedJob.error_code, 'worker_interrupted');
-    assert.equal(repository.get('user-retry', exhausted.id)?.status, 'failed');
+    assert.equal((await repository.get('user-retry', exhausted.id))?.status, 'failed');
   } finally {
-    database.close();
+    await database.close();
   }
 });
 

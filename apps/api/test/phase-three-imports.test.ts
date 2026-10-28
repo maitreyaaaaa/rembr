@@ -19,12 +19,12 @@ test('upload validation accepts source-compatible X JavaScript bookmark exports'
   const bytes = Buffer.byteLength('window.YTD.bookmark.part0 = [];');
   assert.doesNotThrow(() => validateImportFiles([{ name: 'bookmark.js', mime: 'application/javascript', size: bytes, chunks: 1 }]));
 });
-async function withApi(run: (baseUrl: string, database: ReturnType<typeof createTestDatabase>, importPath: string, mediaPath: string) => Promise<void>) {
-  const database = createTestDatabase(); const root = await mkdtemp(join(tmpdir(), 'rembr-imports-')); const assets = join(root, 'assets'); const importPath = join(root, 'imports'); const mediaPath = join(root, 'media');
+async function withApi(run: (baseUrl: string, database: Awaited<ReturnType<typeof createTestDatabase>>, importPath: string, mediaPath: string) => Promise<void>) {
+  const database = await createTestDatabase(); const root = await mkdtemp(join(tmpdir(), 'rembr-imports-')); const assets = join(root, 'assets'); const importPath = join(root, 'imports'); const mediaPath = join(root, 'media');
   const app = createApp(database, { assetDirectory: assets, importDirectory: importPath, mediaDirectory: mediaPath, validateUrl: async (input) => ({ url: new URL(input), address: '93.184.216.34', family: 4 }) });
   const server = app.listen(0, '127.0.0.1'); await once(server, 'listening'); const address = server.address() as AddressInfo;
   try { await run(`http://127.0.0.1:${address.port}`, database, importPath, mediaPath); }
-  finally { server.closeAllConnections(); server.close(); database.close(); await rm(root, { recursive: true, force: true }); }
+  finally { server.closeAllConnections(); server.close(); await database.close(); await rm(root, { recursive: true, force: true }); }
 }
 
 async function register(baseUrl: string, email: string, username: string) {
@@ -44,7 +44,7 @@ test('Phase 3 import manifests precede chunks, auto-queue parsed items, deduplic
     assert.equal(created.status, 201);
     const manifest = await created.json() as { importId: string; status: string; files: Array<{ fileId: string }> };
     assert.equal(manifest.status, 'uploading');
-    assert.equal((database.prepare('SELECT count(*) AS count FROM imports').get() as { count: number }).count, 1);
+    assert.equal((await database.prepare('SELECT count(*) AS count FROM imports').get() as { count: number }).count, 1);
     const fileId = manifest.files[0]!.fileId;
     const first = csv.subarray(0, 15); const second = csv.subarray(15);
     const upload = (index: number, bytes: Buffer) => fetch(`${baseUrl}/api/imports/${manifest.importId}/files/${fileId}/chunks/${index}`, { method: 'PUT', headers: { Cookie: owner, 'Content-Type': 'application/octet-stream' }, body: bytes });
@@ -64,7 +64,7 @@ test('Phase 3 import manifests precede chunks, auto-queue parsed items, deduplic
     assert.equal(imported.import.duplicate_count, 0);
     assert.equal(imported.import.cleanup_status, 'complete');
     assert.equal(imported.entries[0]?.status, 'queued');
-    assert.equal((database.prepare('SELECT count(*) AS count FROM processing_jobs').get() as { count: number }).count, 1);
+    assert.equal((await database.prepare('SELECT count(*) AS count FROM processing_jobs').get() as { count: number }).count, 1);
     const saved = await fetch(`${baseUrl}/api/items?search=Saved%20pin`, { headers: { Cookie: owner } });
     assert.equal((await saved.json() as { items: Array<{ title: string; kind: string }> }).items[0]?.title, 'Saved pin');
 
@@ -78,8 +78,8 @@ test('Phase 3 import manifests precede chunks, auto-queue parsed items, deduplic
     assert.equal(duplicateDetail.import.status, 'completed');
     assert.equal(duplicateDetail.import.new_count, 0);
     assert.equal(duplicateDetail.import.duplicate_count, 1);
-    assert.equal((database.prepare('SELECT count(*) AS count FROM processing_jobs').get() as { count: number }).count, 1);
-    const storedFile = database.prepare('SELECT storage_key FROM import_upload_files WHERE import_id=?').get(manifest.importId) as { storage_key: string };
+    assert.equal((await database.prepare('SELECT count(*) AS count FROM processing_jobs').get() as { count: number }).count, 1);
+    const storedFile = await database.prepare('SELECT storage_key FROM import_upload_files WHERE import_id=?').get(manifest.importId) as { storage_key: string };
     await assert.rejects(readFile(join(importPath, `${storedFile.storage_key}.upload`)));
   });
 });
@@ -116,7 +116,7 @@ test('import creation is idempotent for matching files and rejects key reuse wit
     const secondImport = await second.json() as { importId: string };
     assert.equal(second.status, 201);
     assert.equal(secondImport.importId, firstImport.importId);
-    assert.equal((database.prepare('SELECT count(*) AS count FROM imports').get() as { count: number }).count, 1);
+    assert.equal((await database.prepare('SELECT count(*) AS count FROM imports').get() as { count: number }).count, 1);
     const conflict = await fetch(`${baseUrl}/api/imports`, { method: 'POST', headers, body: JSON.stringify({ files: [{ name: 'different.csv', mime: 'text/csv', size: 20, chunks: 1 }] }) });
     assert.equal(conflict.status, 409);
   });
@@ -132,9 +132,9 @@ test('owners can cancel an incomplete import and remove staged private bytes', a
     assert.equal((await fetch(`${baseUrl}/api/imports/${manifest.importId}/files/${manifest.files[0]!.fileId}/chunks/0`, { method: 'PUT', headers: { Cookie: owner, 'Content-Type': 'application/octet-stream' }, body: partial })).status, 200);
     const canceled = await fetch(`${baseUrl}/api/imports/${manifest.importId}/cancel`, { method: 'POST', headers: { Cookie: owner } });
     assert.equal(canceled.status, 200);
-    const state = database.prepare('SELECT status,cleanup_status FROM imports WHERE id=?').get(manifest.importId) as { status: string; cleanup_status: string };
+    const state = await database.prepare('SELECT status,cleanup_status FROM imports WHERE id=?').get(manifest.importId) as { status: string; cleanup_status: string };
     assert.deepEqual(state, { status: 'failed', cleanup_status: 'complete' });
-    const key = database.prepare('SELECT storage_key FROM import_upload_files WHERE import_id=?').get(manifest.importId) as { storage_key: string };
+    const key = await database.prepare('SELECT storage_key FROM import_upload_files WHERE import_id=?').get(manifest.importId) as { storage_key: string };
     await assert.rejects(readFile(join(importPath, `${key.storage_key}.000.part`)));
   });
 });
@@ -146,12 +146,12 @@ test('startup cleanup recovers terminal imports left pending by a worker crash',
     const created = await fetch(`${baseUrl}/api/imports`, { method: 'POST', headers: { Cookie: owner, 'Content-Type': 'application/json' }, body: JSON.stringify({ files: [{ name: 'pins.csv', mime: 'text/csv', size: bytes.length, chunks: 2 }] }) });
     const manifest = await created.json() as { importId: string; files: Array<{ fileId: string }> };
     assert.equal((await fetch(`${baseUrl}/api/imports/${manifest.importId}/files/${manifest.files[0]!.fileId}/chunks/0`, { method: 'PUT', headers: { Cookie: owner, 'Content-Type': 'application/octet-stream' }, body: first })).status, 200);
-    const key = database.prepare('SELECT storage_key FROM import_upload_files WHERE import_id=?').get(manifest.importId) as { storage_key: string };
-    database.prepare(`UPDATE imports SET status='failed',cleanup_status='pending' WHERE id=?`).run(manifest.importId);
-    database.prepare(`UPDATE import_upload_files SET state='failed' WHERE import_id=?`).run(manifest.importId);
+    const key = await database.prepare('SELECT storage_key FROM import_upload_files WHERE import_id=?').get(manifest.importId) as { storage_key: string };
+    await database.prepare(`UPDATE imports SET status='failed',cleanup_status='pending' WHERE id=?`).run(manifest.importId);
+    await database.prepare(`UPDATE import_upload_files SET state='failed' WHERE import_id=?`).run(manifest.importId);
     const service = createImportService(database, new LocalImportStorage(importPath));
     assert.equal(await service.retryCleanup(), 1);
-    assert.equal((database.prepare('SELECT cleanup_status FROM imports WHERE id=?').get(manifest.importId) as { cleanup_status: string }).cleanup_status, 'complete');
+    assert.equal((await database.prepare('SELECT cleanup_status FROM imports WHERE id=?').get(manifest.importId) as { cleanup_status: string }).cleanup_status, 'complete');
     await assert.rejects(readFile(join(importPath, `${key.storage_key}.000.part`)));
   });
 });
@@ -171,17 +171,17 @@ test('partial parser failures remain visible after queued work succeeds and exha
     }
     const service = createImportService(database, new LocalImportStorage(importPath));
     assert.equal(await service.processNextImport(), manifest.importId);
-    assert.equal((database.prepare('SELECT status FROM imports WHERE id=?').get(manifest.importId) as { status: string }).status, 'partial');
+    assert.equal((await database.prepare('SELECT status FROM imports WHERE id=?').get(manifest.importId) as { status: string }).status, 'partial');
     assert.ok(await processNextJob(database, async () => ({ finalUrl: 'https://www.pinterest.com/pin/7654321/', contentType: 'text/html', html: '<main>saved pin text</main>' })));
-    assert.equal((database.prepare('SELECT status FROM imports WHERE id=?').get(manifest.importId) as { status: string }).status, 'partial');
+    assert.equal((await database.prepare('SELECT status FROM imports WHERE id=?').get(manifest.importId) as { status: string }).status, 'partial');
 
-    const job = database.prepare('SELECT id,item_id FROM processing_jobs WHERE import_id=?').get(manifest.importId) as { id: string; item_id: string };
+    const job = await database.prepare('SELECT id,item_id FROM processing_jobs WHERE import_id=?').get(manifest.importId) as { id: string; item_id: string };
     const expired = new Date(Date.now() - 60_000).toISOString();
-    database.prepare(`UPDATE processing_jobs SET status='processing',attempts=max_attempts,lease_token='expired',lease_expires_at=?,updated_at=? WHERE id=?`).run(expired, expired, job.id);
-    database.prepare(`UPDATE saved_items SET status='processing' WHERE id=?`).run(job.item_id);
-    database.prepare(`UPDATE imports SET status='processing' WHERE id=?`).run(manifest.importId);
+    await database.prepare(`UPDATE processing_jobs SET status='processing',attempts=max_attempts,lease_token='expired',lease_expires_at=?,updated_at=? WHERE id=?`).run(expired, expired, job.id);
+    await database.prepare(`UPDATE saved_items SET status='processing' WHERE id=?`).run(job.item_id);
+    await database.prepare(`UPDATE imports SET status='processing' WHERE id=?`).run(manifest.importId);
     assert.equal(await processNextJob(database), null);
-    assert.equal((database.prepare('SELECT status FROM imports WHERE id=?').get(manifest.importId) as { status: string }).status, 'partial');
+    assert.equal((await database.prepare('SELECT status FROM imports WHERE id=?').get(manifest.importId) as { status: string }).status, 'partial');
   });
 });
 
@@ -224,9 +224,9 @@ test('worker saves safe image media privately, scopes reads, and keeps the last 
 
     assert.equal((await fetch(`${baseUrl}/api/items/${item.id}/job/reprocess`, { method: 'POST', headers: { Cookie: owner } })).status, 200);
     assert.ok(await processNextJob(database, page, { storage, fetchMedia: async () => { throw new CaptureError('media_unavailable', 'Unavailable'); } }));
-    assert.equal((database.prepare('SELECT status FROM processing_jobs WHERE item_id=?').get(item.id) as { status: string }).status, 'partial');
-    assert.equal((database.prepare(`SELECT count(*) AS count FROM media_artifacts WHERE owner_id=(SELECT id FROM users WHERE email='media-owner@example.test') AND item_id=? AND status='ready' AND active=1`).get(item.id) as { count: number }).count, 1);
-    const storageKey = database.prepare('SELECT storage_key FROM media_artifacts WHERE item_id=? AND status=\'ready\' AND active=1').get(item.id) as { storage_key: string };
+    assert.equal((await database.prepare('SELECT status FROM processing_jobs WHERE item_id=?').get(item.id) as { status: string }).status, 'partial');
+    assert.equal((await database.prepare(`SELECT count(*) AS count FROM media_artifacts WHERE owner_id=(SELECT id FROM users WHERE email='media-owner@example.test') AND item_id=? AND status='ready' AND active=1`).get(item.id) as { count: number }).count, 1);
+    const storageKey = await database.prepare('SELECT storage_key FROM media_artifacts WHERE item_id=? AND status=\'ready\' AND active=1').get(item.id) as { storage_key: string };
     assert.equal((await fetch(`${baseUrl}/api/items/${item.id}`, { method: 'DELETE', headers: { Cookie: owner } })).status, 204);
     await assert.rejects(readFile(join(mediaPath, storageKey.storage_key)));
     assert.equal((database.prepare('SELECT count(*) AS count FROM media_cleanup_queue').get() as { count: number }).count, 0);
@@ -239,19 +239,19 @@ test('reprocess keeps the last good artifact and eligible failure retry creates 
     const capture = await fetch(`${baseUrl}/api/items`, { method: 'POST', headers: { Cookie: owner, 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'https://example.com/reprocess' }) });
     const item = (await capture.json() as { item: { id: string } }).item;
     assert.ok(await processNextJob(database, async () => ({ finalUrl: 'https://example.com/reprocess', contentType: 'text/html', html: '<main>last good version</main>' })));
-    const artifact = database.prepare('SELECT text_content FROM extracted_artifacts WHERE item_id=?').get(item.id) as { text_content: string };
+    const artifact = await database.prepare('SELECT text_content FROM extracted_artifacts WHERE item_id=?').get(item.id) as { text_content: string };
     assert.match(artifact.text_content, /last good version/);
     const reprocess = await fetch(`${baseUrl}/api/items/${item.id}/job/reprocess`, { method: 'POST', headers: { Cookie: owner } });
     assert.equal(reprocess.status, 200);
-    assert.equal((database.prepare('SELECT text_content FROM extracted_artifacts WHERE item_id=?').get(item.id) as { text_content: string }).text_content, artifact.text_content);
+    assert.equal((await database.prepare('SELECT text_content FROM extracted_artifacts WHERE item_id=?').get(item.id) as { text_content: string }).text_content, artifact.text_content);
     assert.ok(await processNextJob(database, async () => { throw new CaptureError('page_unavailable', 'Temporary failure'); }));
-    database.prepare(`UPDATE processing_jobs SET status='failed',attempts=max_attempts,error_code='fetch_failed' WHERE item_id=?`).run(item.id);
+    await database.prepare(`UPDATE processing_jobs SET status='failed',attempts=max_attempts,error_code='fetch_failed' WHERE item_id=?`).run(item.id);
     const retry = await fetch(`${baseUrl}/api/items/${item.id}/job/retry`, { method: 'POST', headers: { Cookie: owner } });
     assert.equal(retry.status, 200);
     const job = (await retry.json() as { job: { generation: number; status: string } }).job;
     assert.equal(job.generation, 3);
     assert.equal(job.status, 'queued');
-    assert.equal((database.prepare('SELECT count(*) AS count FROM job_attempts WHERE job_id=(SELECT id FROM processing_jobs WHERE item_id=?)').get(item.id) as { count: number }).count, 2);
+    assert.equal((await database.prepare('SELECT count(*) AS count FROM job_attempts WHERE job_id=(SELECT id FROM processing_jobs WHERE item_id=?)').get(item.id) as { count: number }).count, 2);
   });
 });
 
@@ -267,7 +267,7 @@ test('cancellation during a running fetch fences the final artifact write', asyn
     assert.equal((await cancellation.json() as { job: { status: string } }).job.status, 'cancel_requested');
     resolveFetch({ finalUrl: 'https://example.com/running-cancel', contentType: 'text/html', html: '<main>cancelled content</main>' });
     await processing;
-    assert.equal((database.prepare('SELECT count(*) AS count FROM extracted_artifacts WHERE item_id=?').get(item.id) as { count: number }).count, 0);
-    assert.equal((database.prepare('SELECT status FROM processing_jobs WHERE item_id=?').get(item.id) as { status: string }).status, 'cancelled');
+    assert.equal((await database.prepare('SELECT count(*) AS count FROM extracted_artifacts WHERE item_id=?').get(item.id) as { count: number }).count, 0);
+    assert.equal((await database.prepare('SELECT status FROM processing_jobs WHERE item_id=?').get(item.id) as { status: string }).status, 'cancelled');
   });
 });

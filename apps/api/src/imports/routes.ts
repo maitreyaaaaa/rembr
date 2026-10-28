@@ -17,9 +17,9 @@ export function createImportRouter(database: DatabaseHandle, assetStorage: Local
   const router = express.Router(); const signedIn = requireUser(database); const profile = createProfileGate(database, assetStorage);
   const imports = createImportService(database, storage);
 
-  router.get('/imports', signedIn, profile, (req, res) => res.json({ imports: imports.list(req.user!.id) }));
-  router.get('/imports/:id', signedIn, profile, (req, res) => {
-    const result = imports.get(req.user!.id, param(req, 'id'));
+  router.get('/imports', signedIn, profile, async (req, res) => res.json({ imports: await imports.list(req.user!.id) }));
+  router.get('/imports/:id', signedIn, profile, async (req, res) => {
+    const result = await imports.get(req.user!.id, param(req, 'id'));
     return result ? res.json(result) : fail(res, 404, 'not_found', 'Import not found.', req.requestId);
   });
 
@@ -33,7 +33,7 @@ export function createImportRouter(database: DatabaseHandle, assetStorage: Local
     }
   });
 
-  router.post('/imports', signedIn, profile, (req, res) => {
+  router.post('/imports', signedIn, profile, async (req, res) => {
     const parsed = createSchema.safeParse(req.body);
     if (!parsed.success) return fail(res, 400, 'invalid_import', 'Provide supported files with their sizes and chunk counts.', req.requestId);
     const total = parsed.data.files.reduce((sum, file) => sum + file.size, 0);
@@ -41,7 +41,7 @@ export function createImportRouter(database: DatabaseHandle, assetStorage: Local
     try {
       const suppliedKey = req.get('Idempotency-Key');
       if (suppliedKey && !/^[A-Za-z0-9._:-]{16,128}$/.test(suppliedKey)) return fail(res, 400, 'invalid_idempotency_key', 'The import retry key is invalid.', req.requestId);
-      const result = imports.create(req.user!.id, req.requestId ?? '', suppliedKey ?? req.requestId ?? '', parsed.data.files);
+      const result = await imports.create(req.user!.id, req.requestId ?? '', suppliedKey ?? req.requestId ?? '', parsed.data.files);
       return res.status(201).json({ importId: result.id, status: result.status, files: result.files.map((file) => ({ fileId: file.id, name: file.name, size: file.size, chunks: file.chunks })) });
     } catch (cause) {
       const code = cause instanceof ImportServiceError ? cause.code : 'invalid_import';

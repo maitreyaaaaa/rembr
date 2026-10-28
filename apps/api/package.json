@@ -11,11 +11,10 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint src test",
     "test": "tsx --test test/*.test.ts",
-    "build": "tsc && node scripts/copy-migrations.mjs"
+    "build": "tsc"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",
-    "better-sqlite3": "^13.0.3",
     "cheerio": "^1.2.0",
     "dotenv": "^17.4.2",
     "express": "^5.3.0",
@@ -23,14 +22,16 @@
     "helmet": "^8.1.0",
     "ipaddr.js": "^2.2.0",
     "multer": "^2.5.0",
+    "pg": "^8.23.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.13",
     "@eslint/js": "^9.39.1",
-    "@types/better-sqlite3": "^7.6.13",
     "@types/express": "^5.0.3",
     "@types/multer": "^2.3.0",
     "@types/node": "^24.10.1",
+    "@types/pg": "^8.23.1",
     "eslint": "^9.39.1",
     "globals": "^16.5.0",
     "tsx": "^4.20.6",

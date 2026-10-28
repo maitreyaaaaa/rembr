@@ -32,7 +32,7 @@ export function createLibraryRouter(database: DatabaseHandle, storage: LocalAsse
   const profile = createProfileGate(database, storage);
   const library = createLibraryService(database, storage, mediaStorage);
 
-  router.get('/items', signedIn, profile, (req, res) => {
+  router.get('/items', signedIn, profile, async (req, res) => {
     const parsed = z.object({
       search: z.string().max(120).default(''), type: z.enum(['page', 'note']).optional(),
       status: z.enum(['queued', 'processing', 'retry_wait', 'cancel_requested', 'cancelled', 'paused', 'partial', 'ready', 'failed']).optional(), tagId: z.string().optional(),
@@ -42,23 +42,23 @@ export function createLibraryRouter(database: DatabaseHandle, storage: LocalAsse
     if (!parsed.success) return apiError(res, 400, 'invalid_query', 'One or more library filters are invalid.', req.requestId);
     try {
       const { cursor, ...query } = parsed.data;
-      return res.json(library.list(req.user!.id, query, cursor));
+      return res.json(await library.list(req.user!.id, query, cursor));
     } catch (cause) {
       if (serviceError(res, cause, req.requestId)) return;
       throw cause;
     }
   });
 
-  router.get('/items/:id', signedIn, profile, (req, res) => {
-    const item = library.get(req.user!.id, param(req, 'id'));
+  router.get('/items/:id', signedIn, profile, async (req, res) => {
+    const item = await library.get(req.user!.id, param(req, 'id'));
     if (!item) return apiError(res, 404, 'not_found', 'Saved item not found.', req.requestId);
     return res.json({ item });
   });
 
-  router.patch('/items/:id', signedIn, profile, (req, res) => {
+  router.patch('/items/:id', signedIn, profile, async (req, res) => {
     const parsed = updateItemSchema.safeParse(req.body);
     if (!parsed.success || Object.keys(parsed.data ?? {}).length === 0) return apiError(res, 400, 'invalid_item', 'Provide a title or description to update.', req.requestId);
-    const item = library.update(req.user!.id, param(req, 'id'), parsed.data);
+    const item = await library.update(req.user!.id, param(req, 'id'), parsed.data);
     if (!item) return apiError(res, 404, 'not_found', 'Saved item not found.', req.requestId);
     return res.json({ item });
   });
@@ -83,8 +83,8 @@ export function createLibraryRouter(database: DatabaseHandle, storage: LocalAsse
       return apiError(res, 500, 'note_save_failed', 'The note could not be saved. Your previous version is still available.', req.requestId);
     }
   };
-  router.post('/notes', signedIn, profile, noteUpload.array('images', 5), (req, res) => { void saveNote(req, res, true); });
-  router.patch('/notes/:id', signedIn, profile, noteUpload.array('images', 5), (req, res) => { void saveNote(req, res, false); });
+  router.post('/notes', signedIn, profile, noteUpload.array('images', 5), async (req, res) => { await saveNote(req, res, true); });
+  router.patch('/notes/:id', signedIn, profile, noteUpload.array('images', 5), async (req, res) => { await saveNote(req, res, false); });
 
   router.delete('/notes/:id/assets/:assetId', signedIn, profile, async (req, res) => {
     try {
@@ -108,7 +108,7 @@ export function createLibraryRouter(database: DatabaseHandle, storage: LocalAsse
 
   router.get('/media/:id', signedIn, profile, async (req, res) => {
     const id = param(req, 'id');
-    const media = database.prepare(`SELECT storage_key,detected_mime FROM media_artifacts
+    const media = await database.prepare(`SELECT storage_key,detected_mime FROM media_artifacts
       WHERE owner_id=? AND id=? AND active=1 AND status='ready'`).get(req.user!.id, id) as { storage_key: string | null; detected_mime: string | null } | undefined;
     if (!media?.storage_key || !media.detected_mime) return apiError(res, 404, 'not_found', 'Media not found.', req.requestId);
     try {

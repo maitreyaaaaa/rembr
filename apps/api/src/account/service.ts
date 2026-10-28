@@ -11,14 +11,14 @@ export function createAccountService(database: DatabaseHandle, storage: LocalAss
   const repository = createAccountRepository(database);
   const assets = createAssetService(database, storage);
   return {
-    session(user: { id: string; email: string; accountStatus: string }) {
-      const profile = repository.getProfile(user.id);
+    async session(user: { id: string; email: string; accountStatus: string }) {
+      const profile = await repository.getProfile(user.id);
       return { user: { id: user.id, email: user.email }, profile, profileComplete: Boolean(profile), accountStatus: user.accountStatus };
     },
     getProfile(userId: string) { return repository.getProfile(userId); },
     hasProfile(userId: string) { return repository.hasProfile(userId); },
     async saveProfile(userId: string, input: { username?: string; avatarUrl?: string }, file?: { buffer: Buffer; mimetype: string }) {
-      const oldProfile = repository.getProfile(userId);
+      const oldProfile = await repository.getProfile(userId);
       const username = input.username ?? oldProfile?.username;
       if (!username) throw new AccountServiceError('invalid_profile', 'A username is required.');
       let avatarAssetId = file ? null : (input.avatarUrl === undefined ? oldProfile?.avatarAssetId ?? null : null);
@@ -31,30 +31,31 @@ export function createAccountService(database: DatabaseHandle, storage: LocalAss
         }
         const now = new Date().toISOString();
         const avatarUrl = file ? null : input.avatarUrl === undefined ? oldProfile?.avatarUrl ?? null : input.avatarUrl || null;
-        repository.saveProfile(userId, username, avatarUrl, avatarAssetId, oldProfile?.avatarAssetId ?? null, now);
+        await repository.saveProfile(userId, username, avatarUrl, avatarAssetId, oldProfile?.avatarAssetId ?? null, now);
       } catch (cause) {
         if (uploaded) {
-          const row = createAccountRepository(database).getProfile(userId);
+          const row = await createAccountRepository(database).getProfile(userId);
           if (row?.avatarAssetId !== uploaded.id) await assets.deleteAfterMarked(userId, uploaded.id, uploaded.key);
         }
-        if (String(cause).includes('UNIQUE constraint failed: profiles.username')) throw new AccountServiceError('username_taken', 'That username is already in use.');
+        if (((typeof cause === 'object' && cause !== null && 'code' in cause && cause.code === '23505') || String(cause).includes('profiles_username_key'))
+          && String(cause).includes('username')) throw new AccountServiceError('username_taken', 'That username is already in use.');
         throw cause;
       }
       if (oldProfile?.avatarAssetId && oldProfile.avatarAssetId !== avatarAssetId) await assets.deleteAfterMarked(userId, oldProfile.avatarAssetId);
-      return repository.getProfile(userId);
+      return await repository.getProfile(userId);
     },
     getOnboarding(userId: string) { return repository.getOnboarding(userId); },
-    saveOnboarding(userId: string, input: { contentTypes: string[]; referralSource: string; skipped: boolean }) {
+    async saveOnboarding(userId: string, input: { contentTypes: string[]; referralSource: string; skipped: boolean }) {
       const contentTypes = [...new Set(input.contentTypes)];
       const now = new Date().toISOString();
       const completedAt = input.skipped ? null : now;
       const skippedAt = input.skipped ? now : null;
-      repository.saveOnboarding(userId, contentTypes, input.referralSource || null, completedAt, skippedAt, now);
+      await repository.saveOnboarding(userId, contentTypes, input.referralSource || null, completedAt, skippedAt, now);
       return { contentTypes, referralSource: input.referralSource, completedAt, skippedAt };
     },
-    seedProfile(userId: string, username: string) {
+    async seedProfile(userId: string, username: string) {
       const now = new Date().toISOString();
-      repository.saveProfile(userId, username.toLowerCase(), null, null, null, now);
+      await repository.saveProfile(userId, username.toLowerCase(), null, null, null, now);
     },
   };
 }

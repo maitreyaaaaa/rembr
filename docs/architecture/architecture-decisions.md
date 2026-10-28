@@ -72,7 +72,7 @@ These are planning decisions for the new Rembr implementation. They do not alter
 **Decision:** Freeze a Rembr screen/flow/data/security acceptance matrix first. Build interaction behavior with accessible, consistent primitives; apply and refine the Rembr visual identity after core route and state coverage exists.  
 **Consequences:** Visual distinction is a separate workstream with its own review. Do not copy IScraper assets or public branding into Rembr without an explicit rights and brand decision.
 
-## ADR-R11 — Use a durable local SQLite adapter for Phase 1
+## ADR-R11 — Use a durable local SQLite adapter for Phase 1 (superseded)
 
 **Status:** Accepted for Phase 1; revisit before hosted deployment.  
 **Context:** The Rembr workspace has no app scaffold or configured database credential, and the local Docker database engine is unavailable. Phase 1 still needs durable, reproducible persistence so the authenticated capture-to-library journey can run without a hosted provider.  
@@ -83,6 +83,14 @@ These are planning decisions for the new Rembr implementation. They do not alter
 
 - Default to a modular monolith for domain/API code, with a distinct worker process only for durable long-running jobs. Revisit split services only when measured deployment, isolation, or scaling needs justify them.
 - Before Phase 9, select the hosted PostgreSQL/Supabase target and complete a parity/security review of its store adapter, grants, RLS and migration behavior.
+
+## ADR-R12 — Use Supabase Postgres as Rembr's only database
+
+**Status:** Accepted, 2026-10-29. Supersedes ADR-R11.
+
+**Decision:** Store all Rembr API and worker data in the connected Supabase Postgres project. Apply versioned SQL from `supabase/migrations/`; use async `pg` pooling in the server processes. Keep private application file bytes in the existing private filesystem storage paths. Use PGlite with the same Postgres schema for isolated local database tests. Do not keep a SQLite fallback or SQLite data files.
+
+**Consequences:** Both API and worker require `DATABASE_URL` in their server environment. The secret must remain server-side. Supabase tables have RLS enabled with no direct client policies because the app accesses them only through its authenticated API using the server database connection. Keep user ownership checks in the API query layer. Review advisors and grants whenever schema exposure changes.
 - Which source behaviors require a redesigned interaction contract because of product, privacy, or security findings? (This changes design while preserving the feature unless the user explicitly approves a scope change.)
 - Whether user-supplied provider credentials are a required Rembr capability. Current backend audit found helper/table presence but no production end-to-end orchestration path.
 - Exact storage provider, auth provider, deployment targets, model provider, and browser support matrix for Rembr.

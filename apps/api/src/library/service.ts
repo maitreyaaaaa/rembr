@@ -43,17 +43,18 @@ export function createLibraryService(database: DatabaseHandle, storage: LocalAss
   const repository = createLibraryRepository(database);
   const assets = createAssetService(database, storage);
   return {
-    createPage(ownerId: string, originalUrl: string, canonicalUrl: string, title: string, correlationId?: string) {
-      const existing = repository.findByCanonical(ownerId,canonicalUrl);
+    async createPage(ownerId: string, originalUrl: string, canonicalUrl: string, title: string, correlationId?: string) {
+      const existing = await repository.findByCanonical(ownerId,canonicalUrl);
       if (existing) return { item: existing, duplicate: true };
-      const item = repository.createPage(ownerId,originalUrl,canonicalUrl,title,correlationId);
+      const item = await repository.createPage(ownerId,originalUrl,canonicalUrl,title,correlationId);
       return { item, duplicate: false };
     },
-    list(ownerId: string, query: ItemListQuery, rawCursor?: string) {
+    async list(ownerId: string, query: ItemListQuery, rawCursor?: string) {
       const fingerprint = createHash('sha256').update(JSON.stringify([query.search, query.type ?? null, query.status ?? null, query.tagId ?? null, query.collectionId ?? null])).digest('hex');
       const cursor = rawCursor ? cursorDecode(rawCursor, { owner: ownerId, fingerprint, sort: query.sort }) : null;
       if (rawCursor && !cursor) throw new LibraryServiceError('invalid_cursor', 'Restart the list after changing filters or sorting.');
-      const page = repository.list(ownerId, query, cursor ? { key: cursor.key, id: cursor.id } : undefined);
+      const page = await repository.list(ownerId, query, cursor ? { key: cursor.key, id: cursor.id } : undefined);
+      page.items = await Promise.all(page.items);
       const last = page.rows.at(-1) as Record<string, unknown> | undefined;
       const nextCursor = page.hasMore && last ? cursorEncode({ version: 1, owner: ownerId, fingerprint, sort: query.sort,
         key: query.sort.startsWith('title_') ? String(last.effective_title).toLowerCase() : String(last.created_at), id: String(last.id) }) : null;
@@ -65,16 +66,16 @@ export function createLibraryService(database: DatabaseHandle, storage: LocalAss
       return repository.update(ownerId, itemId, changes);
     },
     async delete(ownerId: string, itemId: string) {
-      const deleting = repository.delete(ownerId, itemId);
+      const deleting = await repository.delete(ownerId, itemId);
       if (!deleting) return false;
       for (const asset of deleting.assets) await assets.deleteAfterMarked(ownerId, asset.id, asset.storageKey);
       for (const key of deleting.mediaKeys) {
         if (!mediaStorage) continue;
         try {
           await mediaStorage.remove(key);
-          database.prepare('DELETE FROM media_cleanup_queue WHERE storage_key=?').run(key);
+          await database.prepare('DELETE FROM media_cleanup_queue WHERE storage_key=?').run(key);
         } catch {
-          database.prepare('UPDATE media_cleanup_queue SET attempt_count=attempt_count+1,last_error=?,updated_at=? WHERE storage_key=?')
+          await database.prepare('UPDATE media_cleanup_queue SET attempt_count=attempt_count+1,last_error=?,updated_at=? WHERE storage_key=?')
             .run('storage_unavailable', new Date().toISOString(), key);
         }
       }
@@ -85,8 +86,8 @@ export function createLibraryService(database: DatabaseHandle, storage: LocalAss
       const links = normalizeLinks(input.linksRaw);
       if (!links) throw new LibraryServiceError('invalid_note', 'Check the note text, up to 20 links, and up to 5 images.');
       const itemId = input.itemId ?? randomUUID();
-      if (!input.isCreate && !repository.isNote(input.ownerId, itemId)) throw new LibraryServiceError('not_found', 'Note not found.');
-      const currentAssets = input.isCreate ? [] : repository.noteAssets(input.ownerId, itemId);
+      if (!input.isCreate && !await repository.isNote(input.ownerId, itemId)) throw new LibraryServiceError('not_found', 'Note not found.');
+      const currentAssets = input.isCreate ? [] : await repository.noteAssets(input.ownerId, itemId);
       if (currentAssets.length + input.files.length > 5) throw new LibraryServiceError('too_many_images', 'A note can contain at most five images.');
       const staged: Array<{ id: string; key: string }> = [];
       try {
@@ -98,7 +99,7 @@ export function createLibraryService(database: DatabaseHandle, storage: LocalAss
           const saved = await assets.stage(input.ownerId, 'note_image', file.buffer, mime);
           staged.push({ id: saved.id, key: saved.key });
         }
-        return repository.saveNote({ ownerId: input.ownerId, itemId, isCreate: input.isCreate, body: input.body,
+        return await repository.saveNote({ ownerId: input.ownerId, itemId, isCreate: input.isCreate, body: input.body,
           title: input.title.trim().slice(0, 240), links, assetIds: staged.map((asset) => asset.id), now: new Date().toISOString() });
       } catch (cause) {
         for (const asset of staged) await assets.deleteAfterMarked(input.ownerId, asset.id, asset.key);
@@ -108,7 +109,7 @@ export function createLibraryService(database: DatabaseHandle, storage: LocalAss
       }
     },
     async deleteNoteAsset(ownerId: string, itemId: string, assetId: string) {
-      const asset = repository.removeNoteAsset(ownerId, itemId, assetId);
+      const asset = await repository.removeNoteAsset(ownerId, itemId, assetId);
       if (!asset) return false;
       await assets.deleteAfterMarked(ownerId, assetId, asset.storageKey);
       return true;

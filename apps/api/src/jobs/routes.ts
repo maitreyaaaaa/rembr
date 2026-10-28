@@ -16,9 +16,9 @@ function respond(res: express.Response, outcome: unknown, requestId?: string) {
 
 export function createJobRouter(database: DatabaseHandle, storage: LocalAssetStorage) {
   const router = express.Router(); const signedIn = requireUser(database); const profile = createProfileGate(database, storage); const jobs = createJobRepository(database);
-  router.get('/items/:id/job', signedIn, profile, (req, res) => respond(res, jobs.get(req.user!.id, param(req, 'id')) ?? 'not_found', req.requestId));
-  router.post('/items/:id/job/cancel', signedIn, profile, (req, res) => respond(res, jobs.cancel(req.user!.id, param(req, 'id')), req.requestId));
-  router.post('/items/:id/job/retry', signedIn, profile, (req, res) => respond(res, jobs.retry(req.user!.id, param(req, 'id')), req.requestId));
-  router.post('/items/:id/job/reprocess', signedIn, profile, (req, res) => respond(res, jobs.reprocess(req.user!.id, param(req, 'id')), req.requestId));
+  router.get('/items/:id/job', signedIn, profile, async (req, res) => respond(res, await jobs.get(req.user!.id, param(req, 'id')) ?? 'not_found', req.requestId));
+  router.post('/items/:id/job/cancel', signedIn, profile, async (req, res) => respond(res, await jobs.cancel(req.user!.id, param(req, 'id')), req.requestId));
+  router.post('/items/:id/job/retry', signedIn, profile, async (req, res) => respond(res, await jobs.retry(req.user!.id, param(req, 'id')), req.requestId));
+  router.post('/items/:id/job/reprocess', signedIn, profile, async (req, res) => respond(res, await jobs.reprocess(req.user!.id, param(req, 'id')), req.requestId));
   return router;
 }

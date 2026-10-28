@@ -71,12 +71,12 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
     try {
       const userId = randomUUID();
       const passwordHash = await bcrypt.hash(parsed.data.password, 12);
-      database.prepare('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)')
+      await database.prepare('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)')
         .run(userId, parsed.data.email, passwordHash, new Date().toISOString());
-      createSession(database, userId, res);
+      await createSession(database, userId, res);
       res.status(201).json({ user: { id: userId, email: parsed.data.email } });
     } catch (error) {
-      if (String(error).includes('UNIQUE constraint failed: users.email')) {
+      if ((typeof error === 'object' && error !== null && 'code' in error && error.code === '23505') || String(error).includes('users_email_key')) {
         res.status(409).json(errorResponse('account_exists', 'An account with this email already exists.', req.requestId));
         return;
       }
@@ -91,7 +91,7 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
       return;
     }
     try {
-      const user = database.prepare('SELECT id, email, password_hash, account_status FROM users WHERE email = ?')
+      const user = await database.prepare('SELECT id, email, password_hash, account_status FROM users WHERE email = ?')
         .get(parsed.data.email) as { id: string; email: string; password_hash: string; account_status: string } | undefined;
       const matches = user ? await bcrypt.compare(parsed.data.password, user.password_hash) : false;
       if (!user || !matches) {
@@ -102,7 +102,7 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
         res.status(403).json(errorResponse('account_disabled', 'This account is disabled.', req.requestId));
         return;
       }
-      createSession(database, user.id, res);
+      await createSession(database, user.id, res);
       res.json({ user: { id: user.id, email: user.email } });
     } catch (error) {
       next(error);
@@ -130,7 +130,7 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
       const validated = await validateUrl(parsed.data.url);
       validated.url.hash = '';
       const canonicalUrl = validated.url.toString();
-      const result = library.createPage(req.user!.id, parsed.data.url, canonicalUrl, validated.url.hostname, req.requestId);
+      const result = await library.createPage(req.user!.id, parsed.data.url, canonicalUrl, validated.url.hostname, req.requestId);
       res.status(result.duplicate ? 200 : 202).json(result);
     } catch (error) {
       if (error instanceof CaptureError) {

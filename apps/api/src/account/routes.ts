@@ -39,16 +39,16 @@ export function createAccountRouter(database: DatabaseHandle, storage: LocalAsse
   const account = createAccountService(database, storage);
   const avatarUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 250 * 1024, files: 1, fields: 2, fieldSize: 4000 } }).single('avatar');
 
-  router.get('/auth/session', signedIn, (req, res) => {
-    const session = account.session(req.user!);
+  router.get('/auth/session', signedIn, async (req, res) => {
+    const session = await account.session(req.user!);
     res.json({
       ...session,
       profile: publicProfile(req.user!.id, session.profile),
     });
   });
 
-  router.get('/profile', signedIn, (req, res) => {
-    const row = account.getProfile(req.user!.id);
+  router.get('/profile', signedIn, async (req, res) => {
+    const row = await account.getProfile(req.user!.id);
     res.json({ profile: publicProfile(req.user!.id, row), required: !row });
   });
 
@@ -66,14 +66,14 @@ export function createAccountRouter(database: DatabaseHandle, storage: LocalAsse
     }
   });
 
-  router.get('/onboarding', signedIn, (req, res) => {
-    res.json({ onboarding: account.getOnboarding(req.user!.id) });
+  router.get('/onboarding', signedIn, async (req, res) => {
+    res.json({ onboarding: await account.getOnboarding(req.user!.id) });
   });
 
-  router.put('/onboarding', signedIn, (req, res) => {
+  router.put('/onboarding', signedIn, async (req, res) => {
     const parsed = onboardingSchema.safeParse(req.body);
     if (!parsed.success) return error(res, 400, 'invalid_onboarding', 'Choose valid onboarding options.', req.requestId);
-    res.json({ onboarding: account.saveOnboarding(req.user!.id, parsed.data) });
+    res.json({ onboarding: await account.saveOnboarding(req.user!.id, parsed.data) });
   });
 
   return router;
@@ -81,9 +81,9 @@ export function createAccountRouter(database: DatabaseHandle, storage: LocalAsse
 
 export function createProfileGate(database: DatabaseHandle, storage: LocalAssetStorage) {
   const account = createAccountService(database, storage);
-  return (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  return async (req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (!req.user) return error(res, 401, 'unauthorized', 'Sign in to continue.', req.requestId);
-    if (!account.hasProfile(req.user.id)) return error(res, 428, 'PROFILE_INCOMPLETE', 'Complete your profile to continue.', req.requestId);
+    if (!await account.hasProfile(req.user.id)) return error(res, 428, 'PROFILE_INCOMPLETE', 'Complete your profile to continue.', req.requestId);
     next();
   };
 }

@@ -46,30 +46,30 @@ function cookieOptions() {
   return { httpOnly: true, sameSite: 'lax' as const, secure: config.secureCookies, path: '/', maxAge: SESSION_TTL_MS };
 }
 
-export function createSession(database: DatabaseHandle, userId: string, res: Response): void {
+export async function createSession(database: DatabaseHandle, userId: string, res: Response) {
   const token = randomBytes(32).toString('base64url');
   const now = new Date();
-  database.prepare(`INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at)
+  await database.prepare(`INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at)
     VALUES (?, ?, ?, ?, ?)`)
     .run(randomUUID(), userId, digest(token), new Date(now.getTime() + SESSION_TTL_MS).toISOString(), now.toISOString());
   res.cookie(COOKIE_NAME, token, cookieOptions());
 }
 
-export function destroySession(database: DatabaseHandle, req: Request, res: Response): void {
+export async function destroySession(database: DatabaseHandle, req: Request, res: Response) {
   const token = getCookie(req, COOKIE_NAME);
-  if (token) database.prepare('DELETE FROM sessions WHERE token_hash = ?').run(digest(token));
+  if (token) await database.prepare('DELETE FROM sessions WHERE token_hash = ?').run(digest(token));
   res.clearCookie(COOKIE_NAME, { httpOnly: true, sameSite: 'lax', secure: config.secureCookies, path: '/' });
 }
 
 export function requireUser(database: DatabaseHandle) {
-  return (req: Request, res: Response, next: NextFunction): void => {
+  return async (req: Request, res: Response, next: NextFunction) => {
     const token = getCookie(req, COOKIE_NAME);
     if (!token || token.length > 128) {
       res.status(401).json({ error: { code: 'unauthorized', message: 'Sign in to continue.', requestId: req.requestId } });
       return;
     }
     const now = new Date().toISOString();
-    const user = database.prepare(`SELECT users.id, users.email, users.account_status AS accountStatus
+    const user = await database.prepare(`SELECT users.id, users.email, users.account_status AS accountStatus
       FROM sessions JOIN users ON users.id = sessions.user_id
       WHERE sessions.token_hash = ? AND sessions.expires_at > ?`)
       .get(digest(token), now) as AuthenticatedUser | undefined;

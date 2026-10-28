@@ -11,7 +11,7 @@ Phases 1 and 2 passed their local gates on October 28, 2026. Phase 3 is in progr
 - Node.js 22.13 or newer
 - npm 10 or newer
 
-Phase 1 uses a local SQLite database for a repeatable offline development path. The database file is stored under `data/` and is ignored by Git. A hosted PostgreSQL/Supabase adapter is a pre-deployment requirement, not assumed to exist in this workspace.
+The API and worker use the connected Supabase Postgres database. Set `DATABASE_URL` in the project-root `.env` to the Supabase Postgres connection string before starting either process. The browser app uses only the Rembr API and never receives database credentials. Schema changes live in `supabase/migrations/` and are applied to the connected project.
 
 ## Setup
 

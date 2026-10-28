@@ -6,7 +6,7 @@ import { LocalImportStorage } from '../imports/storage.js';
 import { createImportService } from '../imports/service.js';
 import { LocalMediaStorage } from '../media/storage.js';
 
-const database = createDatabase();
+const database = await createDatabase();
 const importStorage = new LocalImportStorage(config.importDirectory);
 const imports = createImportService(database, importStorage);
 const mediaStorage = new LocalMediaStorage(config.mediaDirectory);
@@ -30,7 +30,7 @@ async function run() {
       await delay(1000);
     }
   }
-  database.close();
+  await database.close();
 }
 
 function stop(signal: string) {

@@ -23,14 +23,14 @@ function toItem(row: Row) {
 }
 
 export function createLibraryRepository(database: DatabaseHandle) {
-  function related(ownerId: string, itemIds: string[]) {
+  async function related(ownerId: string, itemIds: string[]) {
     if (!itemIds.length) return { tags: new Map<string, unknown[]>(), collections: new Map<string, unknown[]>() };
     const marks = itemIds.map(() => '?').join(',');
-    const tags = database.prepare(`SELECT item_tags.item_id AS itemId, tags.id, tags.display_name AS name
+    const tags = await database.prepare(`SELECT item_tags.item_id AS itemId, tags.id, tags.display_name AS name
       FROM item_tags JOIN tags ON tags.owner_id=item_tags.owner_id AND tags.id=item_tags.tag_id
       WHERE item_tags.owner_id=? AND item_tags.item_id IN (${marks}) ORDER BY tags.normalized_name`)
       .all(ownerId, ...itemIds) as Array<{ itemId: string; id: string; name: string }>;
-    const collections = database.prepare(`SELECT collection_items.item_id AS itemId, collections.id, collections.name
+    const collections = await database.prepare(`SELECT collection_items.item_id AS itemId, collections.id, collections.name
       FROM collection_items JOIN collections ON collections.owner_id=collection_items.owner_id AND collections.id=collection_items.collection_id
       WHERE collection_items.owner_id=? AND collection_items.item_id IN (${marks}) ORDER BY collections.normalized_name`)
       .all(ownerId, ...itemIds) as Array<{ itemId: string; id: string; name: string }>;
@@ -42,33 +42,33 @@ export function createLibraryRepository(database: DatabaseHandle) {
     return { tags: map(tags), collections: map(collections) };
   }
 
-  function decorate(ownerId: string, rows: Row[], includeDetail = false) {
+  async function decorate(ownerId: string, rows: Row[], includeDetail = false) {
     const itemIds = rows.map((row) => String(row.id));
-    const relationships = related(ownerId, itemIds);
-    return rows.map((row) => {
+    const relationships = await related(ownerId, itemIds);
+    return Promise.all(rows.map(async (row) => {
       const dto = { ...toItem(row), tags: relationships.tags.get(String(row.id)) ?? [], collections: relationships.collections.get(String(row.id)) ?? [] };
       if (!includeDetail) return dto;
       const id = String(row.id);
       if (row.item_kind !== 'note') {
-        const media = database.prepare(`SELECT id,detected_mime AS mime,byte_size AS byteSize,status,error_code AS errorCode
+        const media = await database.prepare(`SELECT id,detected_mime AS mime,byte_size AS byteSize,status,error_code AS errorCode
           FROM media_artifacts WHERE owner_id=? AND item_id=? AND active=1 ORDER BY created_at,id`)
           .all(ownerId, id) as Array<{ id: string; mime: string | null; byteSize: number; status: string; errorCode: string | null }>;
         return { ...dto, media: media.map((asset) => ({ ...asset, url: asset.status === 'ready' ? `/api/media/${asset.id}` : null })) };
       }
-      const note = database.prepare('SELECT body FROM notes WHERE owner_id=? AND item_id=?').get(ownerId, id) as { body: string } | undefined;
-      const links = database.prepare('SELECT url FROM note_links WHERE owner_id=? AND item_id=? ORDER BY position').all(ownerId, id) as Array<{ url: string }>;
-      const assets = database.prepare(`SELECT asset_objects.id, asset_objects.detected_mime AS mime,
+      const note = await database.prepare('SELECT body FROM notes WHERE owner_id=? AND item_id=?').get(ownerId, id) as { body: string } | undefined;
+      const links = await database.prepare('SELECT url FROM note_links WHERE owner_id=? AND item_id=? ORDER BY position').all(ownerId, id) as Array<{ url: string }>;
+      const assets = await database.prepare(`SELECT asset_objects.id, asset_objects.detected_mime AS mime,
           asset_objects.byte_size AS byteSize
         FROM note_assets JOIN asset_objects ON asset_objects.owner_id=note_assets.owner_id AND asset_objects.id=note_assets.asset_id
         WHERE note_assets.owner_id=? AND note_assets.item_id=? AND asset_objects.state='ready' ORDER BY note_assets.position`)
         .all(ownerId, id) as Array<{ id: string; mime: string; byteSize: number }>;
       if (note) return { ...dto, note: { body: note.body, links: links.map((link) => link.url), assets: assets.map((asset) => ({ ...asset, url: `/api/assets/${asset.id}` })) } };
       return dto;
-    });
+    }));
   }
 
-  function rowById(ownerId: string, itemId: string): Row | undefined {
-    return database.prepare(`SELECT saved_items.*, COALESCE(saved_items.title_override,saved_items.title) AS effective_title,
+  async function rowById(ownerId: string, itemId: string) {
+    return await database.prepare(`SELECT saved_items.*, COALESCE(saved_items.title_override,saved_items.title) AS effective_title,
         COALESCE(saved_items.description_override,saved_items.description) AS effective_description,
         extracted_artifacts.text_content, extracted_artifacts.fetched_at, 1 AS include_text,
         processing_jobs.status AS job_status, job_pause_states.pause_cause
@@ -79,21 +79,21 @@ export function createLibraryRepository(database: DatabaseHandle) {
   }
 
   return {
-    findByCanonical(ownerId: string, canonicalUrl: string) {
-      const row = database.prepare('SELECT id FROM saved_items WHERE owner_id=? AND canonical_url=?').get(ownerId, canonicalUrl) as { id: string } | undefined;
+    async findByCanonical(ownerId: string, canonicalUrl: string) {
+      const row = await database.prepare('SELECT id FROM saved_items WHERE owner_id=? AND canonical_url=?').get(ownerId, canonicalUrl) as { id: string } | undefined;
       return row ? this.get(ownerId, row.id) : undefined;
     },
-    createPage(ownerId: string, originalUrl: string, canonicalUrl: string, title: string, correlationId: string = randomUUID()) {
+    async createPage(ownerId: string, originalUrl: string, canonicalUrl: string, title: string, correlationId: string = randomUUID()) {
       const id = randomUUID(); const now = new Date().toISOString();
-      database.transaction(() => {
-        database.prepare(`INSERT INTO saved_items (id,owner_id,original_url,canonical_url,title,status,created_at,updated_at)
+      await database.transaction(async () => {
+        await database.prepare(`INSERT INTO saved_items (id,owner_id,original_url,canonical_url,title,status,created_at,updated_at)
           VALUES (?,?,?,?,?,'queued',?,?)`).run(id,ownerId,originalUrl,canonicalUrl,title,now,now);
-        database.prepare(`INSERT INTO processing_jobs (id,owner_id,item_id,correlation_id,status,available_at,created_at,updated_at)
+        await database.prepare(`INSERT INTO processing_jobs (id,owner_id,item_id,correlation_id,status,available_at,created_at,updated_at)
           VALUES (?,?,?,?,'queued',?,?,?)`).run(randomUUID(),ownerId,id,correlationId,now,now,now);
       })();
       return this.get(ownerId,id);
     },
-    list(ownerId: string, query: ItemListQuery, cursor?: ItemCursorKey) {
+    async list(ownerId: string, query: ItemListQuery, cursor?: ItemCursorKey) {
       const clauses = ['saved_items.owner_id=?']; const params: unknown[] = [ownerId];
       if (query.type) { clauses.push('saved_items.item_kind=?'); params.push(query.type); }
       if (query.status) {
@@ -118,7 +118,7 @@ export function createLibraryRepository(database: DatabaseHandle) {
         const direction = query.sort.endsWith('asc') ? '>' : '<';
         clauses.push(`(${expression} ${direction} ? OR (${expression}=? AND saved_items.id ${direction} ?))`); params.push(cursor.key, cursor.key, cursor.id);
       }
-      const rows = database.prepare(`SELECT saved_items.*, COALESCE(saved_items.title_override,saved_items.title) AS effective_title,
+      const rows = await database.prepare(`SELECT saved_items.*, COALESCE(saved_items.title_override,saved_items.title) AS effective_title,
           COALESCE(saved_items.description_override,saved_items.description) AS effective_description, extracted_artifacts.text_content,
           processing_jobs.status AS job_status, job_pause_states.pause_cause
         FROM saved_items LEFT JOIN extracted_artifacts ON extracted_artifacts.item_id=saved_items.id AND extracted_artifacts.owner_id=saved_items.owner_id
@@ -127,78 +127,78 @@ export function createLibraryRepository(database: DatabaseHandle) {
         WHERE ${clauses.join(' AND ')} ORDER BY ${orderings[query.sort]} LIMIT ?`)
         .all(...params, query.limit + 1) as Row[];
       const pageRows = rows.slice(0, query.limit);
-      return { rows: pageRows, items: decorate(ownerId, pageRows), hasMore: rows.length > query.limit };
+      return { rows: pageRows, items: await decorate(ownerId, pageRows), hasMore: rows.length > query.limit };
     },
     decorateItems(ownerId: string, rows: Row[]) { return decorate(ownerId, rows); },
-    get(ownerId: string, itemId: string) {
-      const row = rowById(ownerId, itemId);
-      return row ? decorate(ownerId, [row], true)[0] : undefined;
+    async get(ownerId: string, itemId: string) {
+      const row = await rowById(ownerId, itemId);
+      return row ? (await decorate(ownerId, [row], true))[0] : undefined;
     },
-    update(ownerId: string, itemId: string, changes: { titleOverride?: string | null; descriptionOverride?: string | null }) {
+    async update(ownerId: string, itemId: string, changes: { titleOverride?: string | null; descriptionOverride?: string | null }) {
       const fields: string[] = []; const values: unknown[] = [];
       if (changes.titleOverride !== undefined) { fields.push('title_override=?'); values.push(changes.titleOverride?.trim() || null); }
       if (changes.descriptionOverride !== undefined) { fields.push('description_override=?'); values.push(changes.descriptionOverride?.trim() || null); }
       fields.push('updated_at=?'); values.push(new Date().toISOString(), ownerId, itemId);
-      const result = database.prepare(`UPDATE saved_items SET ${fields.join(',')} WHERE owner_id=? AND id=?`).run(...values);
+      const result = await database.prepare(`UPDATE saved_items SET ${fields.join(',')} WHERE owner_id=? AND id=?`).run(...values);
       return result.changes ? this.get(ownerId, itemId) : undefined;
     },
-    delete(ownerId: string, itemId: string) {
-      const assets = database.prepare(`SELECT DISTINCT asset_objects.id, asset_objects.storage_key AS storageKey FROM note_assets
+    async delete(ownerId: string, itemId: string) {
+      const assets = await database.prepare(`SELECT DISTINCT asset_objects.id, asset_objects.storage_key AS storageKey FROM note_assets
         JOIN asset_objects ON asset_objects.owner_id=note_assets.owner_id AND asset_objects.id=note_assets.asset_id
         WHERE note_assets.owner_id=? AND note_assets.item_id=?`).all(ownerId, itemId) as Array<{ id: string; storageKey: string }>;
-      const mediaKeys = (database.prepare('SELECT storage_key FROM media_artifacts WHERE owner_id=? AND item_id=? AND storage_key IS NOT NULL').all(ownerId, itemId) as Array<{ storage_key: string }>).map((row) => row.storage_key);
-      const deleted = database.transaction(() => {
-        if (!database.prepare('SELECT 1 FROM saved_items WHERE owner_id=? AND id=?').get(ownerId, itemId)) return false;
+      const mediaKeys = (await database.prepare('SELECT storage_key FROM media_artifacts WHERE owner_id=? AND item_id=? AND storage_key IS NOT NULL').all(ownerId, itemId) as Array<{ storage_key: string }>).map((row) => row.storage_key);
+      const deleted = await database.transaction(async () => {
+        if (!await database.prepare('SELECT 1 FROM saved_items WHERE owner_id=? AND id=?').get(ownerId, itemId)) return false;
         const now = new Date().toISOString();
-        for (const asset of assets) database.prepare("UPDATE asset_objects SET state='deleting', updated_at=? WHERE owner_id=? AND id=?").run(new Date().toISOString(), ownerId, asset.id);
-        for (const storageKey of mediaKeys) database.prepare(`INSERT OR IGNORE INTO media_cleanup_queue (storage_key,created_at,updated_at) VALUES (?,?,?)`).run(storageKey, now, now);
-        database.prepare('DELETE FROM saved_items WHERE owner_id=? AND id=?').run(ownerId, itemId);
+        for (const asset of assets) await database.prepare("UPDATE asset_objects SET state='deleting', updated_at=? WHERE owner_id=? AND id=?").run(new Date().toISOString(), ownerId, asset.id);
+        for (const storageKey of mediaKeys) await database.prepare(`INSERT INTO media_cleanup_queue (storage_key,created_at,updated_at) VALUES (?,?,?) ON CONFLICT DO NOTHING`).run(storageKey, now, now);
+        await database.prepare('DELETE FROM saved_items WHERE owner_id=? AND id=?').run(ownerId, itemId);
         return true;
       })();
       return deleted ? { assets, mediaKeys } : null;
     },
-    noteAssets(ownerId: string, itemId: string) {
-      return database.prepare('SELECT asset_id AS id, position FROM note_assets WHERE owner_id=? AND item_id=? ORDER BY position').all(ownerId, itemId) as Array<{ id: string; position: number }>;
+    async noteAssets(ownerId: string, itemId: string) {
+      return await database.prepare('SELECT asset_id AS id, position FROM note_assets WHERE owner_id=? AND item_id=? ORDER BY position').all(ownerId, itemId) as Array<{ id: string; position: number }>;
     },
-    isNote(ownerId: string, itemId: string): boolean {
-      return Boolean(database.prepare("SELECT 1 FROM saved_items WHERE owner_id=? AND id=? AND item_kind='note'").get(ownerId, itemId));
+    async isNote(ownerId: string, itemId: string) {
+      return Boolean(await database.prepare("SELECT 1 FROM saved_items WHERE owner_id=? AND id=? AND item_kind='note'").get(ownerId, itemId));
     },
-    saveNote(input: { ownerId: string; itemId: string; isCreate: boolean; body: string; title: string; links: string[]; assetIds: string[]; now: string }) {
+    async saveNote(input: { ownerId: string; itemId: string; isCreate: boolean; body: string; title: string; links: string[]; assetIds: string[]; now: string }) {
       const { ownerId, itemId, isCreate, body, title, links, assetIds, now } = input;
-      database.transaction(() => {
-        const existing = isCreate ? [] : this.noteAssets(ownerId, itemId);
+      await database.transaction(async () => {
+        const existing = isCreate ? [] : await this.noteAssets(ownerId, itemId);
         if (existing.length + assetIds.length > 5) throw new Error('too_many_images');
         if (isCreate) {
-          database.prepare(`INSERT INTO saved_items (id, owner_id, original_url, canonical_url, title, description, status, item_kind, created_at, updated_at)
+          await database.prepare(`INSERT INTO saved_items (id, owner_id, original_url, canonical_url, title, description, status, item_kind, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, '', 'ready', 'note', ?, ?)`)
             .run(itemId, ownerId, `rembr://note/${itemId}`, `rembr://note/${itemId}`, title || 'Untitled note', now, now);
-          database.prepare('INSERT INTO notes (owner_id, item_id, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run(ownerId, itemId, body, now, now);
+          await database.prepare('INSERT INTO notes (owner_id, item_id, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?)').run(ownerId, itemId, body, now, now);
         } else {
-          database.prepare('UPDATE notes SET body=?, updated_at=? WHERE owner_id=? AND item_id=?').run(body, now, ownerId, itemId);
-          database.prepare('DELETE FROM note_links WHERE owner_id=? AND item_id=?').run(ownerId, itemId);
-          if (title) database.prepare('UPDATE saved_items SET title_override=?, updated_at=? WHERE owner_id=? AND id=?').run(title.slice(0, 240), now, ownerId, itemId);
-          database.prepare('DELETE FROM note_assets WHERE owner_id=? AND item_id=?').run(ownerId, itemId);
+          await database.prepare('UPDATE notes SET body=?, updated_at=? WHERE owner_id=? AND item_id=?').run(body, now, ownerId, itemId);
+          await database.prepare('DELETE FROM note_links WHERE owner_id=? AND item_id=?').run(ownerId, itemId);
+          if (title) await database.prepare('UPDATE saved_items SET title_override=?, updated_at=? WHERE owner_id=? AND id=?').run(title.slice(0, 240), now, ownerId, itemId);
+          await database.prepare('DELETE FROM note_assets WHERE owner_id=? AND item_id=?').run(ownerId, itemId);
         }
         const insertLink = database.prepare('INSERT INTO note_links (id, owner_id, item_id, url, position, created_at) VALUES (?, ?, ?, ?, ?, ?)');
-        links.forEach((url, position) => insertLink.run(randomUUID(), ownerId, itemId, url, position, now));
+        for (const [position, url] of links.entries()) await insertLink.run(randomUUID(), ownerId, itemId, url, position, now);
         const insertAsset = database.prepare('INSERT INTO note_assets (owner_id, item_id, asset_id, position) VALUES (?, ?, ?, ?)');
-        if (!isCreate) existing.forEach((asset, index) => insertAsset.run(ownerId, itemId, asset.id, index));
-        assetIds.forEach((assetId, index) => insertAsset.run(ownerId, itemId, assetId, (isCreate ? 0 : existing.length) + index));
+        if (!isCreate) for (const [index, asset] of existing.entries()) await insertAsset.run(ownerId, itemId, asset.id, index);
+        for (const [index, assetId] of assetIds.entries()) await insertAsset.run(ownerId, itemId, assetId, (isCreate ? 0 : existing.length) + index);
       })();
-      return this.get(ownerId, itemId);
+      return await this.get(ownerId, itemId);
     },
-    removeNoteAsset(ownerId: string, itemId: string, assetId: string) {
-      const asset = database.prepare(`SELECT asset_objects.storage_key AS storageKey FROM note_assets
+    async removeNoteAsset(ownerId: string, itemId: string, assetId: string) {
+      const asset = await database.prepare(`SELECT asset_objects.storage_key AS storageKey FROM note_assets
         JOIN asset_objects ON asset_objects.owner_id=note_assets.owner_id AND asset_objects.id=note_assets.asset_id
         WHERE note_assets.owner_id=? AND note_assets.item_id=? AND note_assets.asset_id=?`)
         .get(ownerId, itemId, assetId) as { storageKey: string } | undefined;
       if (!asset) return undefined;
-      database.transaction(() => {
-        database.prepare("UPDATE asset_objects SET state='deleting', updated_at=? WHERE owner_id=? AND id=?").run(new Date().toISOString(), ownerId, assetId);
-        const remaining = database.prepare('SELECT asset_id AS id FROM note_assets WHERE owner_id=? AND item_id=? AND asset_id<>? ORDER BY position').all(ownerId, itemId, assetId) as Array<{ id: string }>;
-        database.prepare('DELETE FROM note_assets WHERE owner_id=? AND item_id=?').run(ownerId, itemId);
+      await database.transaction(async () => {
+        await database.prepare("UPDATE asset_objects SET state='deleting', updated_at=? WHERE owner_id=? AND id=?").run(new Date().toISOString(), ownerId, assetId);
+        const remaining = await database.prepare('SELECT asset_id AS id FROM note_assets WHERE owner_id=? AND item_id=? AND asset_id<>? ORDER BY position').all(ownerId, itemId, assetId) as Array<{ id: string }>;
+        await database.prepare('DELETE FROM note_assets WHERE owner_id=? AND item_id=?').run(ownerId, itemId);
         const insert = database.prepare('INSERT INTO note_assets (owner_id,item_id,asset_id,position) VALUES (?,?,?,?)');
-        remaining.forEach((row, position) => insert.run(ownerId, itemId, row.id, position));
+        for (const [position, row] of remaining.entries()) await insert.run(ownerId, itemId, row.id, position);
       })();
       return asset;
     },
