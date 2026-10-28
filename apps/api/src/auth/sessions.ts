@@ -69,7 +69,7 @@ export function requireUser(database: DatabaseHandle) {
       return;
     }
     const now = new Date().toISOString();
-    const user = await database.prepare(`SELECT users.id, users.email, users.account_status AS accountStatus
+    const user = await database.prepare(`SELECT users.id, users.email, users.account_status AS "accountStatus"
       FROM sessions JOIN users ON users.id = sessions.user_id
       WHERE sessions.token_hash = ? AND sessions.expires_at > ?`)
       .get(digest(token), now) as AuthenticatedUser | undefined;

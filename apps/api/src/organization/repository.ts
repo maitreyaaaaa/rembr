@@ -5,7 +5,7 @@ type Row = Record<string, unknown>;
 export function createOrganizationRepository(database: DatabaseHandle) {
   return {
     async listTags(ownerId: string) {
-      return await database.prepare(`SELECT tags.id, tags.display_name AS name, count(item_tags.item_id) AS itemCount
+      return await database.prepare(`SELECT tags.id, tags.display_name AS name, count(item_tags.item_id) AS "itemCount"
         FROM tags LEFT JOIN item_tags ON item_tags.owner_id=tags.owner_id AND item_tags.tag_id=tags.id
         WHERE tags.owner_id=? GROUP BY tags.id ORDER BY tags.normalized_name`).all(ownerId);
     },
@@ -30,7 +30,7 @@ export function createOrganizationRepository(database: DatabaseHandle) {
     },
     async listCollections(ownerId: string) {
       return await database.prepare(`SELECT collections.id, collections.name, collections.description,
-          count(collection_items.item_id) AS itemCount, collections.created_at AS createdAt, collections.updated_at AS updatedAt
+          count(collection_items.item_id) AS "itemCount", collections.created_at AS "createdAt", collections.updated_at AS "updatedAt"
         FROM collections LEFT JOIN collection_items ON collection_items.owner_id=collections.owner_id AND collection_items.collection_id=collections.id
         WHERE collections.owner_id=? GROUP BY collections.id ORDER BY collections.normalized_name`).all(ownerId);
     },
@@ -40,7 +40,7 @@ export function createOrganizationRepository(database: DatabaseHandle) {
       return { id: input.id, name: input.name, description: input.description, itemCount: 0, createdAt: input.now, updatedAt: input.now };
     },
     async getCollection(ownerId: string, id: string) {
-      return await database.prepare('SELECT id,name,description,created_at AS createdAt,updated_at AS updatedAt FROM collections WHERE owner_id=? AND id=?').get(ownerId, id) as Row | undefined;
+      return await database.prepare('SELECT id,name,description,created_at AS "createdAt",updated_at AS "updatedAt" FROM collections WHERE owner_id=? AND id=?').get(ownerId, id) as Row | undefined;
     },
     async getCollectionItems(ownerId: string, id: string, limit: number, cursor?: ItemCursorKey) {
       const cursorClause = cursor ? 'AND (saved_items.created_at < ? OR (saved_items.created_at=? AND saved_items.id<?))' : '';
@@ -60,7 +60,7 @@ export function createOrganizationRepository(database: DatabaseHandle) {
       fields.push('updated_at=?'); values.push(input.now,input.ownerId,input.id);
       const result = await database.prepare(`UPDATE collections SET ${fields.join(',')} WHERE owner_id=? AND id=?`).run(...values);
       if (!result.changes) return undefined;
-      return await database.prepare('SELECT id,name,description,updated_at AS updatedAt FROM collections WHERE owner_id=? AND id=?').get(input.ownerId,input.id) as Row;
+      return await database.prepare('SELECT id,name,description,updated_at AS "updatedAt" FROM collections WHERE owner_id=? AND id=?').get(input.ownerId,input.id) as Row;
     },
     async deleteCollection(ownerId: string, id: string) {
       return (await database.prepare('DELETE FROM collections WHERE owner_id=? AND id=?').run(ownerId,id)).changes > 0;

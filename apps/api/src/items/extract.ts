@@ -29,7 +29,10 @@ export function extractPage(html: string, sourceUrl: string): ExtractedPage {
       if (!mediaUrls.includes(url.toString())) mediaUrls.push(url.toString());
     } catch { /* Ignore malformed media metadata and keep the readable page. */ }
   };
-  for (const selector of ['meta[property="og:image"]', 'meta[name="twitter:image"]', 'meta[name="twitter:image:src"]']) addMedia(page(selector).first().attr('content'));
+  for (const selector of ['meta[property="og:image"]', 'meta[name="twitter:image"]', 'meta[name="twitter:image:src"]',
+    'meta[property="og:video"]', 'meta[property="og:video:url"]', 'meta[property="og:video:secure_url"]', 'meta[name="twitter:player:stream"]',
+    'meta[property="og:audio"]', 'meta[property="og:audio:url"]', 'meta[property="og:audio:secure_url"]']) addMedia(page(selector).first().attr('content'));
   page('img[src]').each((_index, element) => { addMedia(page(element).attr('src')); });
+  page('video[src], video source[src], audio[src], audio source[src]').each((_index, element) => { addMedia(page(element).attr('src')); });
   return { title: title || new URL(sourceUrl).hostname, description, text, mediaUrls };
 }

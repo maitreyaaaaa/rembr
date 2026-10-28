@@ -26,11 +26,11 @@ export function createLibraryRepository(database: DatabaseHandle) {
   async function related(ownerId: string, itemIds: string[]) {
     if (!itemIds.length) return { tags: new Map<string, unknown[]>(), collections: new Map<string, unknown[]>() };
     const marks = itemIds.map(() => '?').join(',');
-    const tags = await database.prepare(`SELECT item_tags.item_id AS itemId, tags.id, tags.display_name AS name
+    const tags = await database.prepare(`SELECT item_tags.item_id AS "itemId", tags.id, tags.display_name AS name
       FROM item_tags JOIN tags ON tags.owner_id=item_tags.owner_id AND tags.id=item_tags.tag_id
       WHERE item_tags.owner_id=? AND item_tags.item_id IN (${marks}) ORDER BY tags.normalized_name`)
       .all(ownerId, ...itemIds) as Array<{ itemId: string; id: string; name: string }>;
-    const collections = await database.prepare(`SELECT collection_items.item_id AS itemId, collections.id, collections.name
+    const collections = await database.prepare(`SELECT collection_items.item_id AS "itemId", collections.id, collections.name
       FROM collection_items JOIN collections ON collections.owner_id=collection_items.owner_id AND collections.id=collection_items.collection_id
       WHERE collection_items.owner_id=? AND collection_items.item_id IN (${marks}) ORDER BY collections.normalized_name`)
       .all(ownerId, ...itemIds) as Array<{ itemId: string; id: string; name: string }>;
@@ -50,7 +50,7 @@ export function createLibraryRepository(database: DatabaseHandle) {
       if (!includeDetail) return dto;
       const id = String(row.id);
       if (row.item_kind !== 'note') {
-        const media = await database.prepare(`SELECT id,detected_mime AS mime,byte_size AS byteSize,status,error_code AS errorCode
+        const media = await database.prepare(`SELECT id,detected_mime AS mime,byte_size AS "byteSize",status,error_code AS "errorCode"
           FROM media_artifacts WHERE owner_id=? AND item_id=? AND active=1 ORDER BY created_at,id`)
           .all(ownerId, id) as Array<{ id: string; mime: string | null; byteSize: number; status: string; errorCode: string | null }>;
         return { ...dto, media: media.map((asset) => ({ ...asset, url: asset.status === 'ready' ? `/api/media/${asset.id}` : null })) };
@@ -58,7 +58,7 @@ export function createLibraryRepository(database: DatabaseHandle) {
       const note = await database.prepare('SELECT body FROM notes WHERE owner_id=? AND item_id=?').get(ownerId, id) as { body: string } | undefined;
       const links = await database.prepare('SELECT url FROM note_links WHERE owner_id=? AND item_id=? ORDER BY position').all(ownerId, id) as Array<{ url: string }>;
       const assets = await database.prepare(`SELECT asset_objects.id, asset_objects.detected_mime AS mime,
-          asset_objects.byte_size AS byteSize
+          asset_objects.byte_size AS "byteSize"
         FROM note_assets JOIN asset_objects ON asset_objects.owner_id=note_assets.owner_id AND asset_objects.id=note_assets.asset_id
         WHERE note_assets.owner_id=? AND note_assets.item_id=? AND asset_objects.state='ready' ORDER BY note_assets.position`)
         .all(ownerId, id) as Array<{ id: string; mime: string; byteSize: number }>;
@@ -103,8 +103,8 @@ export function createLibraryRepository(database: DatabaseHandle) {
         params.push(query.status);
       }
       if (query.search) {
-        clauses.push(`(COALESCE(saved_items.title_override,saved_items.title) LIKE ? ESCAPE '\\' OR saved_items.original_url LIKE ? ESCAPE '\\')`);
-        const safe = `%${query.search.replace(/[\\%_]/g, '\\$&')}%`; params.push(safe, safe);
+        clauses.push(`(COALESCE(saved_items.title_override,saved_items.title) LIKE ? ESCAPE '!' OR saved_items.original_url LIKE ? ESCAPE '!')`);
+        const safe = `%${query.search.replace(/[!%_]/g, '!$&')}%`; params.push(safe, safe);
       }
       if (query.tagId) { clauses.push('EXISTS (SELECT 1 FROM item_tags WHERE owner_id=saved_items.owner_id AND item_id=saved_items.id AND tag_id=?)'); params.push(query.tagId); }
       if (query.collectionId) { clauses.push('EXISTS (SELECT 1 FROM collection_items WHERE owner_id=saved_items.owner_id AND item_id=saved_items.id AND collection_id=?)'); params.push(query.collectionId); }
@@ -143,7 +143,7 @@ export function createLibraryRepository(database: DatabaseHandle) {
       return result.changes ? this.get(ownerId, itemId) : undefined;
     },
     async delete(ownerId: string, itemId: string) {
-      const assets = await database.prepare(`SELECT DISTINCT asset_objects.id, asset_objects.storage_key AS storageKey FROM note_assets
+      const assets = await database.prepare(`SELECT DISTINCT asset_objects.id, asset_objects.storage_key AS "storageKey" FROM note_assets
         JOIN asset_objects ON asset_objects.owner_id=note_assets.owner_id AND asset_objects.id=note_assets.asset_id
         WHERE note_assets.owner_id=? AND note_assets.item_id=?`).all(ownerId, itemId) as Array<{ id: string; storageKey: string }>;
       const mediaKeys = (await database.prepare('SELECT storage_key FROM media_artifacts WHERE owner_id=? AND item_id=? AND storage_key IS NOT NULL').all(ownerId, itemId) as Array<{ storage_key: string }>).map((row) => row.storage_key);
@@ -188,7 +188,7 @@ export function createLibraryRepository(database: DatabaseHandle) {
       return await this.get(ownerId, itemId);
     },
     async removeNoteAsset(ownerId: string, itemId: string, assetId: string) {
-      const asset = await database.prepare(`SELECT asset_objects.storage_key AS storageKey FROM note_assets
+      const asset = await database.prepare(`SELECT asset_objects.storage_key AS "storageKey" FROM note_assets
         JOIN asset_objects ON asset_objects.owner_id=note_assets.owner_id AND asset_objects.id=note_assets.asset_id
         WHERE note_assets.owner_id=? AND note_assets.item_id=? AND note_assets.asset_id=?`)
         .get(ownerId, itemId, assetId) as { storageKey: string } | undefined;

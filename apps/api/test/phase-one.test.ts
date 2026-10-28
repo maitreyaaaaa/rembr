@@ -312,7 +312,7 @@ test('transient worker failures retry and expired leases are fenced on reclaim',
     await database.prepare(`UPDATE processing_jobs SET status='processing', attempts=1, lease_token='stale-token',
       lease_expires_at='2000-01-01T00:00:00.000Z' WHERE item_id=?`).run(leased.id);
     await database.prepare("UPDATE saved_items SET status='processing' WHERE id=?").run(leased.id);
-    const reclaimed = claimNextJob(database);
+    const reclaimed = await claimNextJob(database);
     assert.equal(reclaimed?.item_id, leased.id);
     assert.equal(reclaimed?.attempts, 2);
     assert.notEqual(reclaimed?.lease_token, 'stale-token');
@@ -321,7 +321,7 @@ test('transient worker failures retry and expired leases are fenced on reclaim',
     await database.prepare(`UPDATE processing_jobs SET status='processing', attempts=max_attempts,
       lease_token='exhausted-token', lease_expires_at='2000-01-01T00:00:00.000Z' WHERE item_id=?`).run(exhausted.id);
     await database.prepare("UPDATE saved_items SET status='processing' WHERE id=?").run(exhausted.id);
-    assert.equal(claimNextJob(database), undefined);
+    assert.equal(await claimNextJob(database), undefined);
     const failedJob = await database.prepare('SELECT status,error_code FROM processing_jobs WHERE item_id=?')
       .get(exhausted.id) as { status: string; error_code: string };
     assert.equal(failedJob.status, 'failed');

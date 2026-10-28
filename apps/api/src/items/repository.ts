@@ -65,13 +65,13 @@ export function createItemRepository(database: DatabaseHandle) {
     },
 
     async list(ownerId: string, search: string, limit: number) {
-      const pattern = `%${search.replace(/[\\%_]/g, '\\$&')}%`;
+      const pattern = `%${search.replace(/[!%_]/g, '!$&')}%`;
       const rows = await database.prepare(`SELECT saved_items.*, extracted_artifacts.text_content
         FROM saved_items LEFT JOIN extracted_artifacts
           ON extracted_artifacts.item_id = saved_items.id
           AND extracted_artifacts.owner_id = saved_items.owner_id
         WHERE saved_items.owner_id = ?
-          AND (? = '' OR saved_items.title LIKE ? ESCAPE '\\' OR saved_items.original_url LIKE ? ESCAPE '\\')
+          AND (? = '' OR saved_items.title LIKE ? ESCAPE '!' OR saved_items.original_url LIKE ? ESCAPE '!')
         ORDER BY saved_items.created_at DESC LIMIT ?`)
         .all(ownerId, search, pattern, pattern, limit) as Array<Record<string, unknown>>;
       return rows.map(toSummary);

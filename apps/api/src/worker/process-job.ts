@@ -1,8 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseHandle } from '../db/database.js';
 import { config } from '../config.js';
-import { detectImageMime } from '../assets/storage.js';
-import { LocalMediaStorage } from '../media/storage.js';
+import { detectSupportedMediaMime, LocalMediaStorage } from '../media/storage.js';
 import { CaptureError, fetchPublicMedia, fetchPublicPage } from '../items/safe-fetch.js';
 import { extractPage } from '../items/extract.js';
 
@@ -145,9 +144,9 @@ export async function processNextJob(database: DatabaseHandle, fetchPage: PageFe
     for (const sourceUrl of extracted.mediaUrls.slice(0, 3)) {
       try {
         const downloaded = await mediaProcessor.fetchMedia(sourceUrl);
-        const detectedMime = detectImageMime(downloaded.bytes);
+        const detectedMime = detectSupportedMediaMime(downloaded.bytes, downloaded.mime);
         if (!detectedMime || detectedMime !== downloaded.mime) throw new CaptureError('media_signature_mismatch', 'The media type did not match its file contents.');
-        const stored = await mediaProcessor.storage.write(downloaded.bytes);
+        const stored = await mediaProcessor.storage.write(downloaded.bytes, detectedMime);
         mediaResults.push({ sourceUrl, storageKey: stored.key, mime: stored.mime, byteSize: downloaded.bytes.length, sha256: stored.sha256, status: 'ready', errorCode: null });
       } catch (cause) {
         mediaResults.push({ sourceUrl, storageKey: null, mime: null, byteSize: 0, sha256: null, status: 'failed', errorCode: cause instanceof CaptureError ? cause.code : 'media_store_failed' });

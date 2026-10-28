@@ -229,7 +229,30 @@ test('worker saves safe image media privately, scopes reads, and keeps the last 
     const storageKey = await database.prepare('SELECT storage_key FROM media_artifacts WHERE item_id=? AND status=\'ready\' AND active=1').get(item.id) as { storage_key: string };
     assert.equal((await fetch(`${baseUrl}/api/items/${item.id}`, { method: 'DELETE', headers: { Cookie: owner } })).status, 204);
     await assert.rejects(readFile(join(mediaPath, storageKey.storage_key)));
-    assert.equal((database.prepare('SELECT count(*) AS count FROM media_cleanup_queue').get() as { count: number }).count, 0);
+    assert.equal((await database.prepare('SELECT count(*) AS count FROM media_cleanup_queue').get() as { count: number }).count, 0);
+  });
+});
+
+test('worker stores supported audio and video media privately and serves the declared media types', async () => {
+  await withApi(async (baseUrl, database, _importPath, mediaPath) => {
+    const owner = await register(baseUrl, 'av-media-owner@example.test', 'avmedia_1');
+    const capture = await fetch(`${baseUrl}/api/items`, { method: 'POST', headers: { Cookie: owner, 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'https://example.com/av-media' }) });
+    const item = (await capture.json() as { item: { id: string } }).item;
+    const video = Buffer.alloc(16); video.writeUInt32BE(16, 0); video.write('ftyp', 4, 'ascii'); video.write('isom', 8, 'ascii');
+    const audio = Buffer.from('ID3\x04\x00\x00', 'binary');
+    const page = async () => ({ finalUrl: 'https://example.com/av-media', contentType: 'text/html', html: '<video src="/movie.mp4"></video><audio src="/voice.mp3"></audio><main>Readable media page</main>' });
+    const storage = new LocalMediaStorage(mediaPath);
+    assert.ok(await processNextJob(database, page, { storage, fetchMedia: async (url) => url.endsWith('.mp4')
+      ? { finalUrl: 'https://cdn.example.com/movie.mp4', mime: 'video/mp4', bytes: video }
+      : { finalUrl: 'https://cdn.example.com/voice.mp3', mime: 'audio/mpeg', bytes: audio } }));
+    const details = await fetch(`${baseUrl}/api/items/${item.id}`, { headers: { Cookie: owner } });
+    const media = (await details.json() as { item: { media: Array<{ mime: string; url: string; status: string }> } }).item.media;
+    assert.deepEqual(media.map((asset) => [asset.mime, asset.status]), [['video/mp4', 'ready'], ['audio/mpeg', 'ready']]);
+    for (const asset of media) {
+      const response = await fetch(`${baseUrl}${asset.url}`, { headers: { Cookie: owner } });
+      assert.equal(response.status, 200);
+      assert.equal(response.headers.get('content-type'), asset.mime);
+    }
   });
 });
 

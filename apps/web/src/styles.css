@@ -472,6 +472,8 @@ h1, h2, h3, p { margin-top: 0; }
 .phase2-link-list { display: grid; gap: 9px; margin: 0; padding-left: 18px; color: var(--primary); font-size: 12px; overflow-wrap: anywhere; }
 .phase2-assets { display: flex; flex-wrap: wrap; gap: 10px; }
 .phase2-assets img { width: min(180px, 44%); max-height: 170px; object-fit: cover; border-radius: 11px; }
+.phase2-assets video { width: min(100%, 640px); max-height: 360px; border-radius: 11px; background: #171917; }
+.phase2-assets audio { width: min(100%, 640px); }
 .phase2-asset-previews { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
 .phase2-asset-previews figure { min-width: 0; margin: 0; overflow: hidden; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); }
 .phase2-asset-previews img { display: block; width: 100%; height: 120px; object-fit: cover; background: #eceef1; }

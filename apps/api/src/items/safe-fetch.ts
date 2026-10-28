@@ -176,7 +176,8 @@ export async function fetchPublicPage(
 }
 
 export interface MediaResponsePayload { statusCode: number; location: string | undefined; contentType: string; body: Buffer }
-const MEDIA_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+const MEDIA_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'audio/mpeg', 'audio/mp4', 'audio/ogg',
+  'audio/wav', 'audio/webm', 'video/mp4', 'video/webm', 'video/ogg']);
 export const MAX_MEDIA_BYTES = 5 * 1024 * 1024;
 
 function requestMediaAtPinnedAddress(target: ValidatedUrl, maxBytes: number): Promise<MediaResponsePayload> {
@@ -184,7 +185,7 @@ function requestMediaAtPinnedAddress(target: ValidatedUrl, maxBytes: number): Pr
     const isHttps = target.url.protocol === 'https:'; const requestFn = isHttps ? httpsRequest : httpRequest;
     const hostname = target.url.hostname.replace(/^\[|\]$/g, '');
     const request = requestFn(target.url, {
-      method: 'GET', headers: { accept: 'image/jpeg,image/png,image/webp,image/gif', 'accept-encoding': 'identity', 'user-agent': 'RembrBot/0.1 (+user-requested page capture)' },
+      method: 'GET', headers: { accept: 'image/jpeg,image/png,image/webp,image/gif,audio/mpeg,audio/mp4,audio/ogg,audio/wav,audio/webm,video/mp4,video/webm,video/ogg', 'accept-encoding': 'identity', 'user-agent': 'RembrBot/0.1 (+user-requested page capture)' },
       lookup: (_host, options, callback) => options.all ? callback(null, [{ address: target.address, family: target.family }]) : callback(null, target.address, target.family),
       ...(isHttps && !isIP(hostname) ? { servername: hostname } : {}), timeout: 10_000, maxHeaderSize: 16_384,
     }, (response) => {

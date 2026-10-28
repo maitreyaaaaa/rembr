@@ -11,8 +11,8 @@ export interface ProfileRow {
 export function createAccountRepository(database: DatabaseHandle) {
   return {
     async getProfile(userId: string) {
-      return await database.prepare(`SELECT username, avatar_url AS avatarUrl, avatar_asset_id AS avatarAssetId,
-          created_at AS createdAt, updated_at AS updatedAt
+      return await database.prepare(`SELECT username, avatar_url AS "avatarUrl", avatar_asset_id AS "avatarAssetId",
+          created_at AS "createdAt", updated_at AS "updatedAt"
         FROM profiles WHERE user_id = ?`).get(userId) as ProfileRow | undefined;
     },
 
@@ -28,11 +28,11 @@ export function createAccountRepository(database: DatabaseHandle) {
     },
 
     async getOnboarding(userId: string) {
-      const preferences = await database.prepare(`SELECT referral_source AS referralSource, completed_at AS completedAt,
-          skipped_at AS skippedAt
+      const preferences = await database.prepare(`SELECT referral_source AS "referralSource", completed_at AS "completedAt",
+          skipped_at AS "skippedAt"
         FROM onboarding_preferences WHERE user_id = ?`).get(userId) as { referralSource: string | null; completedAt: string | null; skippedAt: string | null } | undefined;
       if (!preferences) return null;
-      const rows = await database.prepare('SELECT content_type AS contentType FROM onboarding_content_types WHERE user_id = ? ORDER BY content_type')
+      const rows = await database.prepare('SELECT content_type AS "contentType" FROM onboarding_content_types WHERE user_id = ? ORDER BY content_type')
         .all(userId) as Array<{ contentType: string }>;
       return { contentTypes: rows.map((row) => row.contentType), referralSource: preferences.referralSource ?? '', completedAt: preferences.completedAt, skippedAt: preferences.skippedAt };
     },

@@ -109,8 +109,8 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
     }
   });
 
-  app.post('/api/auth/logout', (req, res) => {
-    destroySession(database, req, res);
+  app.post('/api/auth/logout', async (req, res) => {
+    await destroySession(database, req, res);
     res.status(204).end();
   });
 

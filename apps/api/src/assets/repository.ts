@@ -16,7 +16,7 @@ export function createAssetRepository(database: DatabaseHandle) {
     },
     async getForOwner(ownerId: string, id: string, state?: 'ready' | 'deleting') {
       const stateClause = state ? ' AND state=?' : '';
-      return await database.prepare(`SELECT id,owner_id AS ownerId,kind,storage_key AS storageKey,detected_mime AS mime,byte_size AS byteSize,sha256,state
+      return await database.prepare(`SELECT id,owner_id AS "ownerId",kind,storage_key AS "storageKey",detected_mime AS mime,byte_size AS "byteSize",sha256,state
         FROM asset_objects WHERE owner_id=? AND id=?${stateClause}`).get(...(state ? [ownerId, id, state] : [ownerId, id])) as {
           id: string; ownerId: string; kind: AssetKind; storageKey: string; mime: string; byteSize: number; sha256: string; state: string;
         } | undefined;
@@ -25,7 +25,7 @@ export function createAssetRepository(database: DatabaseHandle) {
       await database.prepare('DELETE FROM asset_objects WHERE owner_id=? AND id=?').run(ownerId, id);
     },
     async findStagedAndCleanupCandidates() {
-      return await database.prepare(`SELECT id,owner_id AS ownerId,storage_key AS storageKey,state,created_at AS createdAt
+      return await database.prepare(`SELECT id,owner_id AS "ownerId",storage_key AS "storageKey",state,created_at AS "createdAt"
         FROM asset_objects`).all() as Array<{ id: string; ownerId: string; storageKey: string; state: string; createdAt: string }>;
     },
     async countReferences(id: string) {
