@@ -1,0 +1,27 @@
+{
+  "name": "rembr",
+  "private": true,
+  "version": "0.1.0",
+  "description": "A fresh source-informed rebuild of IScraper.",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "workspaces": [
+    "apps/api",
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n api,web \"npm:dev:api\" \"npm:dev:web\"",
+    "dev:api": "npm run dev --workspace @rembr/api",
+    "dev:web": "npm run dev --workspace @rembr/web",
+    "worker": "npm run worker --workspace @rembr/api",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present",
+    "check": "npm run typecheck && npm run lint && npm test && npm run build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  }
+}
