@@ -12,6 +12,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NPM_CONFIG_INCLUDE
+        value: dev
       - key: SERVE_WEB
         value: "true"
       - key: STORAGE_BACKEND
@@ -36,6 +38,8 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      - key: NPM_CONFIG_INCLUDE
+        value: dev
       - key: STORAGE_BACKEND
         value: supabase
       - key: SUPABASE_URL
