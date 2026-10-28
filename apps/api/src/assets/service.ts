@@ -2,9 +2,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { AssetKind } from './repository.js';
 import { createAssetRepository } from './repository.js';
 import type { DatabaseHandle } from '../db/database.js';
-import { LocalAssetStorage } from './storage.js';
+import type { AssetStorage } from './storage.js';
 
-export function createAssetService(database: DatabaseHandle, storage: LocalAssetStorage) {
+export function createAssetService(database: DatabaseHandle, storage: AssetStorage) {
   const repository = createAssetRepository(database);
   return {
     async stage(ownerId: string, kind: AssetKind, bytes: Buffer, mime: string) {

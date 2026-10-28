@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseHandle } from '../db/database.js';
 import { config } from '../config.js';
-import { detectSupportedMediaMime, LocalMediaStorage } from '../media/storage.js';
+import { detectSupportedMediaMime, LocalMediaStorage, type MediaStorage } from '../media/storage.js';
 import { CaptureError, fetchPublicMedia, fetchPublicPage } from '../items/safe-fetch.js';
 import { extractPage } from '../items/extract.js';
 
@@ -13,7 +13,7 @@ interface ClaimedJob {
 export interface FetchResult { finalUrl: string; contentType: string; html: string }
 export type PageFetcher = (url: string) => Promise<FetchResult>;
 export type MediaFetcher = (url: string) => Promise<{ finalUrl: string; mime: string; bytes: Buffer }>;
-export interface MediaProcessor { fetchMedia: MediaFetcher; storage: LocalMediaStorage }
+export interface MediaProcessor { fetchMedia: MediaFetcher; storage: MediaStorage }
 
 const TRANSIENT_FAILURES = new Set(['dns_failed', 'page_timeout', 'page_unavailable', 'fetch_failed']);
 const LEASE_MS = 30_000;
@@ -108,7 +108,7 @@ async function cancelOwnedAttempt(database: DatabaseHandle, job: ClaimedJob, now
   return true;
 }
 
-export async function cleanupInactiveMedia(database: DatabaseHandle, storage: LocalMediaStorage): Promise<void> {
+export async function cleanupInactiveMedia(database: DatabaseHandle, storage: MediaStorage): Promise<void> {
   const queued = await database.prepare('SELECT storage_key FROM media_cleanup_queue').all() as Array<{ storage_key: string }>;
   for (const row of queued) {
     try {

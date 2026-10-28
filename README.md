@@ -13,6 +13,12 @@ Phases 1 and 2 passed their local gates on October 28, 2026. Phase 3 is in progr
 
 The API and worker use the connected Supabase Postgres database. Set `DATABASE_URL` in the project-root `.env` to the Supabase Postgres connection string before starting either process. The browser app uses only the Rembr API and never receives database credentials. Schema changes live in `supabase/migrations/` and are applied to the connected project.
 
+## Render deployment
+
+`render.yaml` defines a Singapore web service and a separate background worker. Both use the `master` branch and deploy automatically for each commit. The API serves the built web app from the same origin, while queued imports and capture jobs run continuously in the worker. This repository currently has no independent scheduled task, so it does not define a Render cron job; the queue consumer is a background worker rather than a cron process.
+
+The Blueprint asks for `DATABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` as protected Render secrets for both services. Enter the Supabase connection string and service-role key in Render's secure environment form; never commit them. `SUPABASE_URL` is the project URL. The server creates private Storage buckets named `rembr-assets`, `rembr-imports`, and `rembr-media` when each service starts. Keep Vercel serving traffic until the Render deployment passes its health check and the app is reviewed.
+
 ## Setup
 
 ```powershell

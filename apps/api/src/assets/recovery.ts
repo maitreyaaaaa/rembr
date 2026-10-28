@@ -1,10 +1,10 @@
 import type { DatabaseHandle } from '../db/database.js';
-import { LocalAssetStorage } from './storage.js';
+import type { AssetStorage } from './storage.js';
 import { createAssetRepository } from './repository.js';
 
 const RECOVERY_GRACE_MS = 60 * 60 * 1000;
 
-export async function recoverAssets(database: DatabaseHandle, storage: LocalAssetStorage, now = Date.now()): Promise<void> {
+export async function recoverAssets(database: DatabaseHandle, storage: AssetStorage, now = Date.now()): Promise<void> {
   const assets = createAssetRepository(database);
   await storage.initialize();
   const rows = await assets.findStagedAndCleanupCandidates();

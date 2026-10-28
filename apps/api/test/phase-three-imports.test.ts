@@ -247,7 +247,10 @@ test('worker stores supported audio and video media privately and serves the dec
       : { finalUrl: 'https://cdn.example.com/voice.mp3', mime: 'audio/mpeg', bytes: audio } }));
     const details = await fetch(`${baseUrl}/api/items/${item.id}`, { headers: { Cookie: owner } });
     const media = (await details.json() as { item: { media: Array<{ mime: string; url: string; status: string }> } }).item.media;
-    assert.deepEqual(media.map((asset) => [asset.mime, asset.status]), [['video/mp4', 'ready'], ['audio/mpeg', 'ready']]);
+    assert.deepEqual(
+      media.map((asset) => [asset.mime, asset.status]).sort(([left], [right]) => String(left).localeCompare(String(right))),
+      [['audio/mpeg', 'ready'], ['video/mp4', 'ready']],
+    );
     for (const asset of media) {
       const response = await fetch(`${baseUrl}${asset.url}`, { headers: { Cookie: owner } });
       assert.equal(response.status, 200);

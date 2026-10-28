@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { DatabaseHandle } from '../db/database.js';
 import { ImportParseError, parsePlatformExports } from './parser.js';
 import { createImportRepository, ImportRepositoryError, type ImportFileInput } from './repository.js';
-import { LocalImportStorage } from './storage.js';
+import type { ImportStorage } from './storage.js';
 
 export class ImportServiceError extends Error {
   constructor(readonly code: string) { super(code); this.name = 'ImportServiceError'; }
@@ -42,7 +42,7 @@ function validSignature(extension: string, bytes: Buffer): boolean {
   return !bytes.includes(0);
 }
 
-export function createImportService(database: DatabaseHandle, storage: LocalImportStorage) {
+export function createImportService(database: DatabaseHandle, storage: ImportStorage) {
   const repository = createImportRepository(database);
   async function cleanup(ownerId: string, importId: string): Promise<boolean> {
     const files = await repository.cleanupFiles(ownerId, importId); let success = true;

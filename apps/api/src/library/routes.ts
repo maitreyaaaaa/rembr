@@ -4,8 +4,8 @@ import { z } from 'zod';
 import type { DatabaseHandle } from '../db/database.js';
 import { requireUser } from '../auth/sessions.js';
 import { createProfileGate } from '../account/routes.js';
-import { LocalAssetStorage } from '../assets/storage.js';
-import { LocalMediaStorage } from '../media/storage.js';
+import type { AssetStorage } from '../assets/storage.js';
+import type { MediaStorage } from '../media/storage.js';
 import { createLibraryService, LibraryServiceError } from './service.js';
 
 const noteUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 5, fields: 3, fieldSize: 50_000 } });
@@ -26,7 +26,7 @@ function formField(req: express.Request, key: string): string {
   return typeof value === 'string' ? value : '';
 }
 
-export function createLibraryRouter(database: DatabaseHandle, storage: LocalAssetStorage, mediaStorage: LocalMediaStorage) {
+export function createLibraryRouter(database: DatabaseHandle, storage: AssetStorage, mediaStorage: MediaStorage) {
   const router = express.Router();
   const signedIn = requireUser(database);
   const profile = createProfileGate(database, storage);

@@ -1,0 +1,46 @@
+services:
+  - type: web
+    name: rembr-web
+    runtime: node
+    region: singapore
+    plan: 0.5c-512mb
+    branch: master
+    autoDeployTrigger: commit
+    buildCommand: npm ci && npm run build --workspace @rembr/api && npm run build --workspace @rembr/web
+    startCommand: npm run start --workspace @rembr/api
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SERVE_WEB
+        value: "true"
+      - key: STORAGE_BACKEND
+        value: supabase
+      - key: SUPABASE_URL
+        value: https://uipkxmuzsjbxnoiasuhn.supabase.co
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+
+  - type: worker
+    name: rembr-worker
+    runtime: node
+    region: singapore
+    plan: 0.5c-512mb
+    branch: master
+    autoDeployTrigger: commit
+    buildCommand: npm ci && npm run build --workspace @rembr/api
+    startCommand: npm run start:worker --workspace @rembr/api
+    maxShutdownDelaySeconds: 120
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: STORAGE_BACKEND
+        value: supabase
+      - key: SUPABASE_URL
+        value: https://uipkxmuzsjbxnoiasuhn.supabase.co
+      - key: DATABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false

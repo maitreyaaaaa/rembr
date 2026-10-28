@@ -3,9 +3,9 @@ import { z } from 'zod';
 import type { DatabaseHandle } from '../db/database.js';
 import { requireUser } from '../auth/sessions.js';
 import { createProfileGate } from '../account/routes.js';
-import { LocalAssetStorage } from '../assets/storage.js';
+import type { AssetStorage } from '../assets/storage.js';
 import { createImportService, ImportServiceError, IMPORT_FILE_LIMIT, IMPORT_TOTAL_LIMIT } from './service.js';
-import { LocalImportStorage } from './storage.js';
+import type { ImportStorage } from './storage.js';
 
 const createSchema = z.object({ files: z.array(z.object({ name: z.string().min(1).max(255), mime: z.string().max(120).default('application/octet-stream'), size: z.number().int(), chunks: z.number().int() }).strict()).min(1).max(20) }).strict();
 function param(req: express.Request, key: string): string { const value = req.params[key]; return Array.isArray(value) ? value[0] ?? '' : value ?? ''; }
@@ -13,7 +13,7 @@ function fail(res: express.Response, status: number, code: string, message: stri
   return res.status(status).json({ error: { code, message, ...(requestId ? { requestId } : {}) } });
 }
 
-export function createImportRouter(database: DatabaseHandle, assetStorage: LocalAssetStorage, storage: LocalImportStorage) {
+export function createImportRouter(database: DatabaseHandle, assetStorage: AssetStorage, storage: ImportStorage) {
   const router = express.Router(); const signedIn = requireUser(database); const profile = createProfileGate(database, assetStorage);
   const imports = createImportService(database, storage);
 

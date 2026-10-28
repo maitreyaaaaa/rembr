@@ -1,13 +1,13 @@
 import type { DatabaseHandle } from '../db/database.js';
 import { createAssetService } from '../assets/service.js';
-import { LocalAssetStorage } from '../assets/storage.js';
+import type { AssetStorage } from '../assets/storage.js';
 import { createAccountRepository } from './repository.js';
 
 export class AccountServiceError extends Error {
   constructor(public readonly code: 'invalid_profile' | 'username_taken', message: string) { super(message); }
 }
 
-export function createAccountService(database: DatabaseHandle, storage: LocalAssetStorage) {
+export function createAccountService(database: DatabaseHandle, storage: AssetStorage) {
   const repository = createAccountRepository(database);
   const assets = createAssetService(database, storage);
   return {

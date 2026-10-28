@@ -2,8 +2,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import ipaddr from 'ipaddr.js';
 import type { DatabaseHandle } from '../db/database.js';
 import { createAssetService } from '../assets/service.js';
-import { detectImageMime, imageExtensionMatches, LocalAssetStorage } from '../assets/storage.js';
-import { LocalMediaStorage } from '../media/storage.js';
+import { detectImageMime, imageExtensionMatches, type AssetStorage } from '../assets/storage.js';
+import type { MediaStorage } from '../media/storage.js';
 import { createLibraryRepository, type ItemListQuery } from './repository.js';
 
 export class LibraryServiceError extends Error {
@@ -39,7 +39,7 @@ function cursorDecode(value: string, expected: Pick<Cursor, 'owner' | 'fingerpri
 }
 function cursorEncode(cursor: Cursor): string { return Buffer.from(JSON.stringify(cursor)).toString('base64url'); }
 
-export function createLibraryService(database: DatabaseHandle, storage: LocalAssetStorage, mediaStorage?: LocalMediaStorage) {
+export function createLibraryService(database: DatabaseHandle, storage: AssetStorage, mediaStorage?: MediaStorage) {
   const repository = createLibraryRepository(database);
   const assets = createAssetService(database, storage);
   return {

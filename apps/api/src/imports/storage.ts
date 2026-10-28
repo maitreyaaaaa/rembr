@@ -5,7 +5,18 @@ import { join, resolve } from 'node:path';
 const KEY = /^[0-9a-f-]{36}$/i;
 const CHUNK = /^[0-9a-f-]{36}\.([0-9]{1,3})\.part$/i;
 
-export class LocalImportStorage {
+export interface ImportStorage {
+  initialize(): Promise<void>;
+  writeChunk(fileKey: string, index: number, bytes: Buffer): Promise<string>;
+  readChunk(key: string): Promise<Buffer>;
+  removeChunk(fileKey: string, index: number): Promise<void>;
+  assemble(fileKey: string, chunkCount: number, expectedBytes: number): Promise<void>;
+  readFile(fileKey: string): Promise<Buffer>;
+  removeFile(fileKey: string): Promise<void>;
+  removeUnknown(validKeys: { files: Set<string>; chunks: Set<string> }): Promise<void>;
+}
+
+export class LocalImportStorage implements ImportStorage {
   readonly root: string;
   constructor(root: string) { this.root = resolve(root); }
 

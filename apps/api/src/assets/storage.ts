@@ -4,6 +4,13 @@ import { join, resolve } from 'node:path';
 
 export type ImageMime = 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
 export interface StoredAsset { id: string; key: string; mime: ImageMime; bytes: number; sha256: string }
+export interface AssetStorage {
+  initialize(): Promise<void>;
+  write(data: Buffer, id?: string): Promise<StoredAsset>;
+  read(key: string): Promise<Buffer>;
+  remove(key: string): Promise<void>;
+  removeTemporaryAndUnknown(validKeys: Set<string>): Promise<void>;
+}
 
 export function detectImageMime(data: Buffer): ImageMime | null {
   if (data.length >= 8 && data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) return 'image/png';
@@ -21,7 +28,7 @@ export function imageExtensionMatches(filename: string, mime: ImageMime): boolea
   return Boolean(extension && allowed[mime].includes(extension));
 }
 
-export class LocalAssetStorage {
+export class LocalAssetStorage implements AssetStorage {
   readonly root: string;
   constructor(root: string) { this.root = resolve(root); }
 

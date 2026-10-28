@@ -3,7 +3,7 @@ import multer from 'multer';
 import { z } from 'zod';
 import type { DatabaseHandle } from '../db/database.js';
 import { requireUser } from '../auth/sessions.js';
-import { detectImageMime, imageExtensionMatches, LocalAssetStorage } from '../assets/storage.js';
+import { detectImageMime, imageExtensionMatches, type AssetStorage } from '../assets/storage.js';
 import { AccountServiceError, createAccountService } from './service.js';
 import type { ProfileRow } from './repository.js';
 
@@ -33,7 +33,7 @@ function publicProfile(userId: string, row: ProfileRow | undefined) {
   return { userId, ...row, avatarAssetUrl: avatarAssetId ? `/api/assets/${avatarAssetId}` : null };
 }
 
-export function createAccountRouter(database: DatabaseHandle, storage: LocalAssetStorage) {
+export function createAccountRouter(database: DatabaseHandle, storage: AssetStorage) {
   const router = express.Router();
   const signedIn = requireUser(database);
   const account = createAccountService(database, storage);
@@ -79,7 +79,7 @@ export function createAccountRouter(database: DatabaseHandle, storage: LocalAsse
   return router;
 }
 
-export function createProfileGate(database: DatabaseHandle, storage: LocalAssetStorage) {
+export function createProfileGate(database: DatabaseHandle, storage: AssetStorage) {
   const account = createAccountService(database, storage);
   return async (req: express.Request, res: express.Response, next: express.NextFunction) => {
     if (!req.user) return error(res, 401, 'unauthorized', 'Sign in to continue.', req.requestId);

@@ -2,14 +2,16 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { config } from '../config.js';
 import { createDatabase } from '../db/database.js';
 import { cleanupInactiveMedia, processNextJob } from './process-job.js';
-import { LocalImportStorage } from '../imports/storage.js';
+import { fetchPublicMedia } from '../items/safe-fetch.js';
 import { createImportService } from '../imports/service.js';
-import { LocalMediaStorage } from '../media/storage.js';
+import type { MediaProcessor } from './process-job.js';
+import { createStorageAdapters } from '../storage/adapters.js';
 
 const database = await createDatabase();
-const importStorage = new LocalImportStorage(config.importDirectory);
+const { imports: importStorage, media: mediaStorage } = createStorageAdapters();
+await Promise.all([importStorage.initialize(), mediaStorage.initialize()]);
 const imports = createImportService(database, importStorage);
-const mediaStorage = new LocalMediaStorage(config.mediaDirectory);
+const mediaProcessor: MediaProcessor = { fetchMedia: fetchPublicMedia, storage: mediaStorage };
 let stopping = false;
 
 async function run() {
@@ -21,7 +23,7 @@ async function run() {
       const importId = await imports.processNextImport();
       if (importId) console.info('rembr_import_processed', { importId });
       else {
-        const jobId = await processNextJob(database);
+        const jobId = await processNextJob(database, undefined, mediaProcessor);
         if (!jobId) await delay(1000);
         else console.info('rembr_job_processed', { jobId });
       }

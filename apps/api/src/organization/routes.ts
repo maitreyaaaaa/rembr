@@ -2,7 +2,7 @@ import express from 'express';
 import { z } from 'zod';
 import { requireUser } from '../auth/sessions.js';
 import { createProfileGate } from '../account/routes.js';
-import { LocalAssetStorage } from '../assets/storage.js';
+import type { AssetStorage } from '../assets/storage.js';
 import type { DatabaseHandle } from '../db/database.js';
 import { createOrganizationService, OrganizationServiceError } from './service.js';
 
@@ -13,7 +13,7 @@ function apiError(res: express.Response, status: number, code: string, message: 
   return res.status(status).json({ error: { code, message, ...(requestId ? { requestId } : {}) } });
 }
 
-export function createOrganizationRouter(database: DatabaseHandle, storage: LocalAssetStorage) {
+export function createOrganizationRouter(database: DatabaseHandle, storage: AssetStorage) {
   const router = express.Router();
   const signedIn = requireUser(database);
   const profile = createProfileGate(database, storage);

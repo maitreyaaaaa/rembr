@@ -2,7 +2,7 @@ import express from 'express';
 import type { DatabaseHandle } from '../db/database.js';
 import { requireUser } from '../auth/sessions.js';
 import { createProfileGate } from '../account/routes.js';
-import { LocalAssetStorage } from '../assets/storage.js';
+import type { AssetStorage } from '../assets/storage.js';
 import { createJobRepository } from './repository.js';
 
 function param(req: express.Request, key: string): string { const value = req.params[key]; return Array.isArray(value) ? value[0] ?? '' : value ?? ''; }
@@ -14,7 +14,7 @@ function respond(res: express.Response, outcome: unknown, requestId?: string) {
   return res.json({ job: outcome });
 }
 
-export function createJobRouter(database: DatabaseHandle, storage: LocalAssetStorage) {
+export function createJobRouter(database: DatabaseHandle, storage: AssetStorage) {
   const router = express.Router(); const signedIn = requireUser(database); const profile = createProfileGate(database, storage); const jobs = createJobRepository(database);
   router.get('/items/:id/job', signedIn, profile, async (req, res) => respond(res, await jobs.get(req.user!.id, param(req, 'id')) ?? 'not_found', req.requestId));
   router.post('/items/:id/job/cancel', signedIn, profile, async (req, res) => respond(res, await jobs.cancel(req.user!.id, param(req, 'id')), req.requestId));

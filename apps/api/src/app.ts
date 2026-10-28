@@ -4,6 +4,7 @@ import { rateLimit } from 'express-rate-limit';
 import express, { type ErrorRequestHandler, type RequestHandler } from 'express';
 import helmet from 'helmet';
 import multer from 'multer';
+import { resolve } from 'node:path';
 import { z } from 'zod';
 import { config } from './config.js';
 import { createSession, destroySession, requireUser } from './auth/sessions.js';
@@ -11,10 +12,10 @@ import { createAccountRouter, createProfileGate } from './account/routes.js';
 import { createLibraryRouter } from './library/routes.js';
 import { createOrganizationRouter } from './organization/routes.js';
 import { createImportRouter } from './imports/routes.js';
-import { LocalImportStorage } from './imports/storage.js';
+import { LocalImportStorage, type ImportStorage } from './imports/storage.js';
 import { createJobRouter } from './jobs/routes.js';
-import { LocalAssetStorage } from './assets/storage.js';
-import { LocalMediaStorage } from './media/storage.js';
+import { LocalAssetStorage, type AssetStorage } from './assets/storage.js';
+import { LocalMediaStorage, type MediaStorage } from './media/storage.js';
 import type { DatabaseHandle } from './db/database.js';
 import { CaptureError, validatePublicUrl } from './items/safe-fetch.js';
 import { createLibraryService } from './library/service.js';
@@ -28,7 +29,7 @@ function errorResponse(code: string, message: string, requestId?: string) {
   return { error: { code, message, ...(requestId ? { requestId } : {}) } };
 }
 
-export function createApp(database: DatabaseHandle, options: { validateUrl?: typeof validatePublicUrl; assetDirectory?: string; assetStorage?: LocalAssetStorage; importDirectory?: string; importStorage?: LocalImportStorage; mediaDirectory?: string; mediaStorage?: LocalMediaStorage } = {}) {
+export function createApp(database: DatabaseHandle, options: { validateUrl?: typeof validatePublicUrl; assetDirectory?: string; assetStorage?: AssetStorage; importDirectory?: string; importStorage?: ImportStorage; mediaDirectory?: string; mediaStorage?: MediaStorage } = {}) {
   const app = express();
   const assetStorage = options.assetStorage ?? new LocalAssetStorage(options.assetDirectory ?? config.assetDirectory);
   const importStorage = options.importStorage ?? new LocalImportStorage(options.importDirectory ?? config.importDirectory);
@@ -144,6 +145,19 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
   app.use('/api', createOrganizationRouter(database, assetStorage));
   app.use('/api', createImportRouter(database, assetStorage, importStorage));
   app.use('/api', createJobRouter(database, assetStorage));
+
+  if (config.SERVE_WEB) {
+    app.use(express.static(config.webBuildDirectory, { index: false, fallthrough: true }));
+    app.use((req, res, next) => {
+      if ((req.method !== 'GET' && req.method !== 'HEAD') || req.path === '/api' || req.path.startsWith('/api/')) {
+        next();
+        return;
+      }
+      res.sendFile(resolve(config.webBuildDirectory, 'index.html'), (error) => {
+        if (error) next(error);
+      });
+    });
+  }
 
   app.use((_req, res) => res.status(404).json(errorResponse('not_found', 'This route does not exist.', res.getHeader('X-Request-Id')?.toString())));
 
