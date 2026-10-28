@@ -165,11 +165,11 @@ h1, h2, h3, p { margin-top: 0; }
 .avatar-progress-track, .avatar-progress-value { fill: none; stroke-width: 3; }
 .avatar-progress-track { stroke: #cbd1dc; }
 .avatar-progress-value { stroke: var(--primary); stroke-linecap: round; transition: stroke-dashoffset 420ms cubic-bezier(.22, 1, .36, 1), stroke 200ms ease; }
-.avatar-photo-shell.has-error .avatar-progress-value { stroke: #ff625e; stroke-dashoffset: 0 !important; }
+.avatar-photo-shell.has-error .avatar-progress-value { stroke: #c9363f; stroke-dashoffset: 0 !important; }
 .avatar-upload-copy { min-width: 0; }
 .avatar-upload-copy > strong { display: block; margin-bottom: 4px; color: var(--text); font-size: 12px; font-weight: 750; }
 .avatar-upload-copy > p { max-width: 400px; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
-.avatar-upload-copy > .avatar-upload-error { display: flex; align-items: flex-start; gap: 6px; color: #ff625e; }
+.avatar-upload-copy > .avatar-upload-error { display: flex; align-items: flex-start; gap: 6px; color: #c9363f; }
 .avatar-upload-error > span { flex: 0 0 auto; font-size: 13px; line-height: 1.25; }
 .avatar-upload-status { color: var(--muted) !important; font-variant-numeric: tabular-nums; font-weight: 650; }
 .avatar-upload-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 10px; }
