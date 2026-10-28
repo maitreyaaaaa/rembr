@@ -33,7 +33,7 @@ Deliver the narrow authenticated journey defined in the [phase roadmap](phase-ga
 | `npm run lint` | Passed | API and web. |
 | `npm test` | Passed | 9 tests. |
 | `npm run build` | Passed | API TypeScript and web production build. |
-| Local DB migrations | Passed in tests | In-memory migration path; persistent file path still needs runtime smoke. |
+| Local DB migrations | Passed | In-memory tests and persistent local SQLite API/worker smoke. |
 | Live API + worker + browser UI | Partial | Dev API and UI started; account creation and capture acceptance were exercised in the browser. The login screen was visually reviewed at the desktop viewport. Browser interaction did not advance the page during this final review, so loading/success/failure captures and narrow viewport review remain open. |
 | Cross-user persistence and deletion race | Passed in automated tests | Uses two synthetic users and a controlled in-flight worker. |
 | Live public-site extraction | Passed | Authenticated local API submitted `https://example.com/`; worker persisted `ready` with title “Example Domain” and 156 characters of extracted text. Temporary synthetic test account was removed after the smoke. |
@@ -41,7 +41,7 @@ Deliver the narrow authenticated journey defined in the [phase roadmap](phase-ga
 
 ## Open Phase 1 work
 
-1. Complete a visual browser review of loading, success, failure, and narrow viewport states; the browser automation channel timed out on inspection.
+1. Complete a visual browser review of loading, success, failure, and narrow viewport states; browser input actions did not advance the page during the final review.
 2. Expand the automated security and reliability matrix for session expiry, unsupported/oversized responses, and worker retry/expired-lease recovery.
 3. Verify a private-address rejection and redirect pivot through the live worker path (the current private-address and redirect checks are controlled automated tests).
 4. Repeat the full check after addressing any newly found issues.
