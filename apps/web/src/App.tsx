@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
   BrowserRouter, Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useOutletContext,
   useParams, useSearchParams,
 } from 'react-router-dom';
 import { MarketingSite } from './MarketingSite.js';
+import { AvatarUpload } from './components/AvatarUpload.js';
+import { PasswordStrengthField } from './components/PasswordStrengthField.js';
 
 type Status = 'queued' | 'processing' | 'ready' | 'failed';
 interface User { id: string; email: string }
-interface Profile { userId: string; username: string; avatarUrl: string; avatarAssetId?: string | null }
+interface Profile { userId: string; username: string; avatarUrl: string | null; avatarAssetId?: string | null; avatarAssetUrl?: string | null }
 interface Tag { id: string; name: string }
 interface Collection { id: string; name: string; description?: string }
 interface Asset { id: string; url: string; mime: string; byteSize: number }
@@ -48,6 +50,43 @@ async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
+}
+
+function apiWithProgress<T>(path: string, body: FormData, signal: AbortSignal, onProgress: (progress: number) => void): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    const cleanup = () => signal.removeEventListener('abort', abort);
+    const abort = () => request.abort();
+    if (signal.aborted) { reject(new DOMException('Upload canceled.', 'AbortError')); return; }
+    request.open('PATCH', path);
+    request.withCredentials = true;
+    request.upload.addEventListener('progress', (event) => {
+      if (event.lengthComputable) onProgress(Math.round(event.loaded / event.total * 100));
+    });
+    request.addEventListener('load', () => {
+      cleanup();
+      let payload: { error?: { code?: string; message?: string } } = {};
+      try { payload = JSON.parse(request.responseText) as typeof payload; } catch { /* A successful empty response is handled below. */ }
+      if (request.status < 200 || request.status >= 300) {
+        const error = new Error(payload.error?.message ?? 'Rembr could not complete that request. Try again.') as ApiError;
+        error.status = request.status;
+        error.code = payload.error?.code ?? 'request_failed';
+        if (error.status === 401 || error.status === 403) window.dispatchEvent(new CustomEvent('rembr:auth-error', { detail: { status: error.status, code: error.code } }));
+        reject(error);
+        return;
+      }
+      onProgress(100);
+      if (request.status === 204) resolve(undefined as T);
+      else {
+        try { resolve(JSON.parse(request.responseText) as T); }
+        catch { reject(new Error('Rembr returned an invalid response. Try again.')); }
+      }
+    });
+    request.addEventListener('error', () => { cleanup(); reject(new Error('The upload could not reach Rembr. Check your connection and try again.')); });
+    request.addEventListener('abort', () => { cleanup(); reject(new DOMException('Upload canceled.', 'AbortError')); });
+    signal.addEventListener('abort', abort, { once: true });
+    request.send(body);
+  });
 }
 
 function messageOf(error: unknown, fallback: string): string {
@@ -96,6 +135,7 @@ function AuthPage() {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [passwordRevealed, setPasswordRevealed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const returnTo = sameAppPath(new URLSearchParams(location.search).get('returnTo'));
@@ -118,8 +158,8 @@ function AuthPage() {
       <div className="story-footer"><span className="story-check">✓</span> Private by design <span className="story-footer-dot">·</span> Made for the long read</div>
     </section>
     <section className="auth-card" aria-labelledby="auth-form-title"><div className="auth-card-heading"><p className="eyebrow">Your space on the web</p><h2 id="auth-form-title">{mode === 'login' ? 'Welcome back.' : 'Make it yours.'}</h2><p>Sign in or create a library of your own.</p></div>
-      <div className="auth-tabs" role="tablist" aria-label="Account access"><button type="button" role="tab" aria-selected={mode === 'login'} onClick={() => { setMode('login'); setError(''); }}>Sign in</button><button type="button" role="tab" aria-selected={mode === 'register'} onClick={() => { setMode('register'); setError(''); }}>Create account</button></div>
-      <form className="stack-form" onSubmit={(event) => void submit(event)}><label htmlFor="email">Email address</label><input id="email" autoComplete="email" type="email" required maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} /><label htmlFor="password">Password</label><input id="password" autoComplete={mode === 'register' ? 'new-password' : 'current-password'} type="password" required minLength={mode === 'register' ? 12 : 1} maxLength={128} value={password} onChange={(event) => setPassword(event.target.value)} />{mode === 'register' && <p className="field-note">Use at least 12 characters.</p>}{error && <p className="notice error" role="alert">{error}</p>}<button className="primary-button" type="submit" disabled={busy}>{busy ? 'Please wait…' : mode === 'register' ? 'Create your library' : 'Sign in to Rembr'}</button></form>
+      <div className="auth-tabs" role="tablist" aria-label="Account access"><button type="button" role="tab" aria-selected={mode === 'login'} onClick={() => { setMode('login'); setPassword(''); setPasswordRevealed(false); setError(''); }}>Sign in</button><button type="button" role="tab" aria-selected={mode === 'register'} onClick={() => { setMode('register'); setPassword(''); setPasswordRevealed(false); setError(''); }}>Create account</button></div>
+      <form className="stack-form" onSubmit={(event) => void submit(event)}><label htmlFor="email">Email address</label><input id="email" autoComplete="email" type="email" required maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} />{mode === 'register' ? <PasswordStrengthField id="password" value={password} onValueChange={setPassword} disabled={busy} /> : <><label htmlFor="password">Password</label><div className="password-input-wrap"><input id="password" name="password" autoComplete="current-password" type={passwordRevealed ? 'text' : 'password'} required minLength={1} maxLength={128} value={password} onChange={(event) => setPassword(event.target.value)} /><button type="button" className="password-reveal" aria-label={passwordRevealed ? 'Hide password' : 'Show password'} aria-controls="password" aria-pressed={passwordRevealed} onClick={() => setPasswordRevealed((current) => !current)}>{passwordRevealed ? 'Hide' : 'Show'}</button></div></>}{error && <p className="notice error" role="alert">{error}</p>}<button className="primary-button" type="submit" disabled={busy}>{busy ? 'Please wait…' : mode === 'register' ? 'Create your library' : 'Sign in to Rembr'}</button></form>
       <p className="privacy-note"><span>✳</span>Your library is private to your account. Only public pages can be captured in this build.</p>
     </section>
   </main>;
@@ -184,22 +224,39 @@ function SetupRoute({ type }: { type: 'profile' | 'onboarding' }) {
 }
 
 function ProfileForm({ session, onComplete }: { session: Session; onComplete: () => Promise<void> }) {
+  const formRef = useRef<HTMLFormElement>(null);
+  const uploadAbortRef = useRef<AbortController | null>(null);
   const [profile, setProfile] = useState<Profile | null>(session.profile);
   const [username, setUsername] = useState(session.profile?.username ?? '');
   const [avatarUrl, setAvatarUrl] = useState(session.profile?.avatarUrl ?? '');
+  const [avatarUrlChanged, setAvatarUrlChanged] = useState(false);
   const [avatar, setAvatar] = useState<File | null>(null);
+  const [avatarCleared, setAvatarCleared] = useState(false);
+  const [avatarProgress, setAvatarProgress] = useState<number | null>(null);
+  const [avatarUploadError, setAvatarUploadError] = useState('');
   const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError('');
     try {
       let body: { profile: Profile };
-      if (avatar) { const form = new FormData(); form.set('username', username); form.set('avatar', avatar); body = await api('/api/profile', { method: 'PATCH', body: form }); }
-      else body = await api('/api/profile', { method: 'PATCH', body: JSON.stringify({ username, avatarUrl }) });
+      if (avatar) {
+        const form = new FormData(); form.set('username', username); form.set('avatar', avatar);
+        const controller = new AbortController();
+        uploadAbortRef.current = controller;
+        setAvatarProgress(0);
+        setAvatarUploadError('');
+        body = await apiWithProgress('/api/profile', form, controller.signal, setAvatarProgress);
+      }
+      else body = await api('/api/profile', { method: 'PATCH', body: JSON.stringify({ username, ...(avatarCleared ? { avatarUrl: '' } : avatarUrlChanged ? { avatarUrl } : {}) }) });
       setProfile(body.profile); await onComplete();
-    } catch (cause) { setError(messageOf(cause, 'Could not save your profile.')); }
-    finally { setBusy(false); }
+    } catch (cause) {
+      const message = messageOf(cause, 'Could not save your profile.');
+      if (avatar) setAvatarUploadError(`${message.replace(/[.!?]+$/, '')}. Your previous photo is unchanged.`);
+      else setError(message);
+    }
+    finally { uploadAbortRef.current = null; setAvatarProgress(null); setBusy(false); }
   }
-  return <><p className="eyebrow">Account setup · 1 of 2</p><h1>Make this space yours.</h1><p className="phase2-lead">Choose a username for your private library. Your account email stays private.</p><form className="phase2-form" onSubmit={(event) => void submit(event)}><label htmlFor="profile-username">Username</label><div className="phase2-prefix"><span>@</span><input id="profile-username" required minLength={3} maxLength={24} pattern="[A-Za-z0-9_]{3,24}" autoComplete="username" value={username} onChange={(event) => setUsername(event.target.value)} /></div><p className="field-note">3–24 letters, numbers, or underscores.</p><label htmlFor="profile-avatar-url">Avatar URL <span>(optional)</span></label><input id="profile-avatar-url" type="url" inputMode="url" placeholder="https://…" value={avatarUrl} onChange={(event) => { setAvatarUrl(event.target.value); setAvatar(null); }} /><label htmlFor="profile-avatar-file">Or upload a profile image</label><input id="profile-avatar-file" type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0] ?? null; if (file && file.size > 250 * 1024) { setError('Profile images must be 250 KB or smaller.'); setAvatar(null); } else { setError(''); setAvatar(file); } }} /><p className="field-note">PNG, JPEG, or WebP up to 250 KB. Your browser sends the file only when you save.</p>{profile && <p className="phase2-helper">Current profile: @{profile.username}</p>}{error && <p className="notice error" role="alert">{error}</p>}<button className="primary-button" type="submit" disabled={busy}>{busy ? 'Saving profile…' : 'Save and continue'}</button></form></>;
+  return <><p className="eyebrow">Account setup · 1 of 2</p><h1>Make this space yours.</h1><p className="phase2-lead">Choose a username for your private library. Your account email stays private.</p><form ref={formRef} className="phase2-form" onSubmit={(event) => void submit(event)}><label htmlFor="profile-username">Username</label><div className="phase2-prefix"><span>@</span><input id="profile-username" required minLength={3} maxLength={24} pattern="[A-Za-z0-9_]{3,24}" autoComplete="username" value={username} disabled={busy} onChange={(event) => setUsername(event.target.value)} /></div><p className="field-note">3–24 letters, numbers, or underscores.</p><AvatarUpload name={username || 'Your profile'} src={avatarUrlChanged ? avatarUrl : profile?.avatarAssetUrl ?? profile?.avatarUrl} file={avatar} busy={busy && Boolean(avatar)} progress={avatarProgress} uploadError={avatarUploadError} onCancelUpload={() => uploadAbortRef.current?.abort()} onRetryUpload={() => formRef.current?.requestSubmit()} onDiscardUpload={() => { setAvatar(null); setAvatarCleared(false); setAvatarUploadError(''); }} onChange={(file, removed) => { setAvatar(file); setAvatarCleared(Boolean(removed)); setAvatarUploadError(''); if (file || removed) { setAvatarUrl(''); setAvatarUrlChanged(false); } setError(''); }} /><details className="avatar-url-option"><summary>Or use a public photo URL</summary><label htmlFor="profile-avatar-url">HTTPS photo URL <span>(optional)</span></label><input id="profile-avatar-url" type="url" inputMode="url" pattern="https://.*" placeholder="https://example.com/photo.jpg" value={avatarUrl} disabled={busy} onChange={(event) => { setAvatarUrl(event.target.value); setAvatarUrlChanged(true); setAvatar(null); setAvatarCleared(false); }} /><p className="field-note">Only use a photo URL you trust. It must start with https://.</p></details>{profile && <p className="phase2-helper">Current profile: @{profile.username}</p>}{error && <p className="notice error" role="alert">{error}</p>}<button className="primary-button" type="submit" disabled={busy}>{busy ? 'Saving profile…' : 'Save and continue'}</button></form></>;
 }
 
 function OnboardingForm({ onComplete }: { onComplete: () => void }) {
