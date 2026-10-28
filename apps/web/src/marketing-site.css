@@ -278,6 +278,19 @@
 .marketing-site .keyword-yellow { background: var(--ice-peach); }
 .marketing-site .keyword-pink { background: var(--ice-cherry); }
 .marketing-site .keyword-mint { background: var(--ice-pistachio); }
+.marketing-site .annotated-text { position: relative; display: inline-block; white-space: nowrap; }
+.marketing-site .annotated-text__label { position: relative; z-index: 1; }
+.marketing-site .annotated-text__mark { position: absolute; overflow: visible; pointer-events: none; }
+.marketing-site .annotated-text__mark path { fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2.8; vector-effect: non-scaling-stroke; }
+.marketing-site .annotated-text--highlight .annotated-text__mark { z-index: 0; inset: -.08em -.08em -.12em; width: calc(100% + .16em); height: calc(100% + .2em); color: var(--ice-peach); transform: rotate(-1deg); }
+.marketing-site .annotated-text--highlight .annotated-text__mark path { fill: currentColor; stroke: none; opacity: .82; }
+.marketing-site .annotated-text--underline .annotated-text__mark { bottom: -.21em; left: -1%; width: 102%; height: .3em; color: var(--ice-cherry); }
+.marketing-site .annotated-text--wavy .annotated-text__mark { bottom: -.24em; left: -1%; width: 102%; height: .36em; color: var(--ice-blueberry); }
+.marketing-site .annotated-text--circle { padding: 0 .12em; }
+.marketing-site .annotated-text--circle .annotated-text__mark { inset: -.48em -.22em; width: calc(100% + .44em); height: calc(100% + .96em); color: var(--ice-blueberry); }
+@media (prefers-reduced-motion: reduce) {
+  .marketing-site .annotated-text__mark path { stroke-dashoffset: 0 !important; }
+}
 .marketing-site :focus-visible { outline-color: #087b58; }
 .ice-promo { position: relative; z-index: 11; display: flex; min-height: 42px; align-items: center; justify-content: center; gap: 15px; padding: 6px 18px; background: var(--ice-pistachio); color: var(--ice-ink); font-size: 12px; font-weight: 650; text-align: center; }
 .ice-promo a { display: inline-flex; min-height: 30px; align-items: center; gap: 8px; padding: 0 12px; border-radius: 5px; background: var(--ice-cherry); color: #2d1020; font-size: 11px; font-weight: 800; text-decoration: none; transition: transform 180ms ease, background-color 180ms ease; }
