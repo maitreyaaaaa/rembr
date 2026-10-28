@@ -34,7 +34,7 @@ Deliver the narrow authenticated journey defined in the [phase roadmap](phase-ga
 | `npm test` | Passed | 9 tests. |
 | `npm run build` | Passed | API TypeScript and web production build. |
 | Local DB migrations | Passed in tests | In-memory migration path; persistent file path still needs runtime smoke. |
-| Live API + worker + browser UI | Partial | Dev API and UI started; account creation and capture acceptance were exercised in the browser. Browser automation control timed out during final inspection, so no screenshot/viewport review is claimed. |
+| Live API + worker + browser UI | Partial | Dev API and UI started; account creation and capture acceptance were exercised in the browser. The login screen was visually reviewed at the desktop viewport. Browser interaction did not advance the page during this final review, so loading/success/failure captures and narrow viewport review remain open. |
 | Cross-user persistence and deletion race | Passed in automated tests | Uses two synthetic users and a controlled in-flight worker. |
 | Live public-site extraction | Passed | Authenticated local API submitted `https://example.com/`; worker persisted `ready` with title “Example Domain” and 156 characters of extracted text. Temporary synthetic test account was removed after the smoke. |
 | GitHub CI | Not run | Workflow added; first hosted run requires a push/PR. |
