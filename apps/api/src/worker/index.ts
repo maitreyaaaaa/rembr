@@ -1,18 +1,21 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { config } from '../config.js';
 import { createDatabase } from '../db/database.js';
-import { processNextJob } from './process-job.js';
+import { cleanupInactiveMedia, processNextJob } from './process-job.js';
 import { LocalImportStorage } from '../imports/storage.js';
 import { createImportService } from '../imports/service.js';
+import { LocalMediaStorage } from '../media/storage.js';
 
 const database = createDatabase();
 const importStorage = new LocalImportStorage(config.importDirectory);
 const imports = createImportService(database, importStorage);
+const mediaStorage = new LocalMediaStorage(config.mediaDirectory);
 let stopping = false;
 
 async function run() {
   console.info('rembr_worker_started', { environment: config.NODE_ENV });
   await imports.retryCleanup();
+  await cleanupInactiveMedia(database, mediaStorage);
   while (!stopping) {
     try {
       const importId = await imports.processNextImport();

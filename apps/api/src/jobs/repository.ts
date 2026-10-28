@@ -49,7 +49,7 @@ export function createJobRepository(database: DatabaseHandle) {
         const retryable = ['dns_failed', 'page_timeout', 'page_unavailable', 'fetch_failed', 'worker_interrupted', 'storage_unavailable'];
         if (String(job.status) !== 'failed' || !retryable.includes(String(job.error_code))) return 'not_retryable' as const;
         const generation = Number(job.generation) + 1;
-        database.prepare(`UPDATE processing_jobs SET generation=?,status='queued',attempts=0,max_attempts=5,available_at=?,lease_token=NULL,
+        database.prepare(`UPDATE processing_jobs SET generation=?,status='queued',attempts=0,available_at=?,lease_token=NULL,
           lease_expires_at=NULL,heartbeat_at=NULL,error_code=NULL,updated_at=? WHERE owner_id=? AND id=?`)
           .run(generation, now, now, ownerId, String(job.id));
         database.prepare(`UPDATE saved_items SET status='queued',error_code=NULL,updated_at=? WHERE owner_id=? AND id=?`).run(now, ownerId, itemId);
@@ -65,7 +65,7 @@ export function createJobRepository(database: DatabaseHandle) {
         const job = find(ownerId, itemId); if (!job) return 'not_found' as const;
         if (!['completed', 'partial'].includes(String(job.status))) return 'not_reprocessable' as const;
         const generation = Number(job.generation) + 1;
-        database.prepare(`UPDATE processing_jobs SET generation=?,status='queued',attempts=0,max_attempts=5,available_at=?,lease_token=NULL,
+        database.prepare(`UPDATE processing_jobs SET generation=?,status='queued',attempts=0,available_at=?,lease_token=NULL,
           lease_expires_at=NULL,heartbeat_at=NULL,error_code=NULL,updated_at=? WHERE owner_id=? AND id=?`)
           .run(generation, now, now, ownerId, String(job.id));
         database.prepare(`UPDATE saved_items SET status='queued',error_code=NULL,updated_at=? WHERE owner_id=? AND id=?`).run(now, ownerId, itemId);

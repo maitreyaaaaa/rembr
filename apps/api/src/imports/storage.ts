@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { link, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { link, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 const KEY = /^[0-9a-f-]{36}$/i;
@@ -38,6 +38,11 @@ export class LocalImportStorage {
     return readFile(join(this.root, key));
   }
 
+  async removeChunk(fileKey: string, index: number): Promise<void> {
+    if (!KEY.test(fileKey) || !Number.isInteger(index) || index < 0 || index > 99) throw new Error('invalid_import_storage_key');
+    await rm(join(this.root, `${fileKey}.${index.toString().padStart(3, '0')}.part`), { force: true });
+  }
+
   async assemble(fileKey: string, chunkCount: number, expectedBytes: number): Promise<void> {
     if (!KEY.test(fileKey) || !Number.isInteger(chunkCount) || chunkCount < 1 || chunkCount > 100) throw new Error('invalid_import_storage_key');
     const chunks: Buffer[] = []; let total = 0;
@@ -73,7 +78,12 @@ export class LocalImportStorage {
   async removeUnknown(validKeys: { files: Set<string>; chunks: Set<string> }): Promise<void> {
     await this.initialize();
     for (const entry of await readdir(this.root)) {
-      if (entry.endsWith('.tmp')) { await rm(join(this.root, entry), { force: true }); continue; }
+      if (entry.endsWith('.tmp')) {
+        const path = join(this.root, entry);
+        const info = await stat(path).catch(() => null);
+        if (info && Date.now() - info.mtimeMs > 24 * 60 * 60_000) await rm(path, { force: true });
+        continue;
+      }
       if (entry.endsWith('.upload')) {
         const key = entry.slice(0, -7);
         if (KEY.test(key) && !validKeys.files.has(key)) await rm(join(this.root, entry), { force: true });

@@ -47,8 +47,14 @@ export function createLibraryRepository(database: DatabaseHandle) {
     const relationships = related(ownerId, itemIds);
     return rows.map((row) => {
       const dto = { ...toItem(row), tags: relationships.tags.get(String(row.id)) ?? [], collections: relationships.collections.get(String(row.id)) ?? [] };
-      if (!includeDetail || row.item_kind !== 'note') return dto;
+      if (!includeDetail) return dto;
       const id = String(row.id);
+      if (row.item_kind !== 'note') {
+        const media = database.prepare(`SELECT id,detected_mime AS mime,byte_size AS byteSize,status,error_code AS errorCode
+          FROM media_artifacts WHERE owner_id=? AND item_id=? AND active=1 ORDER BY created_at,id`)
+          .all(ownerId, id) as Array<{ id: string; mime: string | null; byteSize: number; status: string; errorCode: string | null }>;
+        return { ...dto, media: media.map((asset) => ({ ...asset, url: asset.status === 'ready' ? `/api/media/${asset.id}` : null })) };
+      }
       const note = database.prepare('SELECT body FROM notes WHERE owner_id=? AND item_id=?').get(ownerId, id) as { body: string } | undefined;
       const links = database.prepare('SELECT url FROM note_links WHERE owner_id=? AND item_id=? ORDER BY position').all(ownerId, id) as Array<{ url: string }>;
       const assets = database.prepare(`SELECT asset_objects.id, asset_objects.detected_mime AS mime,
@@ -140,13 +146,16 @@ export function createLibraryRepository(database: DatabaseHandle) {
       const assets = database.prepare(`SELECT DISTINCT asset_objects.id, asset_objects.storage_key AS storageKey FROM note_assets
         JOIN asset_objects ON asset_objects.owner_id=note_assets.owner_id AND asset_objects.id=note_assets.asset_id
         WHERE note_assets.owner_id=? AND note_assets.item_id=?`).all(ownerId, itemId) as Array<{ id: string; storageKey: string }>;
+      const mediaKeys = (database.prepare('SELECT storage_key FROM media_artifacts WHERE owner_id=? AND item_id=? AND storage_key IS NOT NULL').all(ownerId, itemId) as Array<{ storage_key: string }>).map((row) => row.storage_key);
       const deleted = database.transaction(() => {
         if (!database.prepare('SELECT 1 FROM saved_items WHERE owner_id=? AND id=?').get(ownerId, itemId)) return false;
+        const now = new Date().toISOString();
         for (const asset of assets) database.prepare("UPDATE asset_objects SET state='deleting', updated_at=? WHERE owner_id=? AND id=?").run(new Date().toISOString(), ownerId, asset.id);
+        for (const storageKey of mediaKeys) database.prepare(`INSERT OR IGNORE INTO media_cleanup_queue (storage_key,created_at,updated_at) VALUES (?,?,?)`).run(storageKey, now, now);
         database.prepare('DELETE FROM saved_items WHERE owner_id=? AND id=?').run(ownerId, itemId);
         return true;
       })();
-      return deleted ? assets : null;
+      return deleted ? { assets, mediaKeys } : null;
     },
     noteAssets(ownerId: string, itemId: string) {
       return database.prepare('SELECT asset_id AS id, position FROM note_assets WHERE owner_id=? AND item_id=? ORDER BY position').all(ownerId, itemId) as Array<{ id: string; position: number }>;

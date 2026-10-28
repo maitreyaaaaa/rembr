@@ -174,3 +174,63 @@ export async function fetchPublicPage(
   }
   throw new CaptureError('too_many_redirects', 'This page redirects too many times to save safely.');
 }
+
+export interface MediaResponsePayload { statusCode: number; location: string | undefined; contentType: string; body: Buffer }
+const MEDIA_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+export const MAX_MEDIA_BYTES = 5 * 1024 * 1024;
+
+function requestMediaAtPinnedAddress(target: ValidatedUrl, maxBytes: number): Promise<MediaResponsePayload> {
+  return new Promise((resolve, reject) => {
+    const isHttps = target.url.protocol === 'https:'; const requestFn = isHttps ? httpsRequest : httpRequest;
+    const hostname = target.url.hostname.replace(/^\[|\]$/g, '');
+    const request = requestFn(target.url, {
+      method: 'GET', headers: { accept: 'image/jpeg,image/png,image/webp,image/gif', 'accept-encoding': 'identity', 'user-agent': 'RembrBot/0.1 (+user-requested page capture)' },
+      lookup: (_host, options, callback) => options.all ? callback(null, [{ address: target.address, family: target.family }]) : callback(null, target.address, target.family),
+      ...(isHttps && !isIP(hostname) ? { servername: hostname } : {}), timeout: 10_000, maxHeaderSize: 16_384,
+    }, (response) => {
+      const statusCode = response.statusCode ?? 0; const location = response.headers.location;
+      const contentType = String(response.headers['content-type'] ?? '').split(';')[0]?.trim().toLowerCase() ?? '';
+      const contentEncoding = String(response.headers['content-encoding'] ?? 'identity').trim().toLowerCase();
+      const contentLength = Number(response.headers['content-length'] ?? 0);
+      if (statusCode >= 300 && statusCode < 400 && location) { response.resume(); resolve({ statusCode, location, contentType, body: Buffer.alloc(0) }); return; }
+      if (contentEncoding !== 'identity') { response.resume(); reject(new CaptureError('unsupported_media', 'Compressed media responses are not supported.')); return; }
+      if (contentLength > maxBytes) { response.destroy(); reject(new CaptureError('media_too_large', 'The media file exceeds the download limit.')); return; }
+      if (statusCode < 200 || statusCode >= 300) { response.resume(); reject(new CaptureError('media_unavailable', 'The media file could not be downloaded.')); return; }
+      if (!MEDIA_TYPES.has(contentType)) { response.resume(); reject(new CaptureError('unsupported_media', 'This media format is not supported.')); return; }
+      const chunks: Buffer[] = []; let size = 0;
+      response.on('data', (chunk: Buffer) => {
+        size += chunk.length;
+        if (size > maxBytes) { response.destroy(new CaptureError('media_too_large', 'The media file exceeds the download limit.')); return; }
+        chunks.push(chunk);
+      });
+      response.on('end', () => resolve({ statusCode, location, contentType, body: Buffer.concat(chunks, size) }));
+      response.on('error', reject);
+    });
+    request.on('timeout', () => request.destroy(new CaptureError('media_timeout', 'The media download timed out.')));
+    request.on('error', reject); request.end();
+  });
+}
+
+export async function fetchPublicMedia(
+  input: string,
+  options: {
+    validateUrl?: typeof validatePublicUrl;
+    requestMedia?: (target: ValidatedUrl, maxBytes: number) => Promise<MediaResponsePayload>;
+    maxBytes?: number;
+  } = {},
+): Promise<{ finalUrl: string; mime: string; bytes: Buffer }> {
+  const validateUrl = options.validateUrl ?? validatePublicUrl; const requestMedia = options.requestMedia ?? requestMediaAtPinnedAddress;
+  const maxBytes = Math.max(1, Math.min(options.maxBytes ?? MAX_MEDIA_BYTES, MAX_MEDIA_BYTES)); let current = input;
+  for (let redirect = 0; redirect <= config.MAX_CAPTURE_REDIRECTS; redirect += 1) {
+    const target = await validateUrl(current); const response = await requestMedia(target, maxBytes);
+    if (response.statusCode >= 300 && response.statusCode < 400 && response.location) {
+      if (redirect === config.MAX_CAPTURE_REDIRECTS) throw new CaptureError('too_many_redirects', 'This media URL redirects too many times to download safely.');
+      try { current = new URL(response.location, target.url).toString(); }
+      catch { throw new CaptureError('invalid_redirect', 'This media URL sent an invalid redirect.'); }
+      continue;
+    }
+    if (response.body.length < 1 || response.body.length > maxBytes) throw new CaptureError('media_too_large', 'The media file is empty or exceeds the download limit.');
+    return { finalUrl: target.url.toString(), mime: response.contentType, bytes: response.body };
+  }
+  throw new CaptureError('too_many_redirects', 'This media URL redirects too many times to download safely.');
+}

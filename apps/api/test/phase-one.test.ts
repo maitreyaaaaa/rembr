@@ -9,7 +9,7 @@ import { config } from '../src/config.js';
 import { createTestDatabase } from '../src/db/database.js';
 import { extractPage } from '../src/items/extract.js';
 import { createItemRepository } from '../src/items/repository.js';
-import { CaptureError, fetchPublicPage, validatePublicUrl } from '../src/items/safe-fetch.js';
+import { CaptureError, fetchPublicMedia, fetchPublicPage, validatePublicUrl } from '../src/items/safe-fetch.js';
 import { claimNextJob, processNextJob } from '../src/worker/process-job.js';
 
 const origin = 'http://127.0.0.1:5173';
@@ -260,6 +260,28 @@ test('bounded fetch rejects compressed, unsupported, and oversized responses', a
     server.close();
     await once(server, 'close');
   }
+});
+
+test('media fetch validates redirect targets and enforces bounded image content', async () => {
+  const visited: string[] = []; const image = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  const downloaded = await fetchPublicMedia('https://page.example/cover', {
+    validateUrl: async (input) => { const url = new URL(input); visited.push(url.hostname); return { url, address: '93.184.216.34', family: 4 }; },
+    requestMedia: async (target) => target.url.hostname === 'page.example'
+      ? { statusCode: 302, location: 'https://cdn.example/cover.png', contentType: '', body: Buffer.alloc(0) }
+      : { statusCode: 200, location: undefined, contentType: 'image/png', body: image },
+  });
+  assert.deepEqual(visited, ['page.example', 'cdn.example']);
+  assert.equal(downloaded.mime, 'image/png');
+  assert.deepEqual(downloaded.bytes, image);
+
+  await assert.rejects(fetchPublicMedia('https://page.example/cover', {
+    validateUrl: async (input) => {
+      const url = new URL(input);
+      if (url.hostname === 'internal.local') throw new CaptureError('blocked_target', 'blocked');
+      return { url, address: '93.184.216.34', family: 4 };
+    },
+    requestMedia: async () => ({ statusCode: 302, location: 'http://internal.local/private.png', contentType: '', body: Buffer.alloc(0) }),
+  }), { code: 'blocked_target' });
 });
 
 test('transient worker failures retry and expired leases are fenced on reclaim', async () => {

@@ -1,10 +1,10 @@
 # Rembr
 
-Rembr is a fresh, source-informed rebuild of IScraper. It has its own code and history; the reference repository remains read-only. This first implementation slice is focused on a secure, deterministic save-to-library journey. AI providers are not required for capture or processing.
+Rembr is a fresh, source-informed rebuild of IScraper. It has its own code and history; the reference repository remains read-only. Capture, import, processing, and library behavior are deterministic and do not require an AI provider.
 
 ## Current phase
 
-Phase 1's local gate passed on October 28, 2026. The evidence and residual hosted-environment limits are recorded in [the Phase 1 record](docs/rebuild-plan/phase-1-record.md). The authoritative phase definition remains [the roadmap](docs/rebuild-plan/phase-gated-roadmap.md).
+Phases 1 and 2 passed their local gates on October 28, 2026. Phase 3 is in progress: platform imports, durable jobs, recovery, and bounded private image downloads are implemented, but media parity and resilience/browser gates remain open. See the [Phase 1 record](docs/rebuild-plan/phase-1-record.md), [Phase 2 record](docs/rebuild-plan/phase-2-record.md), [Phase 3 design/checkpoint](docs/architecture/phase-3-architecture-design.md), and [roadmap](docs/rebuild-plan/phase-gated-roadmap.md). Hosted CI, database, and storage behavior remain unverified.
 
 ## Requirements
 
@@ -21,7 +21,7 @@ if (!(Test-Path .env)) { Copy-Item .env.example .env }
 npm run dev
 ```
 
-Open `http://127.0.0.1:5173` for the public marketing site. Choose **Make your library** to open the product at `/app`. In a second terminal, run `npm run worker` to process queued captures. The web client proxies `/api` requests to the API server. The worker is a separate process and reads the same local database.
+Open `http://127.0.0.1:5173` for the public marketing site. Choose **Make your library** to open the product at `/app`. In a second terminal, run `npm run worker` to advance imports, captures, and media processing. The web client proxies `/api` requests to the API server. The worker is a separate process and reads the same local database.
 
 The marketing pages and their product-claim boundaries are documented in [the marketing identity](docs/marketing/positioning-and-identity.md) and [page map](docs/marketing/page-map-and-content.md). Optionally configure `VITE_CONTACT_EMAIL` in `apps/web/.env` to enable the contact page's email-draft action. It opens an email draft in the visitor's mail app; it does not send or store the message.
 

@@ -13,12 +13,13 @@ interface Profile { userId: string; username: string; avatarUrl: string | null; 
 interface Tag { id: string; name: string }
 interface Collection { id: string; name: string; description?: string }
 interface Asset { id: string; url: string; mime: string; byteSize: number }
+interface MediaAsset { id: string; url: string | null; mime: string | null; byteSize: number; status: 'ready' | 'failed'; errorCode: string | null }
 interface Note { body: string; links: string[]; assets: Asset[] }
 interface SavedItem {
   id: string; url: string; title: string; description: string; titleOverride?: string | null;
   descriptionOverride?: string | null; kind: 'page' | 'note'; status: Status; errorCode: string | null;
   createdAt: string; updatedAt: string; textPreview: string; text?: string; fetchedAt?: string;
-  tags: Tag[]; collections: Collection[]; note?: Note;
+  tags: Tag[]; collections: Collection[]; note?: Note; media?: MediaAsset[];
 }
 interface Onboarding { contentTypes: string[]; referralSource: string; completedAt: string | null; skippedAt: string | null }
 interface Session { user: User; profile: Profile | null; profileComplete: boolean; accountStatus: 'active' | 'disabled' }
@@ -246,9 +247,12 @@ function ProfileForm({ session, onComplete }: { session: Session; onComplete: ()
         const form = new FormData(); form.set('username', username); form.set('avatar', avatar);
         const controller = new AbortController();
         uploadAbortRef.current = controller;
-        setAvatarProgress(0);
+        const uploadStartedAt = performance.now();
+        setAvatarProgress(1);
         setAvatarUploadError('');
         body = await apiWithProgress('/api/profile', form, controller.signal, setAvatarProgress);
+        const visibleFor = 420 - (performance.now() - uploadStartedAt);
+        if (visibleFor > 0) await new Promise((resolve) => window.setTimeout(resolve, visibleFor));
       }
       else body = await api('/api/profile', { method: 'PATCH', body: JSON.stringify({ username, ...(avatarCleared ? { avatarUrl: '' } : avatarUrlChanged ? { avatarUrl } : {}) }) });
       setProfile(body.profile); await onComplete();
@@ -293,7 +297,8 @@ function LibraryPage() {
 function safeHost(value: string) { try { return new URL(value).hostname; } catch { return 'SAVED PAGE'; } }
 
 function AddPage() {
-  const [url, setUrl] = useState(''); const [files, setFiles] = useState<File[]>([]); const [busy, setBusy] = useState(false); const [progress, setProgress] = useState(0); const [error, setError] = useState(''); const navigate = useNavigate();
+  const [url, setUrl] = useState(''); const [files, setFiles] = useState<File[]>([]); const [busy, setBusy] = useState(false); const [progress, setProgress] = useState(0); const [error, setError] = useState(''); const [activeImportId, setActiveImportId] = useState(''); const navigate = useNavigate();
+  const uploadController = useRef<AbortController | null>(null); const idempotencyKey = useRef<string | null>(null);
   async function submitUrl(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setBusy(true); setError(''); try { const body = await api<{ item: SavedItem; duplicate: boolean }>('/api/items', { method: 'POST', body: JSON.stringify({ url }) }); navigate(`/app/items/${encodeURIComponent(body.item.id)}`); } catch (cause) { setError(messageOf(cause, 'Could not save that page.')); } finally { setBusy(false); } }
   async function submitFiles(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setError('');
@@ -302,25 +307,36 @@ function AddPage() {
     if (files.some((file) => file.size < 1 || file.size > 25 * 1024 * 1024)) { setError('Each export file must be 25 MiB or smaller.'); return; }
     if (total > 100 * 1024 * 1024) { setError('The selected files exceed the 100 MiB total limit.'); return; }
     const chunkSize = 5 * 1024 * 1024; const metadata = files.map((file) => ({ name: file.name, mime: file.type || 'application/octet-stream', size: file.size, chunks: Math.ceil(file.size / chunkSize) }));
-    setBusy(true); setProgress(0);
+    setBusy(true); setProgress(0); const controller = new AbortController(); uploadController.current = controller; let manifestId = '';
     try {
-      const manifest = await api<{ importId: string; files: Array<{ fileId: string }> }>('/api/imports', { method: 'POST', body: JSON.stringify({ files: metadata }) });
+      const key = idempotencyKey.current ?? crypto.randomUUID(); idempotencyKey.current = key;
+      const manifest = await api<{ importId: string; status: string; files: Array<{ fileId: string }> }>('/api/imports', { method: 'POST', headers: { 'Idempotency-Key': key }, body: JSON.stringify({ files: metadata }) });
+      manifestId = manifest.importId; setActiveImportId(manifestId);
+      if (!['uploading', 'staged'].includes(manifest.status)) { idempotencyKey.current = null; navigate(`/app/imports/${encodeURIComponent(manifestId)}`); return; }
       let uploaded = 0;
       for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {
         const file = files[fileIndex]!; const fileId = manifest.files[fileIndex]!.fileId;
         for (let index = 0; index < metadata[fileIndex]!.chunks; index += 1) {
           const start = index * chunkSize; const chunk = file.slice(start, Math.min(file.size, start + chunkSize));
-          await api(`/api/imports/${manifest.importId}/files/${fileId}/chunks/${index}`, { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: chunk });
+          await api(`/api/imports/${manifest.importId}/files/${fileId}/chunks/${index}`, { method: 'PUT', headers: { 'Content-Type': 'application/octet-stream' }, body: chunk, signal: controller.signal });
           uploaded += chunk.size; setProgress(Math.round(uploaded / total * 100));
         }
       }
+      idempotencyKey.current = null;
       navigate(`/app/imports/${encodeURIComponent(manifest.importId)}`);
-    } catch (cause) { setError(messageOf(cause, 'The export could not be uploaded. You can retry from this page.')); }
-    finally { setBusy(false); }
+    } catch (cause) {
+      if (cause instanceof DOMException && cause.name === 'AbortError') {
+        if (manifestId) {
+          try { const result = await api<{ cleanupStatus: string }>(`/api/imports/${encodeURIComponent(manifestId)}/cancel`, { method: 'POST' }); idempotencyKey.current = null; setError(result.cleanupStatus === 'complete' ? 'Upload canceled. Temporary files were removed. You can start a fresh import.' : 'Upload canceled. Temporary file cleanup will be retried.'); }
+          catch { navigate(`/app/imports/${encodeURIComponent(manifestId)}`); }
+        } else setError('Upload canceled. You can retry from this page.');
+      } else setError(messageOf(cause, 'The export could not be uploaded. Retry to resume this import.'));
+    }
+    finally { uploadController.current = null; setActiveImportId(''); setBusy(false); }
   }
   return <><PageHeader eyebrow="Add to your library" title="Save or import" description="Save a public URL or bring in saved links from an Instagram, Pinterest, or X export." />
     <section className="phase2-panel phase2-narrow"><h2>Save one public page</h2><form className="phase2-form" onSubmit={(event) => void submitUrl(event)}><label htmlFor="save-url">Public page URL</label><input id="save-url" type="url" autoComplete="url" placeholder="https://example.com/article" required maxLength={2048} value={url} onChange={(event) => setUrl(event.target.value)} /><button className="primary-button" disabled={busy}>{busy ? 'Saving…' : 'Save page'}</button></form></section>
-    <section className="phase2-panel phase2-narrow"><h2>Import a platform export</h2><p className="phase2-helper">Choose HTML, HTM, JSON, CSV, TXT, or ZIP exports. New recognized links are queued automatically after parsing. Up to 20 files, 25 MiB per file, and 100 MiB total.</p><form className="phase2-form" onSubmit={(event) => void submitFiles(event)}><label htmlFor="export-files">Export files</label><input id="export-files" type="file" accept=".html,.htm,.json,.csv,.txt,.zip" multiple disabled={busy} onChange={(event) => { setFiles(Array.from(event.target.files ?? [])); setError(''); }} /><p className="phase2-helper">{files.length ? `${files.length} file${files.length === 1 ? '' : 's'} selected · ${(files.reduce((sum, file) => sum + file.size, 0) / (1024 * 1024)).toFixed(1)} MiB` : 'Raw files are deleted after parsing and durable queueing.'}</p>{error && <p className="notice error" role="alert">{error}</p>}{busy && <p className="phase2-state" role="status">Uploading export files… {progress}%</p>}<button className="primary-button" disabled={busy || files.length === 0}>{busy ? 'Uploading…' : 'Upload and import'}</button><Link className="phase2-text-button" to="/app/imports">View import history</Link></form></section>
+    <section className="phase2-panel phase2-narrow"><h2>Import a platform export</h2><p className="phase2-helper">Choose HTML, HTM, JS, JSON, CSV, TXT, or ZIP exports. New recognized links are queued automatically after parsing. Up to 20 files, 25 MiB per file, and 100 MiB total.</p><form className="phase2-form" onSubmit={(event) => void submitFiles(event)}><label htmlFor="export-files">Export files</label><input id="export-files" type="file" accept=".html,.htm,.js,.json,.csv,.txt,.zip" multiple disabled={busy} onChange={(event) => { setFiles(Array.from(event.target.files ?? [])); idempotencyKey.current = null; setError(''); }} /><p className="phase2-helper">{files.length ? `${files.length} file${files.length === 1 ? '' : 's'} selected · ${(files.reduce((sum, file) => sum + file.size, 0) / (1024 * 1024)).toFixed(1)} MiB` : 'Raw files are deleted after parsing and durable queueing.'}</p>{error && <p className="notice error" role="alert">{error}</p>}{busy && <p className="phase2-state" role="status">Uploading export files… {progress}%</p>}{busy && activeImportId && <button className="quiet-button" type="button" onClick={() => uploadController.current?.abort()}>Cancel upload</button>}<button className="primary-button" disabled={busy || files.length === 0}>{busy ? 'Uploading…' : 'Upload and import'}</button><Link className="phase2-text-button" to="/app/imports">View import history</Link></form></section>
     <div className="phase2-back"><Link to="/app">Back to library</Link></div></>;
 }
 
@@ -367,7 +383,7 @@ function ItemDetailPage() {
   const canRetry = item.status === 'failed';
   const canReprocess = item.status === 'ready' || item.status === 'partial';
   return <><div className="phase2-back"><Link to="/app">← Back to library</Link></div><PageHeader eyebrow={isNote ? 'Personal note' : safeHost(item.url)} title={item.title} description={item.description || (isNote ? 'A note in your private library.' : 'Saved page and processing status.')} actions={<><Link className="quiet-button" to={`/app/items/${encodeURIComponent(item.id)}/edit`}>Edit details</Link>{isNote && <Link className="primary-button" to={`/app/notes/${encodeURIComponent(item.id)}/edit`}>Edit note</Link>}</>} />
-    {error && <p className="notice error" role="alert">{error}</p>}<div className="phase2-detail-grid"><article className="phase2-panel"><h2>{isNote ? 'Note' : 'Saved copy'}</h2>{isNote ? <><p className="phase2-preserve-text">{item.note?.body || 'This note is empty.'}</p>{item.note?.links?.length ? <section><h3>Links</h3><ul className="phase2-link-list">{item.note.links.map((link) => <li key={link}><a href={link} target="_blank" rel="noreferrer">{link}</a></li>)}</ul></section> : null}{item.note?.assets?.length ? <section className="phase2-assets"><h3>Images</h3>{item.note.assets.map((asset) => <img key={asset.id} src={asset.url} alt="Note attachment" loading="lazy" />)}</section> : null}</> : <><p className="phase2-status-line"><span className={`status status-${item.status}`}>● {readableStatus(item.status)}</span></p>{(canCancel || canRetry || canReprocess) && <div className="phase2-heading-actions" aria-label="Processing recovery actions">{canCancel && <button className="quiet-button" type="button" disabled={busyJobAction || item.status === 'cancel_requested'} onClick={() => void jobAction('cancel')}>{item.status === 'cancel_requested' ? 'Canceling…' : 'Cancel processing'}</button>}{canRetry && <button className="quiet-button" type="button" disabled={busyJobAction} onClick={() => void jobAction('retry')}>Retry</button>}{canReprocess && <button className="quiet-button" type="button" disabled={busyJobAction} onClick={() => void jobAction('reprocess')}>Reprocess</button>}</div>}<p className="phase2-preserve-text">{item.text || item.textPreview || (item.status === 'failed' ? 'Rembr could not make a readable copy. The source link is still available.' : 'The readable copy will appear when processing finishes.')}</p><a className="source-link" href={item.url} target="_blank" rel="noreferrer">Open original page ↗</a></>}</article><aside className="phase2-panel"><h2>Organize</h2><h3>Tags</h3><div className="phase2-tag-choices">{allTags.length ? allTags.map((tag) => { const attached = item.tags?.some((current) => current.id === tag.id); return <label className="phase2-check" key={tag.id}><input type="checkbox" checked={Boolean(attached)} onChange={(event) => void updateTag(tag, event.target.checked)} /><span>{tag.name}</span></label>; }) : <p className="phase2-helper">No tags yet. <Link to="/app/tags">Create one</Link></p>}</div><p><Link to="/app/tags">Manage tags</Link></p><h3>Collections</h3><ul className="phase2-link-list">{item.collections?.map((collection) => <li key={collection.id}><Link to={`/app/collections/${encodeURIComponent(collection.id)}`}>{collection.name}</Link></li>)}</ul><Link to="/app/collections">Manage collections</Link><hr /><p className="phase2-helper">Saved {date(item.createdAt)}{item.fetchedAt ? ` · Processed ${date(item.fetchedAt)}` : ''}</p></aside></div>
+    {error && <p className="notice error" role="alert">{error}</p>}<div className="phase2-detail-grid"><article className="phase2-panel"><h2>{isNote ? 'Note' : 'Saved copy'}</h2>{isNote ? <><p className="phase2-preserve-text">{item.note?.body || 'This note is empty.'}</p>{item.note?.links?.length ? <section><h3>Links</h3><ul className="phase2-link-list">{item.note.links.map((link) => <li key={link}><a href={link} target="_blank" rel="noreferrer">{link}</a></li>)}</ul></section> : null}{item.note?.assets?.length ? <section className="phase2-assets"><h3>Images</h3>{item.note.assets.map((asset) => <img key={asset.id} src={asset.url} alt="Note attachment" loading="lazy" />)}</section> : null}</> : <><p className="phase2-status-line"><span className={`status status-${item.status}`}>● {readableStatus(item.status)}</span></p>{(canCancel || canRetry || canReprocess) && <div className="phase2-heading-actions" aria-label="Processing recovery actions">{canCancel && <button className="quiet-button" type="button" disabled={busyJobAction || item.status === 'cancel_requested'} onClick={() => void jobAction('cancel')}>{item.status === 'cancel_requested' ? 'Canceling…' : 'Cancel processing'}</button>}{canRetry && <button className="quiet-button" type="button" disabled={busyJobAction} onClick={() => void jobAction('retry')}>Retry</button>}{canReprocess && <button className="quiet-button" type="button" disabled={busyJobAction} onClick={() => void jobAction('reprocess')}>Reprocess</button>}</div>}<p className="phase2-preserve-text">{item.text || item.textPreview || (item.status === 'failed' ? 'Rembr could not make a readable copy. The source link is still available.' : 'The readable copy will appear when processing finishes.')}</p>{item.media?.some((media) => media.status === 'ready' && media.url) && <section className="phase2-assets"><h3>Saved images</h3>{item.media.filter((media) => media.status === 'ready' && media.url).map((media) => <img key={media.id} src={media.url!} alt="Image saved from this page" loading="lazy" />)}</section>}{item.media?.some((media) => media.status === 'failed') && <p className="phase2-helper" role="status">Some page images could not be saved. The readable page is still available.</p>}<a className="source-link" href={item.url} target="_blank" rel="noreferrer">Open original page ↗</a></>}</article><aside className="phase2-panel"><h2>Organize</h2><h3>Tags</h3><div className="phase2-tag-choices">{allTags.length ? allTags.map((tag) => { const attached = item.tags?.some((current) => current.id === tag.id); return <label className="phase2-check" key={tag.id}><input type="checkbox" checked={Boolean(attached)} onChange={(event) => void updateTag(tag, event.target.checked)} /><span>{tag.name}</span></label>; }) : <p className="phase2-helper">No tags yet. <Link to="/app/tags">Create one</Link></p>}</div><p><Link to="/app/tags">Manage tags</Link></p><h3>Collections</h3><ul className="phase2-link-list">{item.collections?.map((collection) => <li key={collection.id}><Link to={`/app/collections/${encodeURIComponent(collection.id)}`}>{collection.name}</Link></li>)}</ul><Link to="/app/collections">Manage collections</Link><hr /><p className="phase2-helper">Saved {date(item.createdAt)}{item.fetchedAt ? ` · Processed ${date(item.fetchedAt)}` : ''}</p></aside></div>
   </>;
 }
 

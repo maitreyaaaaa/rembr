@@ -18,6 +18,7 @@ export class ImportParseError extends Error {
 
 const MAX_ARCHIVE_BYTES = 100 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES = 5_000;
+const MAX_IMPORT_ITEMS = 5_000;
 const URL_PATTERN = /https?:\\?\/\\?\/(?:www\.|m\.|mobile\.|basic\.)?(?:instagram\.com|(?:[a-z0-9-]+\.)*pinterest\.com|pin\.it|x\.com|twitter\.com)\/[^\s"'<>\\]+/gi;
 
 function safeHttpsUrl(raw: string): URL | null {
@@ -209,6 +210,7 @@ function instagramJsonRecords(value: unknown, sourceFile: string, inheritedColle
     const ownerName = instagramMapValue(map, ['Name', 'Full name']); const ownerUsername = instagramMapValue(map, ['Username', 'Author', 'Account username']);
     const savedAt = instagramTimestamp(map); const tags = hashtags(caption);
     for (const url of links) {
+      if (found.length >= MAX_IMPORT_ITEMS) throw new ImportParseError('item_count_limit', 'An export cannot contain more than 5,000 saved links.');
       const id = url.match(/\/(?:p|reel|tv)\/([a-z\d_-]+)/i)?.[1] ?? null;
       found.push({ platform: 'instagram', url, sourceId: id, title: caption.slice(0, 240) || url, description: caption,
         collection: collection || 'Saved posts', metadata: { sourceFile, ownerName, ownerUsername, savedAt, hashtags: tags, collections: [collection || 'Saved posts'] } });
@@ -241,6 +243,7 @@ function instagramHtmlRecords(text: string, sourceFile: string): ParsedImportIte
     const caption = fields.get('Caption') ?? $(anchor).text().trim(); const ownerName = fields.get('Name') ?? ''; const ownerUsername = fields.get('Username') ?? '';
     const savedAt = record ? $(record).find('div._3-94._a6-o').first().text().trim() : '';
     const collections = [...(collectionByUrl.get(url) ?? new Set([/saved_collections/i.test(sourceFile) ? '' : 'Saved posts']))].filter(Boolean);
+    if (results.length >= MAX_IMPORT_ITEMS) throw new ImportParseError('item_count_limit', 'An export cannot contain more than 5,000 saved links.');
     seen.add(url); const id = url.match(/\/(?:p|reel|tv)\/([a-z\d_-]+)/i)?.[1] ?? null;
     results.push({ platform: 'instagram', url, sourceId: id, title: caption.slice(0, 240) || url, description: caption,
       collection: collections[0] ?? 'Saved posts', metadata: { sourceFile, ownerName, ownerUsername, savedAt, hashtags: hashtags(caption), collections } });
@@ -263,6 +266,7 @@ function xJsonRecords(value: unknown, sourceFile: string, found: ParsedImportIte
   const username = typeof usernameRaw === 'string' ? usernameRaw.replace(/^@/, '').slice(0, 80) : '';
   const finalUrl = url ?? (/^\d+$/.test(idString) ? normalizeXUrl(`https://x.com/${username || 'i'}/status/${idString}`) : null);
   if (finalUrl) {
+    if (found.length >= MAX_IMPORT_ITEMS) throw new ImportParseError('item_count_limit', 'An export cannot contain more than 5,000 saved links.');
     const textRaw = preferred.full_text ?? preferred.fullText ?? preferred.text ?? preferred.caption ?? preferred.description ?? preferred.note;
     const text = typeof textRaw === 'string' ? textRaw.trim().slice(0, 1200) : '';
     const authorRaw = preferred.name ?? preferred.author ?? preferred.user_name ?? preferred.userName ?? (preferred.user && typeof preferred.user === 'object' ? (preferred.user as Record<string, unknown>).name : '');
@@ -279,6 +283,11 @@ function xJsonRecords(value: unknown, sourceFile: string, found: ParsedImportIte
   }
   for (const child of Object.values(object)) xJsonRecords(child, sourceFile, found);
   return found;
+}
+
+function addCandidate(candidates: Array<{ url: string; title?: string; description?: string }>, candidate: { url: string; title?: string; description?: string }): void {
+  if (candidates.length >= MAX_IMPORT_ITEMS) throw new ImportParseError('item_count_limit', 'An export cannot contain more than 5,000 saved links.');
+  candidates.push(candidate);
 }
 
 function recordsFromText(platform: ImportPlatform, name: string, bytes: Buffer, collection: string | null): ParsedImportItem[] {
@@ -300,22 +309,22 @@ function recordsFromText(platform: ImportPlatform, name: string, bytes: Buffer, 
   if (['html', 'htm'].includes(extension ?? '')) {
     const $ = load(text);
     $('a[href]').each((_index, element) => {
-      const url = $(element).attr('href'); if (url) candidates.push({ url, title: $(element).text().trim() });
+      const url = $(element).attr('href'); if (url) addCandidate(candidates, { url, title: $(element).text().trim() });
     });
-    if (candidates.length === 0) for (const match of text.matchAll(URL_PATTERN)) candidates.push({ url: match[0] });
+    if (candidates.length === 0) for (const match of text.matchAll(URL_PATTERN)) addCandidate(candidates, { url: match[0] });
   } else if (extension === 'csv') {
     const rows = csvRows(text); const headers = (rows.shift() ?? []).map((header) => header.toLowerCase().replace(/[^a-z0-9]/g, ''));
     const urlIndex = headers.findIndex((header) => ['url', 'link', 'tweeturl', 'pinurl', 'savedurl', 'posturl'].includes(header));
     for (const row of rows) {
-      if (urlIndex >= 0 && row[urlIndex]) candidates.push({ url: row[urlIndex]!, title: row[headers.findIndex((header) => ['text', 'title', 'caption', 'tweettext'].includes(header))] });
-      else for (const match of row.join(' ').matchAll(URL_PATTERN)) candidates.push({ url: match[0] });
+      if (urlIndex >= 0 && row[urlIndex]) addCandidate(candidates, { url: row[urlIndex]!, title: row[headers.findIndex((header) => ['text', 'title', 'caption', 'tweettext'].includes(header))] });
+      else for (const match of row.join(' ').matchAll(URL_PATTERN)) addCandidate(candidates, { url: match[0] });
     }
   } else {
     if (extension === 'json' || extension === 'js') {
       try { text = stringsFromJson(JSON.parse(text)).join('\n'); }
       catch { if (extension === 'json') throw new ImportParseError('malformed_json', 'The JSON export is malformed.'); }
     }
-    for (const match of text.matchAll(URL_PATTERN)) candidates.push({ url: match[0] });
+    for (const match of text.matchAll(URL_PATTERN)) addCandidate(candidates, { url: match[0] });
   }
   const normalize = platform === 'instagram' ? normalizeInstagramUrl : platform === 'pinterest' ? normalizePinterestUrl : normalizeXUrl;
   const output: ParsedImportItem[] = []; const seen = new Set<string>();
@@ -353,6 +362,7 @@ export function parsePlatformExports(files: ImportFile[]): ParsedImportItem[] {
       recognizedFiles += 1;
       const collection = platform === 'pinterest' ? member.name.replaceAll('\\', '/').split('/').slice(-2, -1)[0] || null : null;
       const items = recordsFromText(platform, member.name, member.bytes, collection);
+      if (found.length + items.length > MAX_IMPORT_ITEMS) throw new ImportParseError('item_count_limit', 'An import cannot contain more than 5,000 saved links.');
       found.push(...items);
     }
   }

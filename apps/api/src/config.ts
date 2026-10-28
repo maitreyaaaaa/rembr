@@ -13,6 +13,7 @@ const environmentSchema = z.object({
   DATABASE_PATH: z.string().default('./data/rembr.sqlite'),
   ASSET_DIRECTORY: z.string().default('./data/assets'),
   IMPORT_DIRECTORY: z.string().default('./data/imports'),
+  MEDIA_DIRECTORY: z.string().default('./data/media'),
   MAX_CAPTURE_BYTES: z.coerce.number().int().min(64_000).max(5_000_000).default(2_097_152),
   MAX_CAPTURE_REDIRECTS: z.coerce.number().int().min(0).max(5).default(3),
 });
@@ -27,6 +28,7 @@ export const config = {
   databasePath: resolve(projectRoot, parsed.data.DATABASE_PATH),
   assetDirectory: resolve(projectRoot, parsed.data.ASSET_DIRECTORY),
   importDirectory: resolve(projectRoot, parsed.data.IMPORT_DIRECTORY),
+  mediaDirectory: resolve(projectRoot, parsed.data.MEDIA_DIRECTORY),
   projectRoot,
   secureCookies: parsed.data.NODE_ENV === 'production',
 };

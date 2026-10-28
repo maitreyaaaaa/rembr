@@ -34,6 +34,7 @@ export function AvatarUpload({
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const previewRef = useRef<HTMLButtonElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const cropStageRef = useRef<HTMLDivElement>(null);
   const cropImageRef = useRef<HTMLImageElement>(null);
   const pointersRef = useRef(new Map<number, Point>());
@@ -46,6 +47,22 @@ export function AvatarUpload({
   const [cropping, setCropping] = useState(false);
   const [savingCrop, setSavingCrop] = useState(false);
   const [removed, setRemoved] = useState(false);
+
+  function setCroppingWithMotion(next: boolean) {
+    const content = contentRef.current;
+    if (!content) { setCropping(next); return; }
+    content.style.height = `${content.getBoundingClientRect().height}px`;
+    content.style.overflow = 'hidden';
+    setCropping(next);
+    window.requestAnimationFrame(() => {
+      const targetHeight = content.scrollHeight;
+      content.style.height = `${targetHeight}px`;
+      if (Math.abs(targetHeight - content.getBoundingClientRect().height) < 1) {
+        content.style.height = 'auto';
+        content.style.overflow = 'visible';
+      }
+    });
+  }
 
   useEffect(() => () => { if (fileUrl) URL.revokeObjectURL(fileUrl); }, [fileUrl]);
   useEffect(() => () => { if (cropUrl) URL.revokeObjectURL(cropUrl); }, [cropUrl]);
@@ -74,7 +91,7 @@ export function AvatarUpload({
     setOffset({ x: 0, y: 0 });
     setRemoved(false);
     setCropSource(URL.createObjectURL(candidate));
-    setCropping(true);
+    setCroppingWithMotion(true);
   }
 
   function handleFile(event: ChangeEvent<HTMLInputElement>) {
@@ -168,7 +185,7 @@ export function AvatarUpload({
   function cancelCrop() {
     pointersRef.current.clear();
     gestureRef.current = null;
-    setCropping(false);
+    setCroppingWithMotion(false);
     setCropSource(null);
     window.requestAnimationFrame(() => previewRef.current?.focus());
   }
@@ -202,13 +219,19 @@ export function AvatarUpload({
 
   const displaySource = fileUrl ?? (removed ? null : src) ?? null;
   const initials = name.trim().split(/\s+/).slice(0, 2).map((part) => part[0]?.toUpperCase() ?? '').join('') || 'R';
-  const uploadPercent = Math.min(100, Math.max(0, progress ?? 0));
+  const uploadPercent = Math.min(100, Math.max(busy ? 1 : 0, progress ?? 0));
   const circumference = 2 * Math.PI * 43;
   const shownError = error || uploadError;
 
   return <div className="avatar-upload" aria-busy={busy || savingCrop} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
     <input ref={inputRef} className="visually-hidden" type="file" accept={acceptedTypes.join(',')} onChange={handleFile} disabled={busy || cropping} tabIndex={-1} aria-hidden="true" />
     <div className="avatar-upload-heading"><h2>Profile</h2><p>Click or drop a photo on the avatar.</p></div>
+    <div ref={contentRef} className="avatar-upload-content" onTransitionEnd={(event) => {
+      if (event.target === event.currentTarget && event.propertyName === 'height') {
+        event.currentTarget.style.height = 'auto';
+        event.currentTarget.style.overflow = 'visible';
+      }
+    }}>
     {cropping && cropUrl ? <div className="avatar-crop-body">
       <div
         ref={cropStageRef}
@@ -264,6 +287,7 @@ export function AvatarUpload({
         </div>
       </div>
     </div>}
+    </div>
     <div className="visually-hidden" role="status" aria-live="polite">{busy ? `Photo upload ${uploadPercent}% complete` : ''}</div>
   </div>;
 }

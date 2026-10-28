@@ -16,6 +16,7 @@ const extensionMimes: Record<string, string[]> = {
   htm: ['text/html', 'application/xhtml+xml', 'text/plain', 'application/octet-stream', ''],
   zip: ['application/zip', 'application/x-zip-compressed', 'application/octet-stream', ''],
   json: ['application/json', 'text/json', 'text/plain', 'application/octet-stream', ''],
+  js: ['text/javascript', 'application/javascript', 'text/plain', 'application/octet-stream', ''],
   csv: ['text/csv', 'application/csv', 'text/plain', 'application/octet-stream', ''],
   txt: ['text/plain', 'application/octet-stream', ''],
 };
@@ -43,13 +44,14 @@ function validSignature(extension: string, bytes: Buffer): boolean {
 
 export function createImportService(database: DatabaseHandle, storage: LocalImportStorage) {
   const repository = createImportRepository(database);
-  async function cleanup(ownerId: string, importId: string): Promise<void> {
+  async function cleanup(ownerId: string, importId: string): Promise<boolean> {
     const files = repository.cleanupFiles(ownerId, importId); let success = true;
     for (const file of files) {
       try { await storage.removeFile(file.storage_key); }
       catch { success = false; }
     }
     repository.cleanup(ownerId, importId, success);
+    return success;
   }
 
   async function processStagedImport(ownerId: string, importId: string): Promise<boolean> {
@@ -80,9 +82,16 @@ export function createImportService(database: DatabaseHandle, storage: LocalImpo
   }
 
   return {
-    create(ownerId: string, requestId: string, files: ImportFileInput[]) {
+    create(ownerId: string, requestId: string, idempotencyKey: string, files: ImportFileInput[]) {
       validateImportFiles(files);
-      return repository.create(ownerId, requestId, files);
+      return repository.create(ownerId, requestId, idempotencyKey, files);
+    },
+
+    async cancel(ownerId: string, importId: string): Promise<{ cancelled: boolean; cleanupComplete: boolean }> {
+      if (!repository.cancelUpload(ownerId, importId)) return { cancelled: false, cleanupComplete: false };
+      const cleaned = await cleanup(ownerId, importId);
+      await storage.removeUnknown(repository.storageKeys());
+      return { cancelled: true, cleanupComplete: cleaned };
     },
 
     async uploadChunk(ownerId: string, importId: string, fileId: string, index: number, bytes: Buffer) {
@@ -98,7 +107,10 @@ export function createImportService(database: DatabaseHandle, storage: LocalImpo
       const chunkKey = await storage.writeChunk(String(file.storage_key), index, bytes);
       let result;
       try { result = repository.recordChunk(ownerId, importId, fileId, index, bytes.length, sha256, chunkKey); }
-      catch (cause) { throw new ImportServiceError(cause instanceof ImportRepositoryError ? cause.code : 'chunk_record_failed'); }
+      catch (cause) {
+        if (!prior) await storage.removeChunk(String(file.storage_key), index).catch(() => undefined);
+        throw new ImportServiceError(cause instanceof ImportRepositoryError ? cause.code : 'chunk_record_failed');
+      }
       if (result.complete) {
         await storage.assemble(result.storageKey, Number(file.chunk_count), Number(file.expected_bytes));
         const allStaged = repository.markFileStaged(ownerId, importId, fileId);

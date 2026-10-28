@@ -7,17 +7,23 @@ import { once } from 'node:events';
 import { test } from 'node:test';
 import { createApp } from '../src/app.js';
 import { createTestDatabase } from '../src/db/database.js';
-import { createImportService } from '../src/imports/service.js';
+import { createImportService, validateImportFiles } from '../src/imports/service.js';
 import { LocalImportStorage } from '../src/imports/storage.js';
+import { LocalMediaStorage } from '../src/media/storage.js';
 import { processNextJob } from '../src/worker/process-job.js';
 import { CaptureError } from '../src/items/safe-fetch.js';
 
 const password = 'correct-horse-battery-staple';
-async function withApi(run: (baseUrl: string, database: ReturnType<typeof createTestDatabase>, importPath: string) => Promise<void>) {
-  const database = createTestDatabase(); const root = await mkdtemp(join(tmpdir(), 'rembr-imports-')); const assets = join(root, 'assets'); const importPath = join(root, 'imports');
-  const app = createApp(database, { assetDirectory: assets, importDirectory: importPath, validateUrl: async (input) => ({ url: new URL(input), address: '93.184.216.34', family: 4 }) });
+
+test('upload validation accepts source-compatible X JavaScript bookmark exports', () => {
+  const bytes = Buffer.byteLength('window.YTD.bookmark.part0 = [];');
+  assert.doesNotThrow(() => validateImportFiles([{ name: 'bookmark.js', mime: 'application/javascript', size: bytes, chunks: 1 }]));
+});
+async function withApi(run: (baseUrl: string, database: ReturnType<typeof createTestDatabase>, importPath: string, mediaPath: string) => Promise<void>) {
+  const database = createTestDatabase(); const root = await mkdtemp(join(tmpdir(), 'rembr-imports-')); const assets = join(root, 'assets'); const importPath = join(root, 'imports'); const mediaPath = join(root, 'media');
+  const app = createApp(database, { assetDirectory: assets, importDirectory: importPath, mediaDirectory: mediaPath, validateUrl: async (input) => ({ url: new URL(input), address: '93.184.216.34', family: 4 }) });
   const server = app.listen(0, '127.0.0.1'); await once(server, 'listening'); const address = server.address() as AddressInfo;
-  try { await run(`http://127.0.0.1:${address.port}`, database, importPath); }
+  try { await run(`http://127.0.0.1:${address.port}`, database, importPath, mediaPath); }
   finally { server.closeAllConnections(); server.close(); database.close(); await rm(root, { recursive: true, force: true }); }
 }
 
@@ -85,11 +91,97 @@ test('Phase 3 import status and chunk writes are owner scoped and bounded', asyn
     const rejected = await fetch(`${baseUrl}/api/imports`, { method: 'POST', headers: { Cookie: owner, 'Content-Type': 'application/json' }, body: JSON.stringify({ files: [{ name: 'pins.csv', mime: 'image/png', size: 10, chunks: 1 }] }) });
     assert.equal(rejected.status, 400);
     const bytes = Buffer.from('url,title\nhttps://www.pinterest.com/pin/123456/,pin\n');
-    const created = await fetch(`${baseUrl}/api/imports`, { method: 'POST', headers: { Cookie: owner, 'Content-Type': 'application/json' }, body: JSON.stringify({ files: [{ name: 'pins.csv', mime: 'text/csv', size: bytes.length, chunks: 1 }] }) });
+    const created = await fetch(`${baseUrl}/api/imports`, { method: 'POST', headers: { Cookie: owner, 'Content-Type': 'application/json' }, body: JSON.stringify({ files: [{ name: 'pins.csv', mime: 'text/csv', size: bytes.length, chunks: 2 }] }) });
     const manifest = await created.json() as { importId: string; files: Array<{ fileId: string }> };
     assert.equal((await fetch(`${baseUrl}/api/imports/${manifest.importId}`, { headers: { Cookie: other } })).status, 404);
     const wrong = await fetch(`${baseUrl}/api/imports/${manifest.importId}/files/${manifest.files[0]!.fileId}/chunks/0`, { method: 'PUT', headers: { Cookie: other, 'Content-Type': 'application/octet-stream' }, body: bytes });
     assert.equal(wrong.status, 404);
+    const split = 20; const firstPart = bytes.subarray(0, split); const lastPart = bytes.subarray(split);
+    assert.equal((await fetch(`${baseUrl}/api/imports/${manifest.importId}/files/${manifest.files[0]!.fileId}/chunks/0`, { method: 'PUT', headers: { Cookie: owner, 'Content-Type': 'application/octet-stream' }, body: firstPart })).status, 200);
+    const truncated = await fetch(`${baseUrl}/api/imports/${manifest.importId}/files/${manifest.files[0]!.fileId}/chunks/1`, { method: 'PUT', headers: { Cookie: owner, 'Content-Type': 'application/octet-stream' }, body: lastPart.subarray(1) });
+    assert.equal(truncated.status, 400);
+    const retry = await fetch(`${baseUrl}/api/imports/${manifest.importId}/files/${manifest.files[0]!.fileId}/chunks/1`, { method: 'PUT', headers: { Cookie: owner, 'Content-Type': 'application/octet-stream' }, body: lastPart });
+    assert.equal(retry.status, 202);
+  });
+});
+
+test('import creation is idempotent for matching files and rejects key reuse with changed files', async () => {
+  await withApi(async (baseUrl, database) => {
+    const owner = await register(baseUrl, 'idempotent@example.test', 'idempotent_1');
+    const headers = { Cookie: owner, 'Content-Type': 'application/json', 'Idempotency-Key': 'retry-key-0000000001' };
+    const body = JSON.stringify({ files: [{ name: 'pins.csv', mime: 'text/csv', size: 20, chunks: 1 }] });
+    const first = await fetch(`${baseUrl}/api/imports`, { method: 'POST', headers, body });
+    const firstImport = await first.json() as { importId: string };
+    const second = await fetch(`${baseUrl}/api/imports`, { method: 'POST', headers, body });
+    const secondImport = await second.json() as { importId: string };
+    assert.equal(second.status, 201);
+    assert.equal(secondImport.importId, firstImport.importId);
+    assert.equal((database.prepare('SELECT count(*) AS count FROM imports').get() as { count: number }).count, 1);
+    const conflict = await fetch(`${baseUrl}/api/imports`, { method: 'POST', headers, body: JSON.stringify({ files: [{ name: 'different.csv', mime: 'text/csv', size: 20, chunks: 1 }] }) });
+    assert.equal(conflict.status, 409);
+  });
+});
+
+test('owners can cancel an incomplete import and remove staged private bytes', async () => {
+  await withApi(async (baseUrl, database, importPath) => {
+    const owner = await register(baseUrl, 'cancel-import@example.test', 'cancelimp_1');
+    const bytes = Buffer.from('url,title\nhttps://www.pinterest.com/pin/7654321/,Pin\n');
+    const created = await fetch(`${baseUrl}/api/imports`, { method: 'POST', headers: { Cookie: owner, 'Content-Type': 'application/json' }, body: JSON.stringify({ files: [{ name: 'pins.csv', mime: 'text/csv', size: bytes.length, chunks: 2 }] }) });
+    const manifest = await created.json() as { importId: string; files: Array<{ fileId: string }> };
+    const partial = bytes.subarray(0, 12);
+    assert.equal((await fetch(`${baseUrl}/api/imports/${manifest.importId}/files/${manifest.files[0]!.fileId}/chunks/0`, { method: 'PUT', headers: { Cookie: owner, 'Content-Type': 'application/octet-stream' }, body: partial })).status, 200);
+    const canceled = await fetch(`${baseUrl}/api/imports/${manifest.importId}/cancel`, { method: 'POST', headers: { Cookie: owner } });
+    assert.equal(canceled.status, 200);
+    const state = database.prepare('SELECT status,cleanup_status FROM imports WHERE id=?').get(manifest.importId) as { status: string; cleanup_status: string };
+    assert.deepEqual(state, { status: 'failed', cleanup_status: 'complete' });
+    const key = database.prepare('SELECT storage_key FROM import_upload_files WHERE import_id=?').get(manifest.importId) as { storage_key: string };
+    await assert.rejects(readFile(join(importPath, `${key.storage_key}.000.part`)));
+  });
+});
+
+test('startup cleanup recovers terminal imports left pending by a worker crash', async () => {
+  await withApi(async (baseUrl, database, importPath) => {
+    const owner = await register(baseUrl, 'cleanup-recovery@example.test', 'cleanrec_1');
+    const bytes = Buffer.from('url,title\nhttps://www.pinterest.com/pin/1234567/,Pin\n'); const first = bytes.subarray(0, 14);
+    const created = await fetch(`${baseUrl}/api/imports`, { method: 'POST', headers: { Cookie: owner, 'Content-Type': 'application/json' }, body: JSON.stringify({ files: [{ name: 'pins.csv', mime: 'text/csv', size: bytes.length, chunks: 2 }] }) });
+    const manifest = await created.json() as { importId: string; files: Array<{ fileId: string }> };
+    assert.equal((await fetch(`${baseUrl}/api/imports/${manifest.importId}/files/${manifest.files[0]!.fileId}/chunks/0`, { method: 'PUT', headers: { Cookie: owner, 'Content-Type': 'application/octet-stream' }, body: first })).status, 200);
+    const key = database.prepare('SELECT storage_key FROM import_upload_files WHERE import_id=?').get(manifest.importId) as { storage_key: string };
+    database.prepare(`UPDATE imports SET status='failed',cleanup_status='pending' WHERE id=?`).run(manifest.importId);
+    database.prepare(`UPDATE import_upload_files SET state='failed' WHERE import_id=?`).run(manifest.importId);
+    const service = createImportService(database, new LocalImportStorage(importPath));
+    assert.equal(await service.retryCleanup(), 1);
+    assert.equal((database.prepare('SELECT cleanup_status FROM imports WHERE id=?').get(manifest.importId) as { cleanup_status: string }).cleanup_status, 'complete');
+    await assert.rejects(readFile(join(importPath, `${key.storage_key}.000.part`)));
+  });
+});
+
+test('partial parser failures remain visible after queued work succeeds and exhausted leases close imports', async () => {
+  await withApi(async (baseUrl, database, importPath) => {
+    const owner = await register(baseUrl, 'partial-import@example.test', 'partial_01');
+    const valid = Buffer.from('url,title\nhttps://www.pinterest.com/pin/7654321/,Valid pin\n');
+    const invalid = Buffer.from('url,title\nhttps://example.com/not-a-pin,Unsupported row\n');
+    const files = [valid, invalid].map((bytes, index) => ({ name: `pins-${index}.csv`, mime: 'text/csv', size: bytes.length, chunks: 1 }));
+    const created = await fetch(`${baseUrl}/api/imports`, { method: 'POST', headers: { Cookie: owner, 'Content-Type': 'application/json' }, body: JSON.stringify({ files }) });
+    const manifest = await created.json() as { importId: string; files: Array<{ fileId: string }> };
+    assert.equal(created.status, 201);
+    for (let index = 0; index < files.length; index += 1) {
+      const response = await fetch(`${baseUrl}/api/imports/${manifest.importId}/files/${manifest.files[index]!.fileId}/chunks/0`, { method: 'PUT', headers: { Cookie: owner, 'Content-Type': 'application/octet-stream' }, body: [valid, invalid][index]! });
+      assert.equal(response.status, index === files.length - 1 ? 202 : 200);
+    }
+    const service = createImportService(database, new LocalImportStorage(importPath));
+    assert.equal(await service.processNextImport(), manifest.importId);
+    assert.equal((database.prepare('SELECT status FROM imports WHERE id=?').get(manifest.importId) as { status: string }).status, 'partial');
+    assert.ok(await processNextJob(database, async () => ({ finalUrl: 'https://www.pinterest.com/pin/7654321/', contentType: 'text/html', html: '<main>saved pin text</main>' })));
+    assert.equal((database.prepare('SELECT status FROM imports WHERE id=?').get(manifest.importId) as { status: string }).status, 'partial');
+
+    const job = database.prepare('SELECT id,item_id FROM processing_jobs WHERE import_id=?').get(manifest.importId) as { id: string; item_id: string };
+    const expired = new Date(Date.now() - 60_000).toISOString();
+    database.prepare(`UPDATE processing_jobs SET status='processing',attempts=max_attempts,lease_token='expired',lease_expires_at=?,updated_at=? WHERE id=?`).run(expired, expired, job.id);
+    database.prepare(`UPDATE saved_items SET status='processing' WHERE id=?`).run(job.item_id);
+    database.prepare(`UPDATE imports SET status='processing' WHERE id=?`).run(manifest.importId);
+    assert.equal(await processNextJob(database), null);
+    assert.equal((database.prepare('SELECT status FROM imports WHERE id=?').get(manifest.importId) as { status: string }).status, 'partial');
   });
 });
 
@@ -107,6 +199,37 @@ test('owners can cancel queued work and foreign users cannot read job state', as
     const details = await fetch(`${baseUrl}/api/items/${item.id}`, { headers: { Cookie: owner } });
     assert.equal((await details.json() as { item: { status: string } }).item.status, 'cancelled');
     assert.equal(await processNextJob(database, async () => ({ finalUrl: 'https://example.com/cancel-me', contentType: 'text/html', html: '<main>must not run</main>' })), null);
+  });
+});
+
+test('worker saves safe image media privately, scopes reads, and keeps the last good file on reprocess failure', async () => {
+  await withApi(async (baseUrl, database, _importPath, mediaPath) => {
+    const owner = await register(baseUrl, 'media-owner@example.test', 'mediaown_1');
+    const other = await register(baseUrl, 'media-other@example.test', 'mediaoth_1');
+    const capture = await fetch(`${baseUrl}/api/items`, { method: 'POST', headers: { Cookie: owner, 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'https://example.com/media' }) });
+    const item = (await capture.json() as { item: { id: string } }).item;
+    const image = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+    const page = async () => ({ finalUrl: 'https://example.com/media', contentType: 'text/html', html: '<meta property="og:image" content="/cover.png"><main>Readable article</main>' });
+    const storage = new LocalMediaStorage(mediaPath);
+    assert.ok(await processNextJob(database, page, { storage, fetchMedia: async () => ({ finalUrl: 'https://cdn.example.com/cover.png', mime: 'image/png', bytes: image }) }));
+    const details = await fetch(`${baseUrl}/api/items/${item.id}`, { headers: { Cookie: owner } });
+    const media = (await details.json() as { item: { media: Array<{ id: string; url: string | null; status: string }> } }).item.media;
+    assert.equal(media[0]?.status, 'ready');
+    assert.ok(media[0]?.url);
+    assert.equal((await fetch(`${baseUrl}${media[0]!.url}`, { headers: { Cookie: other } })).status, 404);
+    const saved = await fetch(`${baseUrl}${media[0]!.url}`, { headers: { Cookie: owner } });
+    assert.equal(saved.status, 200);
+    assert.equal(saved.headers.get('cache-control'), 'private, no-store');
+    assert.deepEqual(Buffer.from(await saved.arrayBuffer()), image);
+
+    assert.equal((await fetch(`${baseUrl}/api/items/${item.id}/job/reprocess`, { method: 'POST', headers: { Cookie: owner } })).status, 200);
+    assert.ok(await processNextJob(database, page, { storage, fetchMedia: async () => { throw new CaptureError('media_unavailable', 'Unavailable'); } }));
+    assert.equal((database.prepare('SELECT status FROM processing_jobs WHERE item_id=?').get(item.id) as { status: string }).status, 'partial');
+    assert.equal((database.prepare(`SELECT count(*) AS count FROM media_artifacts WHERE owner_id=(SELECT id FROM users WHERE email='media-owner@example.test') AND item_id=? AND status='ready' AND active=1`).get(item.id) as { count: number }).count, 1);
+    const storageKey = database.prepare('SELECT storage_key FROM media_artifacts WHERE item_id=? AND status=\'ready\' AND active=1').get(item.id) as { storage_key: string };
+    assert.equal((await fetch(`${baseUrl}/api/items/${item.id}`, { method: 'DELETE', headers: { Cookie: owner } })).status, 204);
+    await assert.rejects(readFile(join(mediaPath, storageKey.storage_key)));
+    assert.equal((database.prepare('SELECT count(*) AS count FROM media_cleanup_queue').get() as { count: number }).count, 0);
   });
 });
 

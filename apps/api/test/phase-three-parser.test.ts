@@ -64,6 +64,12 @@ test('Pinterest canonicalization rejects lookalike hosts and direct TXT files', 
   assert.throws(() => parsePlatformExports([{ name: 'pins.txt', bytes: Buffer.from('https://www.pinterest.com/pin/12345/') }]), { code: 'unsupported_export_file' });
 });
 
+test('imports reject exports that exceed the bounded saved-link count', () => {
+  const rows = Array.from({ length: 5_001 }, (_, index) => `https://www.pinterest.com/pin/${index + 1}/,Pin ${index + 1}`);
+  const bytes = Buffer.from(`url,title\n${rows.join('\n')}\n`);
+  assert.throws(() => parsePlatformExports([{ name: 'pins.csv', bytes }]), { code: 'item_count_limit' });
+});
+
 test('X CSV parser accepts quoted multiline text and canonicalizes numeric status URLs', () => {
   const csv = Buffer.from('tweet_url,text\nhttps://twitter.com/artist/status/987654,"first line\nsecond, line"\n');
   const items = parsePlatformExports([{ name: 'bookmarks.csv', bytes: csv }]);

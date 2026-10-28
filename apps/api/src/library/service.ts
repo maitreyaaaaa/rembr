@@ -3,6 +3,7 @@ import ipaddr from 'ipaddr.js';
 import type { DatabaseHandle } from '../db/database.js';
 import { createAssetService } from '../assets/service.js';
 import { detectImageMime, imageExtensionMatches, LocalAssetStorage } from '../assets/storage.js';
+import { LocalMediaStorage } from '../media/storage.js';
 import { createLibraryRepository, type ItemListQuery } from './repository.js';
 
 export class LibraryServiceError extends Error {
@@ -38,7 +39,7 @@ function cursorDecode(value: string, expected: Pick<Cursor, 'owner' | 'fingerpri
 }
 function cursorEncode(cursor: Cursor): string { return Buffer.from(JSON.stringify(cursor)).toString('base64url'); }
 
-export function createLibraryService(database: DatabaseHandle, storage: LocalAssetStorage) {
+export function createLibraryService(database: DatabaseHandle, storage: LocalAssetStorage, mediaStorage?: LocalMediaStorage) {
   const repository = createLibraryRepository(database);
   const assets = createAssetService(database, storage);
   return {
@@ -66,7 +67,17 @@ export function createLibraryService(database: DatabaseHandle, storage: LocalAss
     async delete(ownerId: string, itemId: string) {
       const deleting = repository.delete(ownerId, itemId);
       if (!deleting) return false;
-      for (const asset of deleting) await assets.deleteAfterMarked(ownerId, asset.id, asset.storageKey);
+      for (const asset of deleting.assets) await assets.deleteAfterMarked(ownerId, asset.id, asset.storageKey);
+      for (const key of deleting.mediaKeys) {
+        if (!mediaStorage) continue;
+        try {
+          await mediaStorage.remove(key);
+          database.prepare('DELETE FROM media_cleanup_queue WHERE storage_key=?').run(key);
+        } catch {
+          database.prepare('UPDATE media_cleanup_queue SET attempt_count=attempt_count+1,last_error=?,updated_at=? WHERE storage_key=?')
+            .run('storage_unavailable', new Date().toISOString(), key);
+        }
+      }
       return true;
     },
     async saveNote(input: { ownerId: string; itemId?: string; isCreate: boolean; body: string; title: string; linksRaw: string; files: Array<{ buffer: Buffer; mimetype: string; originalname: string }> }) {

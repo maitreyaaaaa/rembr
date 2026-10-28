@@ -10,11 +10,24 @@ export class ImportRepositoryError extends Error {
 
 export function createImportRepository(database: DatabaseHandle) {
   return {
-    create(ownerId: string, requestId: string, files: ImportFileInput[]) {
+    create(ownerId: string, requestId: string, idempotencyKey: string, files: ImportFileInput[]) {
       const id = randomUUID(); const now = new Date().toISOString();
       const transaction = database.transaction(() => {
-        database.prepare(`INSERT INTO imports (id,owner_id,request_id,source,status,file_count,created_at,updated_at)
-          VALUES (?,?,?,'unknown','uploading',?,?,?)`).run(id, ownerId, requestId, files.length, now, now);
+        const prior = database.prepare('SELECT id,status FROM imports WHERE owner_id=? AND idempotency_key=?')
+          .get(ownerId, idempotencyKey) as { id: string; status: string } | undefined;
+        if (prior) {
+          const priorFiles = database.prepare(`SELECT id,original_name,declared_mime,expected_bytes,chunk_count FROM import_upload_files
+            WHERE owner_id=? AND import_id=? ORDER BY created_at,id`).all(ownerId, prior.id) as Array<Record<string, unknown>>;
+          const matches = priorFiles.length === files.length && priorFiles.every((row, index) => {
+            const file = files[index]!; const cleanName = basename(file.name.replaceAll('\\', '/')).slice(0, 255);
+            return String(row.original_name) === cleanName && String(row.declared_mime) === file.mime.slice(0, 120)
+              && Number(row.expected_bytes) === file.size && Number(row.chunk_count) === file.chunks;
+          });
+          if (!matches) throw new ImportRepositoryError('idempotency_key_conflict');
+          return { id: prior.id, status: prior.status, files: priorFiles.map((row) => ({ id: String(row.id), name: String(row.original_name), size: Number(row.expected_bytes), chunks: Number(row.chunk_count) })) };
+        }
+        database.prepare(`INSERT INTO imports (id,owner_id,request_id,idempotency_key,source,status,file_count,created_at,updated_at)
+          VALUES (?,?,?,?,'unknown','uploading',?,?,?)`).run(id, ownerId, requestId, idempotencyKey, files.length, now, now);
         const insert = database.prepare(`INSERT INTO import_upload_files
           (id,owner_id,import_id,original_name,extension,declared_mime,expected_bytes,chunk_count,storage_key,state,created_at,updated_at)
           VALUES (?,?,?,?,?,?,?,?,?,'uploading',?,?)`);
@@ -26,9 +39,9 @@ export function createImportRepository(database: DatabaseHandle) {
         });
         database.prepare('UPDATE imports SET total_bytes=? WHERE id=? AND owner_id=?')
           .run(files.reduce((total, file) => total + file.size, 0), id, ownerId);
-        return result;
+        return { id, status: 'uploading', files: result };
       });
-      return { id, files: transaction.immediate() };
+      return transaction.immediate();
     },
 
     owned(ownerId: string, importId: string) {
@@ -65,7 +78,8 @@ export function createImportRepository(database: DatabaseHandle) {
     },
 
     cleanupPending(limit = 20) {
-      return database.prepare(`SELECT id,owner_id FROM imports WHERE cleanup_status='retry' ORDER BY updated_at LIMIT ?`)
+      return database.prepare(`SELECT id,owner_id FROM imports WHERE cleanup_status IN ('pending','retry')
+        AND status IN ('queued','processing','completed','partial','failed','expired') ORDER BY updated_at LIMIT ?`)
         .all(limit) as Array<{ id: string; owner_id: string }>;
     },
 
@@ -85,6 +99,19 @@ export function createImportRepository(database: DatabaseHandle) {
           database.prepare(`UPDATE import_upload_files SET state='failed',updated_at=? WHERE owner_id=? AND import_id=?`).run(now, row.owner_id, row.id);
         }
         return rows;
+      });
+      return transaction.immediate();
+    },
+
+    cancelUpload(ownerId: string, importId: string): boolean {
+      const now = new Date().toISOString();
+      const transaction = database.transaction(() => {
+        const changed = database.prepare(`UPDATE imports SET status='failed',error_code='upload_cancelled',failed_count=max(failed_count,1),updated_at=?,completed_at=?
+          WHERE owner_id=? AND id=? AND status IN ('uploading','staged')`).run(now, now, ownerId, importId);
+        if (changed.changes !== 1) return false;
+        database.prepare(`UPDATE import_upload_files SET state='failed',updated_at=? WHERE owner_id=? AND import_id=? AND state!='deleted'`)
+          .run(now, ownerId, importId);
+        return true;
       });
       return transaction.immediate();
     },

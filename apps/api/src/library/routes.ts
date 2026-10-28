@@ -5,6 +5,7 @@ import type { DatabaseHandle } from '../db/database.js';
 import { requireUser } from '../auth/sessions.js';
 import { createProfileGate } from '../account/routes.js';
 import { LocalAssetStorage } from '../assets/storage.js';
+import { LocalMediaStorage } from '../media/storage.js';
 import { createLibraryService, LibraryServiceError } from './service.js';
 
 const noteUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 5, fields: 3, fieldSize: 50_000 } });
@@ -25,11 +26,11 @@ function formField(req: express.Request, key: string): string {
   return typeof value === 'string' ? value : '';
 }
 
-export function createLibraryRouter(database: DatabaseHandle, storage: LocalAssetStorage) {
+export function createLibraryRouter(database: DatabaseHandle, storage: LocalAssetStorage, mediaStorage: LocalMediaStorage) {
   const router = express.Router();
   const signedIn = requireUser(database);
   const profile = createProfileGate(database, storage);
-  const library = createLibraryService(database, storage);
+  const library = createLibraryService(database, storage, mediaStorage);
 
   router.get('/items', signedIn, profile, (req, res) => {
     const parsed = z.object({
@@ -103,6 +104,21 @@ export function createLibraryRouter(database: DatabaseHandle, storage: LocalAsse
     res.setHeader('Cache-Control', 'private, no-store');
     res.setHeader('X-Content-Type-Options', 'nosniff');
     return res.send(asset.bytes);
+  });
+
+  router.get('/media/:id', signedIn, profile, async (req, res) => {
+    const id = param(req, 'id');
+    const media = database.prepare(`SELECT storage_key,detected_mime FROM media_artifacts
+      WHERE owner_id=? AND id=? AND active=1 AND status='ready'`).get(req.user!.id, id) as { storage_key: string | null; detected_mime: string | null } | undefined;
+    if (!media?.storage_key || !media.detected_mime) return apiError(res, 404, 'not_found', 'Media not found.', req.requestId);
+    try {
+      const bytes = await mediaStorage.read(media.storage_key);
+      res.setHeader('Content-Type', media.detected_mime); res.setHeader('Content-Length', bytes.length);
+      res.setHeader('Cache-Control', 'private, no-store'); res.setHeader('X-Content-Type-Options', 'nosniff');
+      return res.send(bytes);
+    } catch {
+      return apiError(res, 404, 'not_found', 'Media not found.', req.requestId);
+    }
   });
 
   return router;

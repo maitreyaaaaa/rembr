@@ -14,6 +14,7 @@ import { createImportRouter } from './imports/routes.js';
 import { LocalImportStorage } from './imports/storage.js';
 import { createJobRouter } from './jobs/routes.js';
 import { LocalAssetStorage } from './assets/storage.js';
+import { LocalMediaStorage } from './media/storage.js';
 import type { DatabaseHandle } from './db/database.js';
 import { CaptureError, validatePublicUrl } from './items/safe-fetch.js';
 import { createLibraryService } from './library/service.js';
@@ -27,11 +28,12 @@ function errorResponse(code: string, message: string, requestId?: string) {
   return { error: { code, message, ...(requestId ? { requestId } : {}) } };
 }
 
-export function createApp(database: DatabaseHandle, options: { validateUrl?: typeof validatePublicUrl; assetDirectory?: string; assetStorage?: LocalAssetStorage; importDirectory?: string; importStorage?: LocalImportStorage } = {}) {
+export function createApp(database: DatabaseHandle, options: { validateUrl?: typeof validatePublicUrl; assetDirectory?: string; assetStorage?: LocalAssetStorage; importDirectory?: string; importStorage?: LocalImportStorage; mediaDirectory?: string; mediaStorage?: LocalMediaStorage } = {}) {
   const app = express();
   const assetStorage = options.assetStorage ?? new LocalAssetStorage(options.assetDirectory ?? config.assetDirectory);
   const importStorage = options.importStorage ?? new LocalImportStorage(options.importDirectory ?? config.importDirectory);
-  const library = createLibraryService(database, assetStorage);
+  const mediaStorage = options.mediaStorage ?? new LocalMediaStorage(options.mediaDirectory ?? config.mediaDirectory);
+  const library = createLibraryService(database, assetStorage, mediaStorage);
   const validateUrl = options.validateUrl ?? validatePublicUrl;
   app.disable('x-powered-by');
   app.use(helmet());
@@ -138,7 +140,7 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
       next(error);
     }
   });
-  app.use('/api', createLibraryRouter(database, assetStorage));
+  app.use('/api', createLibraryRouter(database, assetStorage, mediaStorage));
   app.use('/api', createOrganizationRouter(database, assetStorage));
   app.use('/api', createImportRouter(database, assetStorage, importStorage));
   app.use('/api', createJobRouter(database, assetStorage));
