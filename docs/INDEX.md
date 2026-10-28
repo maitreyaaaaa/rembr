@@ -27,6 +27,7 @@ This documentation reconstructs IScraper's current product and implementation so
 - System design and trust boundaries: [architecture/system-design-and-boundaries.md](architecture/system-design-and-boundaries.md)
 - Rebuild architecture decisions: [architecture/architecture-decisions.md](architecture/architecture-decisions.md)
 - Phase 2 identity, tenancy, library, asset, and UI architecture contract: [architecture/phase-2-architecture-design.md](architecture/phase-2-architecture-design.md)
+- Phase 3 ingestion, durable jobs, and processing proposal: [architecture/phase-3-architecture-design.md](architecture/phase-3-architecture-design.md)
 - Screen specifications: [screens/ui-surface-and-screen-specifications.md](screens/ui-surface-and-screen-specifications.md)
 - Rembr design-system brief: [screens/rembr-design-system-brief.md](screens/rembr-design-system-brief.md)
 - API routes and contracts: [backend/api-routes-and-contracts.md](backend/api-routes-and-contracts.md)
