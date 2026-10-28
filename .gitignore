@@ -17,3 +17,6 @@ data/assets/
 # Tool output
 .DS_Store
 *.log
+
+.vercel
+.env*
