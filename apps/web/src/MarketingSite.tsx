@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent, type KeyboardEvent } from 'react';
 
 type Page = 'home' | 'features' | 'about' | 'contact';
 const contactEmail = import.meta.env.VITE_CONTACT_EMAIL?.trim();
@@ -36,6 +36,65 @@ function FeatureCard({ number, title, copy, tone }: { number: string; title: str
   return <article className={`ice-feature ${tone}`}><span className="ice-feature-number">{number}</span><span className="ice-feature-mark" aria-hidden="true">✳</span><h3>{title}</h3><p>{copy}</p></article>;
 }
 
+const faqItems = [
+  {
+    question: 'Okay, what can I actually save?',
+    answer: 'A public page or article with an HTTP or HTTPS link. Paste it into your library and Rembr will try to keep a readable copy, with the original link close by.',
+  },
+  {
+    question: 'Will it work on every website?',
+    answer: 'We wish! Some sites block automated requests or do not expose much readable text. If a page cannot be processed, Rembr shows a failure and keeps the source link with your saved item.',
+  },
+  {
+    question: 'Can I search the whole article later?',
+    answer: 'Not yet. Search currently checks saved page titles and URLs. You can still open the readable text for a page you saved.',
+  },
+  {
+    question: 'Does Rembr summarize pages with AI?',
+    answer: 'Not right now. Rembr saves a readable copy of the page; AI summaries and ask-your-library search are not part of this version.',
+  },
+  {
+    question: 'Can I save something behind a login or paywall?',
+    answer: 'No. Rembr only processes public pages and does not sign in to websites or fetch paywalled content.',
+  },
+  {
+    question: 'So, how much does it cost?',
+    answer: 'Pricing has not been announced for this early build. We will share the details once the plan is set.',
+  },
+];
+
+function FaqAccordion() {
+  const [openIndex, setOpenIndex] = useState(0);
+
+  function handleKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
+    let nextIndex: number | undefined;
+    if (event.key === 'ArrowDown') nextIndex = (index + 1) % faqItems.length;
+    if (event.key === 'ArrowUp') nextIndex = (index - 1 + faqItems.length) % faqItems.length;
+    if (event.key === 'Home') nextIndex = 0;
+    if (event.key === 'End') nextIndex = faqItems.length - 1;
+    if (nextIndex !== undefined) {
+      event.preventDefault();
+      document.getElementById(`ice-faq-trigger-${nextIndex}`)?.focus();
+    }
+  }
+
+  return <div className="ice-faq-list">
+    {faqItems.map((item, index) => {
+      const isOpen = openIndex === index;
+      const triggerId = `ice-faq-trigger-${index}`;
+      const panelId = `ice-faq-panel-${index}`;
+      return <article className={`ice-faq-item${isOpen ? ' is-open' : ''}`} key={item.question}>
+        <h3><button id={triggerId} className="ice-faq-trigger" type="button" aria-expanded={isOpen} aria-controls={panelId} onClick={() => setOpenIndex(isOpen ? -1 : index)} onKeyDown={(event) => handleKeyDown(event, index)}>
+          <span>{item.question}</span><span className="ice-faq-icon" aria-hidden="true">+</span>
+        </button></h3>
+        <div id={panelId} className="ice-faq-panel" role="region" aria-labelledby={triggerId} aria-hidden={!isOpen} inert={!isOpen}>
+          <div className="ice-faq-answer"><p>{item.answer}</p></div>
+        </div>
+      </article>;
+    })}
+  </div>;
+}
+
 function HomePage() {
   return <>
     <main>
@@ -44,7 +103,7 @@ function HomePage() {
       <section className="ice-section ice-why" id="how-it-works"><div className="ice-section-intro"><p className="ice-eyebrow"><span/>A small ritual for the internet</p><h2>Save now.<br/>Read on your <span className="keyword-mark keyword-mint">time.</span></h2><p>Rembr gives useful public pages a place to wait for you, without asking you to keep a dozen tabs open.</p></div><div className="ice-steps"><article><span>01</span><div><h3>Drop in a link</h3><p>Paste a public web page or article into your library.</p></div><b aria-hidden="true">↗</b></article><article><span>02</span><div><h3>Let it settle</h3><p>Rembr saves the page and prepares a readable copy.</p></div><b aria-hidden="true">✳</b></article><article><span>03</span><div><h3>Find your way back</h3><p>Search by title or URL, then open the saved text or original source.</p></div><b aria-hidden="true">⌕</b></article></div></section>
       <section className="ice-section ice-feature-band"><div className="ice-section-heading"><div><p className="ice-eyebrow"><span/>The useful bits</p><h2>Less tab juggling.<br/>More room to <span className="keyword-mark keyword-pink">think.</span></h2></div><a className="ice-text-link" href="/features">Explore the details <span aria-hidden="true">↗</span></a></div><div className="ice-feature-grid"><FeatureCard number="01 / SAVE" title="One place to put it" copy="Keep a personal list of public pages you want to revisit." tone="feature-peach"/><FeatureCard number="02 / READ" title="A clearer copy" copy="Open the readable text Rembr extracted, with the source link beside it." tone="feature-lilac"/><FeatureCard number="03 / FIND" title="Search what you saved" copy="Look through saved pages by their title or web address." tone="feature-green"/></div></section>
       <section className="ice-truth"><div className="ice-truth-mark" aria-hidden="true">✳</div><div><p className="ice-eyebrow"><span/>Small and honest, on purpose</p><h2>Just the <span className="keyword-mark keyword-pink">useful</span> part<br/>of saving for later.</h2><p>Today, Rembr works with public web pages. It is not a bulk crawler, it does not access private or paywalled pages, and it does not promise perfect extraction on every site.</p><a className="ice-text-link" href="/about">What we are building (and not building) <span aria-hidden="true">↗</span></a></div><aside><span>RIGHT NOW</span><strong>Public pages<br/>in. Readable copies<br/>back out.</strong><i aria-hidden="true">↗</i></aside></section>
-      <section className="ice-faq"><div><p className="ice-eyebrow"><span/>A few helpful answers</p><h2><span className="keyword-mark keyword-yellow">Good</span> to know.</h2><p>Here is what to expect from the first version.</p></div><div className="ice-faq-list"><details><summary>What can I save right now?<span aria-hidden="true">+</span></summary><p>Public HTTP or HTTPS pages and articles. Rembr does not sign in to sites or fetch paywalled content.</p></details><details><summary>What if a page cannot be extracted?<span aria-hidden="true">+</span></summary><p>Some sites block automated requests or expose little readable text. Rembr will show a processing failure; the original source link remains with the saved item.</p></details><details><summary>Can I search by topic or ask AI about my pages?<span aria-hidden="true">+</span></summary><p>Not in the current product. Search currently matches saved page titles and URLs.</p></details><details><summary>What does Rembr cost?<span aria-hidden="true">+</span></summary><p>Public pricing has not been set for this early build. We will publish pricing when the product plan is decided.</p></details></div></section>
+      <section className="ice-faq" aria-label="Frequently asked questions"><div><p className="ice-eyebrow"><span/>The questions in your tabs</p><h2><span className="keyword-mark keyword-yellow">Good</span> to know.</h2><p>Real answers about what Rembr can do today.</p></div><FaqAccordion/></section>
       <section className="ice-last-call"><p className="ice-eyebrow"><span/>Your next good read is waiting</p><h2>Give the tabs<br/>a little <span className="keyword-mark keyword-yellow">break.</span></h2><a className="ice-button ice-button-dark" href="/app">Start a library <span aria-hidden="true">↗</span></a><p>No feeds to catch up on. Just the pages you chose to keep.</p></section>
     </main>
   </>;
