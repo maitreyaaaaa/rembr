@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { MarketingSite } from './MarketingSite.js';
 
 interface User {
   id: string;
@@ -44,7 +45,7 @@ function formatDate(value: string): string {
   return new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value));
 }
 
-export function App() {
+function ProductApp() {
   const motionRoot = useRef<HTMLElement | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [checkingSession, setCheckingSession] = useState(true);
@@ -252,4 +253,9 @@ export function App() {
       <footer className="workspace-footer"><span>Rembr keeps the source link alongside each saved copy.</span><span>Phase 1 · deterministic capture</span></footer>
     </main>
   );
+}
+
+export function App() {
+  if (window.location.pathname === '/app' || window.location.pathname === '/login') return <ProductApp />;
+  return <MarketingSite />;
 }

@@ -6,14 +6,20 @@ This is a design-system plan, not a completed visual specification or a claim th
 
 The source-backed screen inventory is [here](ui-surface-and-screen-specifications.md); implementation order and screen coverage are in the [screen/workflow phase matrix](../rebuild-plan/screen-workflow-phase-matrix.md). Functional state coverage and interaction contracts are designed first; the complete brand and visual pass is Phase 7 of the [roadmap](../rebuild-plan/phase-gated-roadmap.md). Phase 1 must still use accessible, coherent primitives.
 
+## Application decisions and marketing boundary
+
+The application type and color systems are now selected for the full product UI: Space Grotesk Bold for headings, DM Sans for body text and controls, and the Daybreak semantic tokens in `apps/web/src/styles.css`. The variable DM Sans font and SIL Open Font License are bundled locally. Open Sauce Sans remains limited to the product wordmark. Apply these rules to future app screens as they are implemented.
+
+Marketing has its own identity and CSS boundary under `.marketing-site`: Soft Serve Editorial, documented in [marketing positioning](../marketing/positioning-and-identity.md). Do not carry its cream/sorbet colors into application screens.
+
 ## What is and is not decided
 
 | Decision area | Decision now | Still to decide in Phase 7 |
 |---|---|---|
 | Brand | Use the project name Rembr; do not reuse IScraper’s logo, name lockup, or branded asset without an explicit rights decision. | Wordmark, iconography and any approved brand assets. |
 | Layout | Preserve source-backed information hierarchy and workflows where useful; make a Rembr-specific composition. | Grid, density, navigation proportions, responsive breakpoints and screen-level layout. |
-| Color | Use semantic roles rather than hard-coded colors in components. | Actual palette/values and light/dark mode support, grounded in tested contrast and reviewed visual references. |
-| Type | Define semantic text roles and a clear hierarchy. | Font family, scale, weight and line-height after legibility and platform review. |
+| Color | Daybreak semantic roles are in use for product screens. | Further contrast review and light/dark mode support, grounded in tested contrast and reviewed visual references. |
+| Type | Space Grotesk Bold headings and DM Sans body/controls use the accepted scale in the product UI. | Adjustments only where future screens need role-specific refinements. |
 | Spacing and shape | Centralize spacing, radius, elevation, border and sizing tokens. | Token values and component variants. |
 | Motion | Respect reduced-motion preferences; animations must convey state or aid orientation. | Motion durations/easing and which transitions improve comprehension. |
 | Data visualization | Charts/graphs preserve labels, values, keyboard access and a non-visual alternative. | Chart palette, graph layout and interaction conventions. |

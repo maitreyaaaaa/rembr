@@ -14,6 +14,11 @@ This documentation reconstructs IScraper's current product and implementation so
 
 ## Documents
 
+### Marketing site
+
+- Marketing positioning, identity, claims and product boundaries: [marketing/positioning-and-identity.md](marketing/positioning-and-identity.md)
+- Marketing page map, routes and content acceptance: [marketing/page-map-and-content.md](marketing/page-map-and-content.md)
+
 - Complete tracked-file coverage ledger: [source-audit/source-coverage-ledger.csv](source-audit/source-coverage-ledger.csv)
 - Product, decisions, and source history: [history/cross-source-context.md](history/cross-source-context.md)
 - Skills, agents, REA, and plugin review: [history/research-method-and-tooling.md](history/research-method-and-tooling.md)
