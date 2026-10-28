@@ -8,7 +8,7 @@ This document is the controlling implementation sequence for rebuilding Rembr fr
 
 - **Phase 1: Passed locally.** See [Phase 1 record](phase-1-record.md); hosted CI and production database behavior are not claimed as verified.
 - **Phase 2: Passed locally.** See [Phase 2 record](phase-2-record.md); hosted CI and hosted database behavior remain unverified.
-- **Phase 3: Discovery and design in progress.** The implementation has not started. The initial proposal and questions are in [Phase 3 architecture design](../architecture/phase-3-architecture-design.md); user decisions are required before implementation.
+- **Phase 3: Approved and implementation in progress.** Product decisions and upload limits are recorded in [Phase 3 architecture design](../architecture/phase-3-architecture-design.md); implementation evidence will be recorded before the phase gate is evaluated.
 
 This is a plan, not evidence that any feature exists or has passed. The IScraper repository remains a read-only reference. Rembr gets a new repository and history, synthetic development data, and its own visual identity. Every feature found in the audited source remains in scope unless the user explicitly approves a change; no phase may quietly drop a capability. Any redesigned behavior or approved scope change must be recorded in the feature matrix and screen/workflow map.
 
@@ -122,10 +122,10 @@ All Phase 2 feature rows and screen states pass, ownership rules agree across UI
 
 ### Work
 
-- Add all in-scope import/capture formats and upload flows, parsing, normalization, deduplication, private storage, and import review/approval where the source behavior requires it.
+- Add all in-scope import/capture formats and upload flows, parsing, normalization, deduplication, private storage, and the audited source auto-queue behavior after successful parsing.
 - Implement durable job creation/claim/lease/fencing, bounded retries and backoff, idempotent writes, pause causes, terminal failures, cancellation, restart/reprocess, and stale-job recovery.
 - Build deterministic extraction and content artifacts first. Add supported metadata, text, media, and provenance paths only with bounded resource use and clear partial-ready states.
-- Implement worker health, sanitized diagnostics, correlation across request/import/job/item, and operational recovery actions.
+- Implement internal worker health, sanitized diagnostics, correlation across request/import/job/item, owner-scoped per-item recovery actions, and no owner-visible global worker-health projection.
 - Address known reference defects deliberately; do not reproduce accidental source behavior when it conflicts with correctness or security.
 
 ### Verification
