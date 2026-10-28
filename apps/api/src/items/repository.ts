@@ -11,14 +11,20 @@ export interface SavedItemSummary {
   createdAt: string;
   updatedAt: string;
   textPreview: string;
+  titleOverride: string | null;
+  descriptionOverride: string | null;
+  kind: 'page' | 'note';
 }
 
 function toSummary(row: Record<string, unknown>): SavedItemSummary {
   return {
     id: String(row.id),
     url: String(row.original_url),
-    title: String(row.title),
-    description: String(row.description ?? ''),
+    title: String(row.title_override ?? row.title),
+    description: String(row.description_override ?? row.description ?? ''),
+    titleOverride: row.title_override == null ? null : String(row.title_override),
+    descriptionOverride: row.description_override == null ? null : String(row.description_override),
+    kind: (row.item_kind ?? 'page') as 'page' | 'note',
     status: row.status as SavedItemSummary['status'],
     errorCode: row.error_code ? String(row.error_code) : null,
     createdAt: String(row.created_at),

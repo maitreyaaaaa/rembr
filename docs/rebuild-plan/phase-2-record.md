@@ -1,10 +1,10 @@
 # Phase 2 — Identity, tenancy, and library lifecycle
 
-**Status:** In progress. The architecture design passed sequential skeptic, constraint-guardian, user-advocate, and integrator/arbiter review on 2026-10-28. This is not a Phase 2 gate pass.
+**Status:** Passed locally on 2026-10-28. The approved Phase 2 gate is complete for the current SQLite/local-storage implementation. Hosted CI and hosted database behavior remain unverified.
 
 ## Scope
 
-Complete the approved Phase 2 scope in the [roadmap](phase-gated-roadmap.md): account status, profile/onboarding/session lifecycle, owner-scoped library and metadata edits, notes/private images/links, tags, manual collections and membership, app routes/deep links, pagination/filter/sort, migration compatibility, and the approved regression/accessibility gate. Dynamic smart-collection rules and privacy/export/deletion/billing settings remain later-phase work.
+Phase 2 completed the approved scope in the [roadmap](phase-gated-roadmap.md): account status, profile/onboarding/session lifecycle, owner-scoped library and metadata edits, notes/private images/links, tags, manual collections and membership, app routes/deep links, pagination/filter/sort, migration compatibility, and the approved regression/accessibility gate. Dynamic smart-collection rules and privacy/export/deletion/billing settings remain later-phase work.
 
 ## Accepted design
 
@@ -12,32 +12,33 @@ Complete the approved Phase 2 scope in the [roadmap](phase-gated-roadmap.md): ac
 - [Feature and acceptance matrix](feature-and-acceptance-matrix.md)
 - [Screen/workflow matrix](screen-workflow-phase-matrix.md)
 
-Architecture decisions are accepted in the design record. Keep the reference checkout read-only. SQLite remains the current adapter. Asset metadata remains durable until private-file deletion succeeds.
+Implementation uses the accepted modular monolith: route → service → repository, with file access behind a storage adapter. SQLite remains the configured persistence adapter. The reference checkout was not changed.
 
-## Implementation slices and evidence
+## Implementation and evidence
 
-| Slice | Status | Evidence / notes |
+| Slice | Result | Evidence |
 |---|---|---|
-| Additive migration and owner-safe schema | In progress | Preserve populated Phase 1 `001` data; test fresh and upgrade paths. |
-| Account status, profile, onboarding, and session gates | In progress | Disabled accounts rejected on every protected request; profile-incomplete gate has a stable response. |
-| Library edit/list, filters, sorting, cursor pagination | In progress | Owner-derived queries, per-sort keyset cursor and metadata override preservation. |
-| Tags, manual collections and memberships | In progress | Composite ownership constraints and idempotent membership changes. |
-| Notes and private assets | In progress | Bounded links/body/images, `staging → ready → deleting`, retryable cleanup. |
-| Routed app surfaces | In progress | Deep links, refresh, Back/Forward, account setup, library/detail/edit, notes, organization and settings. |
-| Consolidated Phase 2 gate | Not run | Run after implementation is integrated. |
-
-## Required verification before passing
-
-- [ ] `npm run check` passes, including Phase 1 regression.
-- [ ] Migration applies on a fresh DB and upgrades a populated Phase 1 `001` DB without loss.
-- [ ] Two-user tests cover item, child, collection, asset, search, and job projection isolation.
-- [ ] Disabled-account session rejection, profile gate, session expiry, username collision, URL dedupe, and metadata override preservation pass.
-- [ ] Note body/link/image bounds, tag/collection CRUD, membership idempotency, pagination/filter/sort, and delete races pass.
-- [ ] Asset storage failure/crash cases preserve `ready`-only reads and retryable cleanup.
-- [ ] Browser walkthrough covers register → profile → onboarding → save/edit/list/filter/page → note/image → tag/collection → refresh/deep link/history → delete.
-- [ ] Keyboard and narrow viewport review covers each completed surface.
-- [ ] Phase 1 regression remains green; hosted CI and hosted database behavior are labeled separately if unavailable.
+| Additive migration and owner-safe schema | Passed | `002_phase2_account_library.sql`; fresh DB setup through the API harness and upgrade test from a populated Phase 1 `001` database preserving user, session, item, job, and artifact rows. |
+| Account status, profile, onboarding, and session gates | Passed | Active/disabled state, normalized unique usernames, profile gate, onboarding skip/complete, session expiry/logout, and disabled-account rejection covered by API tests. |
+| Library edit/list, filters, sorting, cursor pagination | Passed | Owner-derived list/detail/edit queries; title and description overrides preserve extracted content; tests cover filters, all four sorts, keyset traversal, cursor/filter mismatch, cross-user item/search isolation, canonical URL duplicate capture, and job isolation. |
+| Tags, manual collections and memberships | Passed | Owner-scoped create/read/update/delete, cross-user denial, membership idempotency and removal, collection filter, and cascading organization links covered by API tests. |
+| Notes and private assets | Passed | Bounded note body/link/image input, MIME/signature/extension validation, private owner-checked reads, note editing/image removal, ready-only reads, staging cleanup, failed deletion retry, avatar lifecycle, and asset ownership covered by API tests. |
+| Routed app surfaces | Passed | React Router app routes for account setup/onboarding, library/add/detail/edit, notes, collections, tags, and profile/preferences. URL-backed controls and existing marketing routes are preserved. |
+| Browser walkthrough and responsive/keyboard review | Passed locally | Register → profile → onboarding skip → save page → worker ready → edit → search/filter/sort/paginate → create note/image → tag/collection → settings → refresh/deep link/history → delete. Tested at 390px and 320px; fixed 8px navigation overflow at 320px. Tab navigation showed visible keyboard focus. |
+| Consolidated Phase 2 gate | Passed locally | `npm run check`: API/web typecheck, API/web lint, 20 API tests (12 Phase 1 + 8 Phase 2), API build, and web production build all passed. `git diff --check` passed. |
 
 ## Gate decision
 
-**Not passed.** Update this record with exact test/browser evidence, defects and fixes, unresolved risks, and a date before advancing to Phase 3.
+**Passed locally.** The approved architecture and Phase 2 acceptance gate are satisfied for the repository's current local SQLite and filesystem adapters. This is not evidence of hosted CI, Postgres/Supabase/RLS, production storage, or deployment behavior; those remain separately unverified and must be validated in their respective phases.
+
+## Fixes made during verification
+
+- Narrow-screen app navigation wrapped correctly after the 320px review found an 8px overflow.
+- Added focused acceptance coverage for organization CRUD, note body/link bounds, and the rule that staging assets cannot be read and are cleaned during startup recovery.
+
+## Artifacts
+
+- App implementation: `apps/api/src/account/`, `apps/api/src/library/`, `apps/api/src/organization/`, `apps/api/src/assets/`, and `apps/web/src/App.tsx`.
+- Migration: `apps/api/src/db/migrations/002_phase2_account_library.sql`.
+- API acceptance tests: `apps/api/test/phase-two.test.ts`; Phase 1 regression tests remain in `apps/api/test/phase-one.test.ts`.
+- Approved architecture: [Phase 2 architecture design](../architecture/phase-2-architecture-design.md).

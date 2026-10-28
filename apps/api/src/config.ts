@@ -11,6 +11,7 @@ const environmentSchema = z.object({
   API_PORT: z.coerce.number().int().min(1).max(65535).default(4000),
   WEB_ORIGIN: z.string().url().default('http://127.0.0.1:5173'),
   DATABASE_PATH: z.string().default('./data/rembr.sqlite'),
+  ASSET_DIRECTORY: z.string().default('./data/assets'),
   MAX_CAPTURE_BYTES: z.coerce.number().int().min(64_000).max(5_000_000).default(2_097_152),
   MAX_CAPTURE_REDIRECTS: z.coerce.number().int().min(0).max(5).default(3),
 });
@@ -23,6 +24,7 @@ if (!parsed.success) {
 export const config = {
   ...parsed.data,
   databasePath: resolve(projectRoot, parsed.data.DATABASE_PATH),
+  assetDirectory: resolve(projectRoot, parsed.data.ASSET_DIRECTORY),
   projectRoot,
   secureCookies: parsed.data.NODE_ENV === 'production',
 };

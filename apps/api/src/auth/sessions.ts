@@ -9,6 +9,7 @@ export const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 export interface AuthenticatedUser {
   id: string;
   email: string;
+  accountStatus: 'active' | 'disabled';
 }
 
 declare global {
@@ -68,12 +69,16 @@ export function requireUser(database: DatabaseHandle) {
       return;
     }
     const now = new Date().toISOString();
-    const user = database.prepare(`SELECT users.id, users.email
+    const user = database.prepare(`SELECT users.id, users.email, users.account_status AS accountStatus
       FROM sessions JOIN users ON users.id = sessions.user_id
       WHERE sessions.token_hash = ? AND sessions.expires_at > ?`)
       .get(digest(token), now) as AuthenticatedUser | undefined;
     if (!user) {
       res.status(401).json({ error: { code: 'unauthorized', message: 'Your session expired. Sign in again.', requestId: req.requestId } });
+      return;
+    }
+    if (user.accountStatus !== 'active') {
+      res.status(403).json({ error: { code: 'account_disabled', message: 'This account is disabled.', requestId: req.requestId } });
       return;
     }
     req.user = user;

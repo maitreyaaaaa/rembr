@@ -1,9 +1,13 @@
 import { createApp } from './app.js';
 import { config } from './config.js';
 import { createDatabase } from './db/database.js';
+import { LocalAssetStorage } from './assets/storage.js';
+import { recoverAssets } from './assets/recovery.js';
 
 const database = createDatabase();
-const app = createApp(database);
+const assetStorage = new LocalAssetStorage(config.assetDirectory);
+await recoverAssets(database, assetStorage);
+const app = createApp(database, { assetStorage });
 const server = app.listen(config.API_PORT, '127.0.0.1', () => {
   console.info('rembr_api_started', { port: config.API_PORT, environment: config.NODE_ENV });
 });

@@ -3,12 +3,17 @@ import bcrypt from 'bcryptjs';
 import { rateLimit } from 'express-rate-limit';
 import express, { type ErrorRequestHandler, type RequestHandler } from 'express';
 import helmet from 'helmet';
+import multer from 'multer';
 import { z } from 'zod';
 import { config } from './config.js';
 import { createSession, destroySession, requireUser } from './auth/sessions.js';
+import { createAccountRouter, createProfileGate } from './account/routes.js';
+import { createLibraryRouter } from './library/routes.js';
+import { createOrganizationRouter } from './organization/routes.js';
+import { LocalAssetStorage } from './assets/storage.js';
 import type { DatabaseHandle } from './db/database.js';
 import { CaptureError, validatePublicUrl } from './items/safe-fetch.js';
-import { createItemRepository } from './items/repository.js';
+import { createLibraryService } from './library/service.js';
 
 const emailSchema = z.string().trim().email().max(254).transform((email) => email.toLowerCase());
 const registerSchema = z.object({ email: emailSchema, password: z.string().min(12).max(128) }).strict();
@@ -19,16 +24,10 @@ function errorResponse(code: string, message: string, requestId?: string) {
   return { error: { code, message, ...(requestId ? { requestId } : {}) } };
 }
 
-function parseSearch(req: express.Request): string | null {
-  const search = req.query.search;
-  if (search === undefined) return '';
-  if (typeof search !== 'string' || search.length > 120) return null;
-  return search.trim();
-}
-
-export function createApp(database: DatabaseHandle, options: { validateUrl?: typeof validatePublicUrl } = {}) {
+export function createApp(database: DatabaseHandle, options: { validateUrl?: typeof validatePublicUrl; assetDirectory?: string; assetStorage?: LocalAssetStorage } = {}) {
   const app = express();
-  const items = createItemRepository(database);
+  const assetStorage = options.assetStorage ?? new LocalAssetStorage(options.assetDirectory ?? config.assetDirectory);
+  const library = createLibraryService(database, assetStorage);
   const validateUrl = options.validateUrl ?? validatePublicUrl;
   app.disable('x-powered-by');
   app.use(helmet());
@@ -45,7 +44,7 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Vary', 'Origin');
       res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     }
     if (req.method === 'OPTIONS') {
       res.sendStatus(204);
@@ -86,11 +85,15 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
       return;
     }
     try {
-      const user = database.prepare('SELECT id, email, password_hash FROM users WHERE email = ?')
-        .get(parsed.data.email) as { id: string; email: string; password_hash: string } | undefined;
+      const user = database.prepare('SELECT id, email, password_hash, account_status FROM users WHERE email = ?')
+        .get(parsed.data.email) as { id: string; email: string; password_hash: string; account_status: string } | undefined;
       const matches = user ? await bcrypt.compare(parsed.data.password, user.password_hash) : false;
       if (!user || !matches) {
         res.status(401).json(errorResponse('invalid_credentials', 'Email or password is incorrect.', req.requestId));
+        return;
+      }
+      if (user.account_status !== 'active') {
+        res.status(403).json(errorResponse('account_disabled', 'This account is disabled.', req.requestId));
         return;
       }
       createSession(database, user.id, res);
@@ -105,23 +108,13 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
     res.status(204).end();
   });
 
-  app.get('/api/auth/session', requireUser(database), (req, res) => {
-    res.json({ user: req.user });
-  });
+  app.use('/api', createAccountRouter(database, assetStorage));
 
   const requireSignedIn = requireUser(database) as RequestHandler;
+  const requireCompletedProfile = createProfileGate(database, assetStorage) as RequestHandler;
   const captureLimiter = rateLimit({ windowMs: 60 * 1000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false });
 
-  app.get('/api/items', requireSignedIn, (req, res) => {
-    const search = parseSearch(req);
-    if (search === null) {
-      res.status(400).json(errorResponse('invalid_search', 'Search must be 120 characters or fewer.', req.requestId));
-      return;
-    }
-    res.json({ items: items.list(req.user!.id, search, 100) });
-  });
-
-  app.post('/api/items', requireSignedIn, captureLimiter, async (req, res, next) => {
+  app.post('/api/items', requireSignedIn, requireCompletedProfile, captureLimiter, async (req, res, next) => {
     const parsed = captureSchema.safeParse(req.body);
     if (!parsed.success) {
       res.status(400).json(errorResponse('invalid_url', 'Enter a complete URL to a public web page.', req.requestId));
@@ -131,13 +124,8 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
       const validated = await validateUrl(parsed.data.url);
       validated.url.hash = '';
       const canonicalUrl = validated.url.toString();
-      const existing = items.findByCanonical(req.user!.id, canonicalUrl);
-      if (existing) {
-        res.status(200).json({ item: existing, duplicate: true });
-        return;
-      }
-      const item = items.create(req.user!.id, parsed.data.url, canonicalUrl, validated.url.hostname);
-      res.status(202).json({ item, duplicate: false });
+      const result = library.createPage(req.user!.id, parsed.data.url, canonicalUrl, validated.url.hostname);
+      res.status(result.duplicate ? 200 : 202).json(result);
     } catch (error) {
       if (error instanceof CaptureError) {
         res.status(400).json(errorResponse(error.code, error.message, req.requestId));
@@ -146,31 +134,18 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
       next(error);
     }
   });
-
-  app.get('/api/items/:id', requireSignedIn, (req, res) => {
-    const itemId = Array.isArray(req.params.id) ? req.params.id[0] ?? '' : req.params.id ?? '';
-    const item = items.get(req.user!.id, itemId);
-    if (!item) {
-      res.status(404).json(errorResponse('not_found', 'Saved page not found.', req.requestId));
-      return;
-    }
-    res.json({ item });
-  });
-
-  app.delete('/api/items/:id', requireSignedIn, (req, res) => {
-    const itemId = Array.isArray(req.params.id) ? req.params.id[0] ?? '' : req.params.id ?? '';
-    const deleted = items.delete(req.user!.id, itemId);
-    if (!deleted) {
-      res.status(404).json(errorResponse('not_found', 'Saved page not found.', req.requestId));
-      return;
-    }
-    res.status(204).end();
-  });
+  app.use('/api', createLibraryRouter(database, assetStorage));
+  app.use('/api', createOrganizationRouter(database, assetStorage));
 
   app.use((_req, res) => res.status(404).json(errorResponse('not_found', 'This route does not exist.', res.getHeader('X-Request-Id')?.toString())));
 
   const errors: ErrorRequestHandler = (error, req, res, _next) => {
     const requestId = req.requestId;
+    if (error instanceof multer.MulterError) {
+      const isSize = error.code === 'LIMIT_FILE_SIZE' || error.code === 'LIMIT_FIELD_VALUE';
+      res.status(isSize ? 413 : 400).json(errorResponse(isSize ? 'payload_too_large' : 'invalid_multipart', isSize ? 'The uploaded file or field exceeds the allowed size.' : 'The multipart upload is invalid or exceeds the allowed file count.', requestId));
+      return;
+    }
     if (error instanceof SyntaxError && 'body' in error) {
       res.status(400).json(errorResponse('invalid_json', 'The request body must be valid JSON.', requestId));
       return;

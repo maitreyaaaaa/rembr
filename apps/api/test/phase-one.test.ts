@@ -42,7 +42,15 @@ async function register(baseUrl: string, email: string) {
   const cookie = setCookie.split(';')[0];
   assert.equal(response.status, 201);
   assert.ok(cookie, 'registration returns a session cookie');
-  return { cookie, setCookie, user: await response.json() as { user: { id: string; email: string } } };
+  const user = await response.json() as { user: { id: string; email: string } };
+  const username = email.split('@')[0]!.replace(/[^a-z0-9_]/gi, '_').toLowerCase().slice(0, 24).padEnd(3, '_');
+  const profile = await fetch(`${baseUrl}/api/profile`, {
+    method: 'PATCH',
+    headers: { Origin: origin, Cookie: cookie, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username }),
+  });
+  assert.equal(profile.status, 200);
+  return { cookie, setCookie, user };
 }
 
 test('API denies private library access without a verified session', async () => {

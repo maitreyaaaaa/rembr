@@ -1,0 +1,274 @@
+import assert from 'node:assert/strict';
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import type { AddressInfo } from 'node:net';
+import { once } from 'node:events';
+import { test } from 'node:test';
+import { createApp } from '../src/app.js';
+import { createTestDatabase, migrate } from '../src/db/database.js';
+import { recoverAssets } from '../src/assets/recovery.js';
+import { LocalAssetStorage } from '../src/assets/storage.js';
+import Database from 'better-sqlite3';
+import { readFileSync } from 'node:fs';
+
+const origin = 'http://127.0.0.1:5173';
+const password = 'correct-horse-battery-staple';
+
+async function withApi(run: (baseUrl: string, database: ReturnType<typeof createTestDatabase>, assetsPath: string) => Promise<void>) {
+  const database = createTestDatabase();
+  const assetsPath = await mkdtemp(join(tmpdir(), 'rembr-phase2-assets-'));
+  const app = createApp(database, { validateUrl: async (input) => ({ url: new URL(input), address: '93.184.216.34', family: 4 }), assetDirectory: assetsPath });
+  const server = app.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const address = server.address() as AddressInfo;
+  try { await run(`http://127.0.0.1:${address.port}`, database, assetsPath); }
+  finally {
+    server.closeAllConnections();
+    server.close();
+    database.close();
+    await rm(assetsPath, { recursive: true, force: true });
+  }
+}
+
+async function register(baseUrl: string, email: string) {
+  const response = await fetch(`${baseUrl}/api/auth/register`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
+  assert.equal(response.status, 201);
+  const cookie = (response.headers.get('set-cookie') ?? '').split(';')[0]!;
+  return { cookie, user: await response.json() as { user: { id: string; email: string } } };
+}
+
+async function profile(baseUrl: string, cookie: string, username: string) {
+  return fetch(`${baseUrl}/api/profile`, { method: 'PATCH', headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ username }) });
+}
+
+async function createPage(baseUrl: string, cookie: string, url: string) {
+  return fetch(`${baseUrl}/api/items`, { method: 'POST', headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) });
+}
+
+test('Phase 2 profile gate, onboarding skip, and disabled-account checks are enforced server-side', async () => {
+  await withApi(async (baseUrl, database) => {
+    const account = await register(baseUrl, 'gate@example.test');
+    const gated = await fetch(`${baseUrl}/api/items`, { headers: { Cookie: account.cookie } });
+    assert.equal(gated.status, 428);
+    assert.equal((await gated.json() as { error: { code: string } }).error.code, 'PROFILE_INCOMPLETE');
+    assert.equal((await profile(baseUrl, account.cookie, 'gate_user')).status, 200);
+    const skipped = await fetch(`${baseUrl}/api/onboarding`, { method: 'PUT', headers: { Cookie: account.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ skipped: true, contentTypes: [], referralSource: '' }) });
+    assert.equal(skipped.status, 200);
+    assert.ok((await skipped.json() as { onboarding: { skippedAt: string } }).onboarding.skippedAt);
+    database.prepare("UPDATE users SET account_status='disabled' WHERE id=?").run(account.user.user.id);
+    const disabled = await fetch(`${baseUrl}/api/auth/session`, { headers: { Cookie: account.cookie } });
+    assert.equal(disabled.status, 403);
+    assert.equal((await disabled.json() as { error: { code: string } }).error.code, 'account_disabled');
+    const login = await fetch(`${baseUrl}/api/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: 'gate@example.test', password }) });
+    assert.equal(login.status, 403);
+  });
+});
+
+test('profile usernames are unique after normalization and owner scoped', async () => {
+  await withApi(async (baseUrl) => {
+    const first = await register(baseUrl, 'first-profile@example.test');
+    const second = await register(baseUrl, 'second-profile@example.test');
+    assert.equal((await profile(baseUrl, first.cookie, 'Unique_Name')).status, 200);
+    const duplicate = await profile(baseUrl, second.cookie, 'unique_name');
+    assert.equal(duplicate.status, 409);
+    assert.equal((await duplicate.json() as { error: { code: string } }).error.code, 'username_taken');
+  });
+});
+
+test('profile avatar upload is private, extension checked, and explicitly clearable', async () => {
+  await withApi(async (baseUrl, database) => {
+    const account = await register(baseUrl, 'avatar-owner@example.test');
+    const form = new FormData(); form.set('username', 'avatar_owner');
+    form.append('avatar', new Blob([Buffer.from([137,80,78,71,13,10,26,10,0,0])], { type: 'image/png' }), 'avatar.png');
+    const upload = await fetch(`${baseUrl}/api/profile`, { method: 'PATCH', headers: { Cookie: account.cookie, Origin: origin }, body: form });
+    assert.equal(upload.status, 200);
+    const profileBody = await upload.json() as { profile: { avatarAssetId: string; avatarAssetUrl: string } };
+    assert.ok(profileBody.profile.avatarAssetId);
+    assert.equal((await fetch(`${baseUrl}${profileBody.profile.avatarAssetUrl}`, { headers: { Cookie: account.cookie } })).status, 200);
+    const clear = await fetch(`${baseUrl}/api/profile`, { method: 'PATCH', headers: { Cookie: account.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ username: 'avatar_owner', avatarUrl: '' }) });
+    assert.equal(clear.status, 200);
+    assert.equal((await clear.json() as { profile: { avatarAssetId: string | null } }).profile.avatarAssetId, null);
+    assert.equal((database.prepare('SELECT count(*) AS c FROM asset_objects').get() as { c: number }).c, 0);
+  });
+});
+
+test('item list filters, keyset pagination, metadata overrides and organization membership stay owner scoped', async () => {
+  await withApi(async (baseUrl, database) => {
+    const first = await register(baseUrl, 'library-owner@example.test');
+    const second = await register(baseUrl, 'library-other@example.test');
+    await profile(baseUrl, first.cookie, 'library_owner');
+    await profile(baseUrl, second.cookie, 'library_other');
+    const firstCreate = await createPage(baseUrl, first.cookie, 'https://example.com/alpha');
+    const firstItem = (await firstCreate.json() as { item: { id: string } }).item;
+    await createPage(baseUrl, first.cookie, 'https://example.com/beta');
+    const list = await fetch(`${baseUrl}/api/items?search=example&sort=title_asc&limit=1`, { headers: { Cookie: first.cookie } });
+    assert.equal(list.status, 200);
+    const page = await list.json() as { items: Array<{ id: string }>; nextCursor: string; hasMore: boolean };
+    assert.equal(page.items.length, 1);
+    assert.equal(page.hasMore, true);
+    const next = await fetch(`${baseUrl}/api/items?search=example&sort=title_asc&limit=1&cursor=${encodeURIComponent(page.nextCursor)}`, { headers: { Cookie: first.cookie } });
+    assert.equal((await next.json() as { items: unknown[] }).items.length, 1);
+    const badCursor = await fetch(`${baseUrl}/api/items?search=other&sort=title_asc&limit=1&cursor=${encodeURIComponent(page.nextCursor)}`, { headers: { Cookie: first.cookie } });
+    assert.equal(badCursor.status, 400);
+    for (const sort of ['created_desc', 'created_asc', 'title_desc']) {
+      const sorted = await fetch(`${baseUrl}/api/items?sort=${sort}&limit=1`, { headers: { Cookie: first.cookie } });
+      const firstPage = await sorted.json() as { nextCursor: string; hasMore: boolean };
+      assert.equal(firstPage.hasMore, true);
+      const secondPage = await fetch(`${baseUrl}/api/items?sort=${sort}&limit=1&cursor=${encodeURIComponent(firstPage.nextCursor)}`, { headers: { Cookie: first.cookie } });
+      assert.equal((await secondPage.json() as { items: unknown[] }).items.length, 1);
+    }
+    const edit = await fetch(`${baseUrl}/api/items/${firstItem.id}`, { method: 'PATCH', headers: { Cookie: first.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ titleOverride: 'My headline', descriptionOverride: 'My note' }) });
+    assert.equal(edit.status, 200);
+    const edited = (await edit.json() as { item: { title: string; description: string; text: string } }).item;
+    assert.equal(edited.title, 'My headline');
+    assert.equal(edited.description, 'My note');
+    assert.equal(edited.text, '');
+    const foreign = await fetch(`${baseUrl}/api/items/${firstItem.id}`, { headers: { Cookie: second.cookie } });
+    assert.equal(foreign.status, 404);
+    const foreignSearch = await fetch(`${baseUrl}/api/items?search=example.com`, { headers: { Cookie: second.cookie } });
+    assert.deepEqual((await foreignSearch.json() as { items: unknown[] }).items, []);
+    const tagResponse = await fetch(`${baseUrl}/api/tags`, { method: 'POST', headers: { Cookie: first.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: '  Research  ' }) });
+    const tag = (await tagResponse.json() as { tag: { id: string } }).tag;
+    assert.equal(tagResponse.status, 201);
+    assert.equal((await fetch(`${baseUrl}/api/tags/${tag.id}`, { method: 'PATCH', headers: { Cookie: first.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Fieldwork' }) })).status, 200);
+    const membership = `${baseUrl}/api/items/${firstItem.id}/tags/${tag.id}`;
+    assert.equal((await fetch(membership, { method: 'PUT', headers: { Cookie: first.cookie } })).status, 204);
+    assert.equal((await fetch(membership, { method: 'PUT', headers: { Cookie: first.cookie } })).status, 204);
+    assert.equal((await fetch(membership, { method: 'PUT', headers: { Cookie: second.cookie } })).status, 404);
+    const collectionResponse = await fetch(`${baseUrl}/api/collections`, { method: 'POST', headers: { Cookie: first.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Reading' }) });
+    const collection = (await collectionResponse.json() as { collection: { id: string } }).collection;
+    assert.equal((await fetch(`${baseUrl}/api/collections/${collection.id}`, { headers: { Cookie: second.cookie } })).status, 404);
+    const attach = `${baseUrl}/api/collections/${collection.id}/items/${firstItem.id}`;
+    assert.equal((await fetch(attach, { method: 'PUT', headers: { Cookie: first.cookie } })).status, 204);
+    assert.equal((await fetch(attach, { method: 'PUT', headers: { Cookie: first.cookie } })).status, 204);
+    const privateJob = database.prepare('SELECT id FROM processing_jobs WHERE item_id=?').get(firstItem.id) as { id: string };
+    assert.equal((await fetch(`${baseUrl}/api/jobs/${privateJob.id}`, { headers: { Cookie: second.cookie } })).status, 404);
+    const filtered = await fetch(`${baseUrl}/api/items?collectionId=${collection.id}`, { headers: { Cookie: first.cookie } });
+    assert.equal((await filtered.json() as { items: Array<{ id: string }> }).items[0]?.id, firstItem.id);
+    assert.equal((await fetch(`${baseUrl}/api/collections/${collection.id}`, { method: 'PATCH', headers: { Cookie: first.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Read later', description: 'Curated' }) })).status, 200);
+    assert.equal((await fetch(attach, { method: 'DELETE', headers: { Cookie: first.cookie } })).status, 204);
+    assert.equal((await fetch(`${baseUrl}/api/tags/${tag.id}`, { method: 'DELETE', headers: { Cookie: first.cookie } })).status, 204);
+    assert.equal((await fetch(`${baseUrl}/api/collections/${collection.id}`, { method: 'DELETE', headers: { Cookie: first.cookie } })).status, 204);
+  });
+});
+
+test('notes accept bounded image assets, enforce owner reads, and cascade with their item', async () => {
+  await withApi(async (baseUrl, database) => {
+    const owner = await register(baseUrl, 'note-owner@example.test');
+    const other = await register(baseUrl, 'note-other@example.test');
+    await profile(baseUrl, owner.cookie, 'note_owner');
+    await profile(baseUrl, other.cookie, 'note_other');
+    const form = new FormData();
+    form.set('title', 'Field note');
+    form.set('body', 'A saved thought.');
+    form.set('links', JSON.stringify(['https://example.com/reference#part']));
+    form.append('images', new Blob([Buffer.from([137,80,78,71,13,10,26,10,0,0,0,0])], { type: 'image/png' }), 'image.png');
+    const create = await fetch(`${baseUrl}/api/notes`, { method: 'POST', headers: { Cookie: owner.cookie }, body: form });
+    assert.equal(create.status, 201);
+    const note = (await create.json() as { item: { id: string; note: { body: string; links: string[]; assets: Array<{ id: string; url: string }> } } }).item;
+    assert.equal(note.note.body, 'A saved thought.');
+    assert.deepEqual(note.note.links, ['https://example.com/reference']);
+    assert.equal(note.note.assets.length, 1);
+    const assetRead = await fetch(`${baseUrl}${note.note.assets[0]!.url}`, { headers: { Cookie: owner.cookie } });
+    assert.equal(assetRead.status, 200);
+    assert.equal(assetRead.headers.get('content-type'), 'image/png');
+    const foreignRead = await fetch(`${baseUrl}${note.note.assets[0]!.url}`, { headers: { Cookie: other.cookie } });
+    assert.equal(foreignRead.status, 404);
+    const update = new FormData(); update.set('title', 'Renamed field note'); update.set('body', 'Edited thought.'); update.set('links', '[]');
+    const patch = await fetch(`${baseUrl}/api/notes/${note.id}`, { method: 'PATCH', headers: { Cookie: owner.cookie }, body: update });
+    assert.equal(patch.status, 200);
+    const updatedItem = (await patch.json() as { item: { title: string; note: { body: string; assets: Array<{ id: string }> } } }).item;
+    const updatedNote = updatedItem.note;
+    assert.equal(updatedItem.title, 'Renamed field note');
+    assert.equal(updatedNote.body, 'Edited thought.');
+    assert.equal(updatedNote.assets.length, 1);
+    assert.equal((database.prepare('SELECT count(*) AS count FROM note_assets WHERE item_id=?').get(note.id) as { count: number }).count, 1);
+    const invalidLink = new FormData(); invalidLink.set('body', 'Private link check'); invalidLink.set('links', JSON.stringify(['http://[::1]/private']));
+    assert.equal((await fetch(`${baseUrl}/api/notes/${note.id}`, { method: 'PATCH', headers: { Cookie: owner.cookie }, body: invalidLink })).status, 400);
+    for (const privateIpv6 of ['http://[fe80::1]/local', 'http://[fd00::1]/local']) {
+      const privateLink = new FormData(); privateLink.set('body', 'Private link check'); privateLink.set('links', JSON.stringify([privateIpv6]));
+      assert.equal((await fetch(`${baseUrl}/api/notes/${note.id}`, { method: 'PATCH', headers: { Cookie: owner.cookie }, body: privateLink })).status, 400);
+    }
+    const publicLink = new FormData(); publicLink.set('body', 'Public IPv6 link'); publicLink.set('links', JSON.stringify(['https://[2606:4700:4700::1111]/reference']));
+    assert.equal((await fetch(`${baseUrl}/api/notes/${note.id}`, { method: 'PATCH', headers: { Cookie: owner.cookie }, body: publicLink })).status, 200);
+    const tooLongBody = new FormData(); tooLongBody.set('body', 'x'.repeat(20_001)); tooLongBody.set('links', '[]');
+    assert.equal((await fetch(`${baseUrl}/api/notes/${note.id}`, { method: 'PATCH', headers: { Cookie: owner.cookie }, body: tooLongBody })).status, 400);
+    const tooManyLinks = new FormData(); tooManyLinks.set('body', 'Link limit check');
+    tooManyLinks.set('links', JSON.stringify(Array.from({ length: 21 }, (_, index) => `https://example.com/${index}`)));
+    assert.equal((await fetch(`${baseUrl}/api/notes/${note.id}`, { method: 'PATCH', headers: { Cookie: owner.cookie }, body: tooManyLinks })).status, 400);
+    const badExtension = new FormData(); badExtension.set('body', 'Extension check'); badExtension.set('links', '[]');
+    badExtension.append('images', new Blob([Buffer.from([137,80,78,71,13,10,26,10])], { type: 'image/png' }), 'mismatch.jpg');
+    assert.equal((await fetch(`${baseUrl}/api/notes/${note.id}`, { method: 'PATCH', headers: { Cookie: owner.cookie }, body: badExtension })).status, 400);
+    const oversized = new FormData(); oversized.set('body', 'Size check'); oversized.set('links', '[]');
+    oversized.append('images', new Blob([Buffer.concat([Buffer.from([137,80,78,71,13,10,26,10]), Buffer.alloc(5 * 1024 * 1024)])], { type: 'image/png' }), 'large.png');
+    assert.equal((await fetch(`${baseUrl}/api/notes/${note.id}`, { method: 'PATCH', headers: { Cookie: owner.cookie }, body: oversized })).status, 413);
+    const tooMany = new FormData(); tooMany.set('body', 'Count check'); tooMany.set('links', '[]');
+    for (let index=0; index<6; index+=1) tooMany.append('images', new Blob([Buffer.from([137,80,78,71,13,10,26,10])], { type: 'image/png' }), `image${index}.png`);
+    assert.equal((await fetch(`${baseUrl}/api/notes/${note.id}`, { method: 'PATCH', headers: { Cookie: owner.cookie }, body: tooMany })).status, 400);
+    assert.equal((await fetch(`${baseUrl}/api/notes/${note.id}/assets/${updatedNote.assets[0]!.id}`, { method: 'DELETE', headers: { Cookie: owner.cookie } })).status, 204);
+    const afterImageRemoval = await fetch(`${baseUrl}/api/items/${note.id}`, { headers: { Cookie: owner.cookie } });
+    assert.equal((await afterImageRemoval.json() as { item: { note: { assets: unknown[] } } }).item.note.assets.length, 0);
+  });
+});
+
+test('additive migration preserves populated Phase 1 identity and work rows', () => {
+  const database = new Database(':memory:');
+  try {
+    database.pragma('foreign_keys=ON');
+    const migration = readFileSync(new URL('../src/db/migrations/001_initial.sql', import.meta.url), 'utf8');
+    database.exec(migration);
+    database.prepare('INSERT INTO users (id,email,password_hash,created_at) VALUES (?,?,?,?)').run('preserve-user','preserve@example.test','hash','2026-01-01');
+    database.prepare('INSERT INTO sessions (id,user_id,token_hash,expires_at,created_at) VALUES (?,?,?,?,?)').run('preserve-session','preserve-user','hash','2030-01-01','2026-01-01');
+    database.prepare(`INSERT INTO saved_items (id,owner_id,original_url,canonical_url,title,status,created_at,updated_at) VALUES ('preserve-item','preserve-user','https://example.com','https://example.com','Example','queued','2026-01-01','2026-01-01')`).run();
+    database.prepare(`INSERT INTO processing_jobs (id,owner_id,item_id,status,available_at,created_at,updated_at) VALUES ('preserve-job','preserve-user','preserve-item','queued','2026-01-01','2026-01-01','2026-01-01')`).run();
+    database.prepare(`INSERT INTO extracted_artifacts (id,owner_id,item_id,title,text_content,fetched_at,created_at) VALUES ('preserve-artifact','preserve-user','preserve-item','Example','body','2026-01-01','2026-01-01')`).run();
+    database.exec('CREATE TABLE schema_migrations (name TEXT PRIMARY KEY, applied_at TEXT NOT NULL)');
+    database.prepare('INSERT INTO schema_migrations VALUES (?,?)').run('001_initial.sql','2026-01-01');
+    migrate(database);
+    assert.equal((database.prepare('SELECT count(*) AS c FROM users').get() as { c: number }).c, 1);
+    assert.equal((database.prepare('SELECT count(*) AS c FROM sessions').get() as { c: number }).c, 1);
+    assert.equal((database.prepare("SELECT count(*) AS c FROM saved_items WHERE item_kind='page'").get() as { c: number }).c, 1);
+    assert.equal((database.prepare('SELECT count(*) AS c FROM processing_jobs').get() as { c: number }).c, 1);
+    assert.equal((database.prepare('SELECT count(*) AS c FROM extracted_artifacts').get() as { c: number }).c, 1);
+  } finally { database.close(); }
+});
+
+test('asset recovery retains failed deletions for retry and removes them when storage recovers', async () => {
+  const database = createTestDatabase(); const root = await mkdtemp(join(tmpdir(), 'rembr-assets-recovery-'));
+  try {
+    class FlakyStorage extends LocalAssetStorage {
+      fail = true;
+      override async remove(key: string) { if (this.fail) throw new Error('injected unlink failure'); return super.remove(key); }
+    }
+    const storage = new FlakyStorage(root);
+    const id = '11111111-1111-4111-8111-111111111111';
+    const now = new Date().toISOString();
+    database.prepare(`INSERT INTO users (id,email,password_hash,created_at) VALUES ('asset-user','asset@example.test','x',?)`).run(now);
+    database.prepare(`INSERT INTO asset_objects (id,owner_id,kind,storage_key,detected_mime,byte_size,sha256,state,created_at,updated_at)
+      VALUES (?,'asset-user','note_image',?,'image/png',1,'x','deleting',?,?)`).run(id, `${id}.asset`, now, now);
+    await storage.initialize();
+    await recoverAssets(database, storage);
+    assert.equal((database.prepare('SELECT count(*) AS c FROM asset_objects WHERE id=?').get(id) as { c: number }).c, 1);
+    storage.fail = false;
+    await recoverAssets(database, storage);
+    assert.equal((database.prepare('SELECT count(*) AS c FROM asset_objects WHERE id=?').get(id) as { c: number }).c, 0);
+  } finally { database.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('staging assets are never readable and are removed during startup recovery', async () => {
+  await withApi(async (baseUrl, database, assetsPath) => {
+    const account = await register(baseUrl, 'staging-owner@example.test');
+    await profile(baseUrl, account.cookie, 'staging_owner');
+    const id = '22222222-2222-4222-8222-222222222222';
+    const now = new Date().toISOString();
+    database.prepare(`INSERT INTO asset_objects (id,owner_id,kind,storage_key,detected_mime,byte_size,sha256,state,created_at,updated_at)
+      VALUES (?,?,'avatar',?,'image/png',1,'x','staging',?,?)`).run(id, account.user.user.id, `${id}.asset`, now, now);
+    const unreadable = await fetch(`${baseUrl}/api/assets/${id}`, { headers: { Cookie: account.cookie } });
+    assert.equal(unreadable.status, 404);
+    const storage = new LocalAssetStorage(assetsPath);
+    await storage.initialize();
+    await recoverAssets(database, storage);
+    assert.equal((database.prepare('SELECT count(*) AS count FROM asset_objects WHERE id=?').get(id) as { count: number }).count, 0);
+  });
+});

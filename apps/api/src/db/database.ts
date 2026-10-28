@@ -23,7 +23,7 @@ export function migrate(database: DatabaseHandle): void {
     name TEXT PRIMARY KEY,
     applied_at TEXT NOT NULL
   )`);
-  const files = ['001_initial.sql'];
+  const files = ['001_initial.sql', '002_phase2_account_library.sql'];
   const hasMigration = database.prepare('SELECT 1 FROM schema_migrations WHERE name = ?');
   for (const name of files) {
     if (hasMigration.get(name)) continue;
