@@ -62,6 +62,12 @@ The live IScraper marketing page was visually reviewed on 2026-10-28. Its dark c
 
 The Teak homepage was visually reviewed on 2026-10-28 for the oversized heavy headlines, single retro keyword highlight, compact announcement strip, and crisp contrast. Treat this as a visual reference only; keep Rembr's product claims and original composition.
 
+## Open exploration: original Rembr display typeface
+
+**Status:** Feasibility discussed only; no typeface design or implementation is approved.
+
+The user asked whether Rembr could create an original display typeface with a feel very similar to Integrate. This is technically feasible. If pursued, draw original glyphs from broad retro-modern design traits; do not trace Integrate's font file or letterforms. Decide glyph coverage, tooling, licensing, and visual review criteria before implementation. Until the user approves that work, keep the existing Space Grotesk fallback for highlighted keywords. The user's question is not approval to begin font production.
+
 ## Motion and access
 
 - Use short CSS reveal, float, marquee, and card-hover motion to support the soft editorial metaphor.
