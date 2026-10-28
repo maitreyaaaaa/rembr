@@ -4,6 +4,18 @@
 **Scope:** Full Phase 2 of the [phase-gated roadmap](../rebuild-plan/phase-gated-roadmap.md).  
 **Related acceptance sources:** [capability matrix](../rebuild-plan/feature-and-acceptance-matrix.md), [screen/workflow matrix](../rebuild-plan/screen-workflow-phase-matrix.md), [current UI specifications](../screens/ui-surface-and-screen-specifications.md), [API route/source audit](../backend/api-routes-and-contracts.md), [current system design](./system-design-and-boundaries.md), and [Phase 1 evidence](../rebuild-plan/phase-1-record.md).
 
+## User approval record
+
+The user approved the full Phase 2 roadmap scope, selected the modular-monolith direction, and then answered “Looks right” to each of the seven sequential design sections below. The question/approval record is also preserved in the Obsidian decision note `2026-10-28 Rembr Phase 2 Architecture Approvals`.
+
+1. **Module boundaries:** one modular monolith with account, library, and organization domains; route/service/repository layering; SQLite retained; private local asset storage behind an interface; no microservice split or dynamic smart-collection evaluation in Phase 2.
+2. **Schema:** additive migration `002`; preserve Phase 1 records; profile and account status; notes as typed library items; normalized note links/assets, tags, collections, and memberships; composite owner foreign keys; user metadata overrides; fresh-install and upgrade migration coverage.
+3. **Account flow:** retain email/password and opaque HttpOnly hashed-token cookie with 12-hour expiry; check account status on each authenticated request; normalized unique usernames; validated avatar upload or HTTPS URL reference; allowlisted, skippable onboarding; profile-incomplete route gate.
+4. **Library contract:** preserve existing item endpoints and per-owner canonical URL deduplication; add title/description overrides; allowlisted filter/query/sort and bounded keyset pagination; notes remain in the item list; derive ownership from session and conceal cross-owner IDs; hard-delete with worker resurrection guard.
+5. **Private assets:** source limits and MIME/signature validation; server-generated storage keys outside `public/`; authenticated owner-scoped reads; local filesystem adapter; `staging → ready → deleting` lifecycle with compensation and startup recovery; never fetch avatar URLs server-side.
+6. **Application shell:** React Router for `/app/*` deep links and history while preserving marketing routes; implement the listed account, library, item, note, organization, and settings screens; keep server state authoritative and URL-backed list state; use accessible Daybreak controls and defer final visual polish.
+7. **Acceptance gate:** fresh and upgrade migrations preserve Phase 1 data; API isolation, lifecycle, CRUD, pagination, and failure-injection checks; browser walkthrough through registration, capture, notes/assets, organization, history, and deletion; keyboard/narrow viewport and Phase 1 regression gates; hosted DB/CI remain separately labeled.
+
 ## 1. Understanding and scope lock
 
 Phase 2 completes identity, tenant ownership, and the user-owned library lifecycle after the authenticated Phase 1 capture-to-library slice. Build the server/data contracts and minimum usable screens first. Keep the accepted Daybreak app primitives for legibility and access; defer the final visual pass, marketing-style motion, and decorative UI refinement.
