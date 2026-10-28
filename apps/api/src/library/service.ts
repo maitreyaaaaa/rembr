@@ -42,10 +42,10 @@ export function createLibraryService(database: DatabaseHandle, storage: LocalAss
   const repository = createLibraryRepository(database);
   const assets = createAssetService(database, storage);
   return {
-    createPage(ownerId: string, originalUrl: string, canonicalUrl: string, title: string) {
+    createPage(ownerId: string, originalUrl: string, canonicalUrl: string, title: string, correlationId?: string) {
       const existing = repository.findByCanonical(ownerId,canonicalUrl);
       if (existing) return { item: existing, duplicate: true };
-      const item = repository.createPage(ownerId,originalUrl,canonicalUrl,title);
+      const item = repository.createPage(ownerId,originalUrl,canonicalUrl,title,correlationId);
       return { item, duplicate: false };
     },
     list(ownerId: string, query: ItemListQuery, rawCursor?: string) {

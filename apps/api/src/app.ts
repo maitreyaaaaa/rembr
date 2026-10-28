@@ -124,7 +124,7 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
       const validated = await validateUrl(parsed.data.url);
       validated.url.hash = '';
       const canonicalUrl = validated.url.toString();
-      const result = library.createPage(req.user!.id, parsed.data.url, canonicalUrl, validated.url.hostname);
+      const result = library.createPage(req.user!.id, parsed.data.url, canonicalUrl, validated.url.hostname, req.requestId);
       res.status(result.duplicate ? 200 : 202).json(result);
     } catch (error) {
       if (error instanceof CaptureError) {

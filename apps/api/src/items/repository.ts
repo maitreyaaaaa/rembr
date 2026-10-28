@@ -56,9 +56,9 @@ export function createItemRepository(database: DatabaseHandle) {
           VALUES (?, ?, ?, ?, ?, 'queued', ?, ?)`)
           .run(id, ownerId, originalUrl, canonicalUrl, title, now, now);
         database.prepare(`INSERT INTO processing_jobs
-          (id, owner_id, item_id, status, available_at, created_at, updated_at)
-          VALUES (?, ?, ?, 'queued', ?, ?, ?)`)
-          .run(randomUUID(), ownerId, id, now, now, now);
+          (id, owner_id, item_id, correlation_id, status, available_at, created_at, updated_at)
+          VALUES (?, ?, ?, ?, 'queued', ?, ?, ?)`)
+          .run(randomUUID(), ownerId, id, randomUUID(), now, now, now);
       });
       transaction();
       return this.get(ownerId, id)!;

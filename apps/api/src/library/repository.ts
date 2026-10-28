@@ -72,13 +72,13 @@ export function createLibraryRepository(database: DatabaseHandle) {
       const row = database.prepare('SELECT id FROM saved_items WHERE owner_id=? AND canonical_url=?').get(ownerId, canonicalUrl) as { id: string } | undefined;
       return row ? this.get(ownerId, row.id) : undefined;
     },
-    createPage(ownerId: string, originalUrl: string, canonicalUrl: string, title: string) {
+    createPage(ownerId: string, originalUrl: string, canonicalUrl: string, title: string, correlationId: string = randomUUID()) {
       const id = randomUUID(); const now = new Date().toISOString();
       database.transaction(() => {
         database.prepare(`INSERT INTO saved_items (id,owner_id,original_url,canonical_url,title,status,created_at,updated_at)
           VALUES (?,?,?,?,?,'queued',?,?)`).run(id,ownerId,originalUrl,canonicalUrl,title,now,now);
-        database.prepare(`INSERT INTO processing_jobs (id,owner_id,item_id,status,available_at,created_at,updated_at)
-          VALUES (?,?,?,'queued',?,?,?)`).run(randomUUID(),ownerId,id,now,now,now);
+        database.prepare(`INSERT INTO processing_jobs (id,owner_id,item_id,correlation_id,status,available_at,created_at,updated_at)
+          VALUES (?,?,?,?,'queued',?,?,?)`).run(randomUUID(),ownerId,id,correlationId,now,now,now);
       })();
       return this.get(ownerId,id);
     },
