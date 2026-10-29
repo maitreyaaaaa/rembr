@@ -141,9 +141,21 @@ class PostgresDatabase implements DatabaseHandle {
 
 export async function createDatabase(connectionString = config.databaseUrl): Promise<DatabaseHandle> {
   if (!connectionString) throw new Error('DATABASE_URL is required to connect Rembr to Supabase Postgres.');
+
+  // Supabase Postgres uses its own CA, which is not in Node's default trust store.
+  // Keep certificate and hostname verification enabled with the published root CA.
+  const databaseUrl = new URL(connectionString);
+  for (const option of ['sslmode', 'sslrootcert', 'sslcert', 'sslkey']) {
+    databaseUrl.searchParams.delete(option);
+  }
+  const supabaseRootCertificate = readFileSync(
+    resolve(config.projectRoot, 'apps/api/certs/prod-ca-2021.crt'),
+    'utf8',
+  );
+
   const pool = new Pool({
-    connectionString,
-    ssl: { rejectUnauthorized: true },
+    connectionString: databaseUrl.toString(),
+    ssl: { ca: supabaseRootCertificate, rejectUnauthorized: true },
     max: 10,
     idleTimeoutMillis: 30_000,
     connectionTimeoutMillis: 10_000,
