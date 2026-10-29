@@ -1,6 +1,6 @@
 import type { DatabaseHandle } from '../db/database.js';
 
-export const AI_SEARCH_DISCLOSURE_VERSION = '2026-10-29-v3';
+export const AI_SEARCH_DISCLOSURE_VERSION = '2026-10-29-v4';
 
 export function createAiSearchPreferenceRepository(database: DatabaseHandle) {
   return {
