@@ -17,6 +17,12 @@ export interface SavedItemSummary {
   createdAt: string;
 }
 
+export interface SavedItemSummaryContext { title: string; description: string; sourceText: string }
+
+export function savedItemSummarySourceHash(context: SavedItemSummaryContext) {
+  return createHash('sha256').update(JSON.stringify(context)).digest('hex');
+}
+
 type SummaryRow = Record<string, unknown>;
 function toSummary(row: SummaryRow | undefined): SavedItemSummary | null {
   if (!row) return null;
@@ -30,13 +36,13 @@ function toSummary(row: SummaryRow | undefined): SavedItemSummary | null {
 
 export function createSavedItemSummaryRepository(database: DatabaseHandle) {
   return {
-    async latest(ownerId: string, itemId: string) {
+    async latest(ownerId: string, itemId: string, context: SavedItemSummaryContext) {
       const row = await database.prepare(`SELECT id,item_id,generation,model,prompt_version,source_characters,summary,
-        input_tokens,output_tokens,billed_microusd,created_at FROM ai_saved_item_summaries
+        input_tokens,output_tokens,billed_microusd,created_at,source_sha256 FROM ai_saved_item_summaries
         WHERE owner_id=? AND item_id=? ORDER BY generation DESC LIMIT 1`).get(ownerId, itemId) as SummaryRow | undefined;
-      return toSummary(row);
+      return { summary: toSummary(row), stale: Boolean(row && String(row.source_sha256) !== savedItemSummarySourceHash(context)) };
     },
-    async save(input: { ownerId: string; itemId: string; model: string; sourceText: string; summary: string; inputTokens: number; outputTokens: number; billedMicroUsd: number }) {
+    async save(input: { ownerId: string; itemId: string; model: string; context: SavedItemSummaryContext; summary: string; inputTokens: number; outputTokens: number; billedMicroUsd: number }) {
       const createdAt = new Date().toISOString();
       return database.transaction(async () => {
         await database.prepare('SELECT id FROM saved_items WHERE owner_id=? AND id=? FOR UPDATE').get(input.ownerId, input.itemId);
@@ -46,11 +52,11 @@ export function createSavedItemSummaryRepository(database: DatabaseHandle) {
         await database.prepare(`INSERT INTO ai_saved_item_summaries
           (id,owner_id,item_id,generation,model,prompt_version,source_sha256,source_characters,summary,input_tokens,output_tokens,billed_microusd,created_at)
           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, input.ownerId, input.itemId, Number(next.generation), input.model,
-          SAVED_ITEM_SUMMARY_PROMPT_VERSION, createHash('sha256').update(input.sourceText).digest('hex'), [...input.sourceText].length,
+          SAVED_ITEM_SUMMARY_PROMPT_VERSION, savedItemSummarySourceHash(input.context), [...input.context.sourceText].length,
           input.summary, input.inputTokens, input.outputTokens, input.billedMicroUsd, createdAt);
         return {
           id, itemId: input.itemId, generation: Number(next.generation), model: input.model,
-          promptVersion: SAVED_ITEM_SUMMARY_PROMPT_VERSION, sourceCharacters: [...input.sourceText].length,
+          promptVersion: SAVED_ITEM_SUMMARY_PROMPT_VERSION, sourceCharacters: [...input.context.sourceText].length,
           summary: input.summary, inputTokens: input.inputTokens, outputTokens: input.outputTokens,
           billedMicroUsd: input.billedMicroUsd, createdAt,
         } satisfies SavedItemSummary;

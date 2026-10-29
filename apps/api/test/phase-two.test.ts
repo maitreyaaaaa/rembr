@@ -289,11 +289,25 @@ test('Phase 4 saved-item summaries are user-triggered, consent-gated, owner-scop
     assert.equal(promptData.sourceText.length, 6000);
 
     const saved = await fetch(`${baseUrl}/api/knowledge/items/${item.id}/summary`, { headers: { Cookie: owner.cookie } });
-    assert.equal((await saved.json() as { summary: { summary: string } }).summary.summary, result.summary.summary);
+    const savedBody = await saved.json() as { summary: { summary: string }; stale: boolean };
+    assert.equal(savedBody.summary.summary, result.summary.summary);
+    assert.equal(savedBody.stale, false);
+    await fetch(`${baseUrl}/api/items/${item.id}`, {
+      method: 'PATCH', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ descriptionOverride: 'Updated source description.' }),
+    });
+    const staleResponse = await fetch(`${baseUrl}/api/knowledge/items/${item.id}/summary`, { headers: { Cookie: owner.cookie } });
+    assert.equal((await staleResponse.json() as { stale: boolean }).stale, true);
+    const regenerated = await fetch(`${baseUrl}/api/knowledge/items/${item.id}/summary`, {
+      method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({}),
+    });
+    assert.equal(regenerated.status, 201);
+    assert.equal((await regenerated.json() as { summary: { generation: number } }).summary.generation, 2);
+    assert.equal(modelCalls, 2);
     const crossOwner = await fetch(`${baseUrl}/api/knowledge/items/${item.id}/summary`, { headers: { Cookie: other.cookie } });
     assert.equal(crossOwner.status, 404);
     const usage = await database.prepare(`SELECT spent_microusd,reserved_microusd FROM ai_monthly_usage WHERE month_start=?`).get(`${new Date().toISOString().slice(0, 7)}-01`) as { spent_microusd: string; reserved_microusd: string };
-    assert.equal(Number(usage.spent_microusd), 168);
+    assert.equal(Number(usage.spent_microusd), 336);
     assert.equal(Number(usage.reserved_microusd), 0);
     const columns = await database.prepare(`SELECT column_name FROM information_schema.columns WHERE table_name='ai_saved_item_summaries'`).all() as Array<{ column_name: string }>;
     assert.equal(columns.some(({ column_name }) => column_name.includes('source_text')), false);
