@@ -1,4 +1,5 @@
 import express from 'express';
+import { rateLimit } from 'express-rate-limit';
 import type { DatabaseHandle } from '../db/database.js';
 import { requireUser } from '../auth/sessions.js';
 import { createProfileGate } from '../account/routes.js';
@@ -6,15 +7,19 @@ import type { AssetStorage } from '../assets/storage.js';
 import { createLibraryCheckupRepository } from './checkup.js';
 import { createKnowledgeGraphRepository } from './graph.js';
 import { createObsidianExportRepository } from './obsidian-export.js';
+import { createLibraryLinkHealthRepository } from './link-health.js';
 import { createLibraryService } from '../library/service.js';
+import { checkPublicPage } from '../items/safe-fetch.js';
 import { z } from 'zod';
 
-export function createKnowledgeRouter(database: DatabaseHandle, storage: AssetStorage) {
+export function createKnowledgeRouter(database: DatabaseHandle, storage: AssetStorage, options: { checkLink?: typeof checkPublicPage } = {}) {
   const router = express.Router();
   const signedIn = requireUser(database);
   const profile = createProfileGate(database, storage);
   const graph = createKnowledgeGraphRepository(database);
   const obsidianExport = createObsidianExportRepository(database);
+  const linkHealth = createLibraryLinkHealthRepository(database, options.checkLink);
+  const linkCheckLimit = rateLimit({ windowMs: 15 * 60 * 1000, limit: 5, standardHeaders: 'draft-8', legacyHeaders: false });
   const checkup = createLibraryCheckupRepository(database);
   const library = createLibraryService(database, storage);
 
@@ -31,7 +36,16 @@ export function createKnowledgeRouter(database: DatabaseHandle, storage: AssetSt
   });
 
   router.get('/knowledge/checkup', signedIn, profile, async (req, res) => {
-    return res.json({ checkup: await checkup.get(req.user!.id) });
+    const ownerId = req.user!.id;
+    const [summary, health] = await Promise.all([checkup.get(ownerId), linkHealth.get(ownerId)]);
+    return res.json({ checkup: { ...summary, linkHealth: health } });
+  });
+
+  router.post('/knowledge/links/check', signedIn, profile, linkCheckLimit, async (req, res) => {
+    const parsed = z.object({ limit: z.number().int().min(1).max(20).default(10) }).strict().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: { code: 'invalid_link_check', message: 'Choose a check limit between 1 and 20.', requestId: req.requestId } });
+    const checked = await linkHealth.check(req.user!.id, parsed.data.limit);
+    return res.json({ checked, linkHealth: await linkHealth.get(req.user!.id) });
   });
 
   router.post('/knowledge/reminders', signedIn, profile, async (req, res) => {

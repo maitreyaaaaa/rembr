@@ -19,7 +19,7 @@ import { createSmartCollectionRouter } from './smart-collections/routes.js';
 import { LocalAssetStorage, type AssetStorage } from './assets/storage.js';
 import { LocalMediaStorage, type MediaStorage } from './media/storage.js';
 import type { DatabaseHandle } from './db/database.js';
-import { CaptureError, validatePublicUrl } from './items/safe-fetch.js';
+import { CaptureError, checkPublicPage, validatePublicUrl } from './items/safe-fetch.js';
 import { createLibraryService } from './library/service.js';
 import { countPasswordCodePoints, hashNewPassword, validateNewPassword, verifyPassword } from './auth/passwords.js';
 
@@ -33,7 +33,7 @@ function errorResponse(code: string, message: string, requestId?: string) {
   return { error: { code, message, ...(requestId ? { requestId } : {}) } };
 }
 
-export function createApp(database: DatabaseHandle, options: { validateUrl?: typeof validatePublicUrl; assetDirectory?: string; assetStorage?: AssetStorage; importDirectory?: string; importStorage?: ImportStorage; mediaDirectory?: string; mediaStorage?: MediaStorage } = {}) {
+export function createApp(database: DatabaseHandle, options: { validateUrl?: typeof validatePublicUrl; checkLink?: typeof checkPublicPage; assetDirectory?: string; assetStorage?: AssetStorage; importDirectory?: string; importStorage?: ImportStorage; mediaDirectory?: string; mediaStorage?: MediaStorage } = {}) {
   const app = express();
   const assetStorage = options.assetStorage ?? new LocalAssetStorage(options.assetDirectory ?? config.assetDirectory);
   const importStorage = options.importStorage ?? new LocalImportStorage(options.importDirectory ?? config.importDirectory);
@@ -131,7 +131,7 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
 
   app.use('/api', createAccountRouter(database, assetStorage));
   app.use('/api', createAiRouter(database));
-  app.use('/api', createKnowledgeRouter(database, assetStorage));
+  app.use('/api', createKnowledgeRouter(database, assetStorage, { checkLink: options.checkLink }));
   app.use('/api', createSmartCollectionRouter(database, assetStorage));
 
   const requireSignedIn = requireUser(database) as RequestHandler;

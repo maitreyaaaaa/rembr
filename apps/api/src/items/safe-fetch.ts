@@ -81,17 +81,17 @@ export interface ResponsePayload {
   body: string;
 }
 
-function requestAtPinnedAddress(target: ValidatedUrl, maxBytes: number): Promise<ResponsePayload> {
+function requestAtPinnedAddress(target: ValidatedUrl, maxBytes: number, method: 'GET' | 'HEAD' = 'GET', probeOnly = false, timeoutMs = 10_000): Promise<ResponsePayload> {
   return new Promise((resolve, reject) => {
     const isHttps = target.url.protocol === 'https:';
     const requestFn = isHttps ? httpsRequest : httpRequest;
     const hostname = target.url.hostname.replace(/^\[|\]$/g, '');
     const request = requestFn(target.url, {
-      method: 'GET',
+      method,
       headers: {
-        accept: 'text/html,application/xhtml+xml,text/plain;q=0.8',
+        accept: probeOnly || method === 'HEAD' ? '*/*' : 'text/html,application/xhtml+xml,text/plain;q=0.8',
         'accept-encoding': 'identity',
-        'user-agent': 'RembrBot/0.1 (+user-requested page capture)',
+        'user-agent': method === 'HEAD' || probeOnly ? 'RembrBot/0.1 (+user-requested link check)' : 'RembrBot/0.1 (+user-requested page capture)',
       },
       lookup: (_host, options, callback) => {
         if (options.all) {
@@ -101,7 +101,7 @@ function requestAtPinnedAddress(target: ValidatedUrl, maxBytes: number): Promise
         callback(null, target.address, target.family);
       },
       ...(isHttps && !isIP(hostname) ? { servername: hostname } : {}),
-      timeout: 10_000,
+      timeout: timeoutMs,
       maxHeaderSize: 16_384,
     }, (response) => {
       const statusCode = response.statusCode ?? 0;
@@ -109,19 +109,40 @@ function requestAtPinnedAddress(target: ValidatedUrl, maxBytes: number): Promise
       const contentType = String(response.headers['content-type'] ?? '').split(';')[0]?.trim().toLowerCase() ?? '';
       const contentEncoding = String(response.headers['content-encoding'] ?? 'identity').trim().toLowerCase();
       const contentLength = Number(response.headers['content-length'] ?? 0);
+      if (statusCode >= 300 && statusCode < 400 && location) {
+        response.resume();
+        resolve({ statusCode, location, contentType, body: '' });
+        return;
+      }
+      if (method === 'HEAD') {
+        response.resume();
+        resolve({ statusCode, location, contentType, body: '' });
+        return;
+      }
       if (contentEncoding !== 'identity') {
         response.resume();
         reject(new CaptureError('unsupported_content', 'Compressed page responses are not supported yet.'));
         return;
       }
-      if (contentLength > maxBytes) {
+      if (!probeOnly && contentLength > maxBytes) {
         response.destroy();
         reject(new CaptureError('page_too_large', 'This page is larger than Rembr can process.'));
         return;
       }
-      if (statusCode >= 300 && statusCode < 400 && location) {
-        response.resume();
-        resolve({ statusCode, location, contentType, body: '' });
+      if (probeOnly) {
+        let size = 0;
+        let settled = false;
+        const result = { statusCode, location, contentType, body: '' };
+        response.on('data', (chunk: Buffer) => {
+          size += chunk.length;
+          if (size > maxBytes && !settled) {
+            settled = true;
+            response.destroy();
+            resolve(result);
+          }
+        });
+        response.on('end', () => { if (!settled) resolve(result); });
+        response.on('error', (error) => { if (!settled) reject(error); });
         return;
       }
       if (statusCode < 200 || statusCode >= 300) {
@@ -180,6 +201,57 @@ export async function fetchPublicPage(
     return { finalUrl: target.url.toString(), contentType: response.contentType, html: response.body };
   }
   throw new CaptureError('too_many_redirects', 'This page redirects too many times to save safely.');
+}
+
+export type LinkHealthResult = {
+  status: 'ok' | 'broken' | 'unknown';
+  sourceUrl: string;
+  finalUrl: string;
+  httpStatus: number | null;
+  errorCode: string;
+  errorMessage: string;
+  checkedAt: string;
+};
+
+export async function checkPublicPage(
+  input: string,
+  options: {
+    validateUrl?: typeof validatePublicUrl;
+    requestProbe?: (target: ValidatedUrl, method: 'GET' | 'HEAD') => Promise<ResponsePayload>;
+    maxRedirects?: number;
+  } = {},
+): Promise<LinkHealthResult> {
+  const validateUrl = options.validateUrl ?? validatePublicUrl;
+  const requestProbe = options.requestProbe ?? ((target, method) => requestAtPinnedAddress(target, 2048, method, method === 'GET', 5_000));
+  const sourceUrl = input.slice(0, 2048);
+  const result = (status: LinkHealthResult['status'], values: Partial<LinkHealthResult> = {}): LinkHealthResult => ({
+    status, sourceUrl, finalUrl: '', httpStatus: null, errorCode: '', errorMessage: '', checkedAt: new Date().toISOString(), ...values,
+  });
+  let current = input;
+  const maxRedirects = options.maxRedirects ?? config.MAX_CAPTURE_REDIRECTS;
+  try {
+    for (let redirect = 0; redirect <= maxRedirects; redirect += 1) {
+      const target = await validateUrl(current);
+      let response = await requestProbe(target, 'HEAD');
+      if (response.statusCode === 405 || response.statusCode === 501) response = await requestProbe(target, 'GET');
+      if (response.statusCode >= 300 && response.statusCode < 400 && response.location) {
+        if (redirect === maxRedirects) return result('unknown', { httpStatus: response.statusCode, errorCode: 'too_many_redirects', errorMessage: 'This link redirects too many times to check safely.' });
+        try { current = new URL(response.location, target.url).toString(); }
+        catch { return result('unknown', { httpStatus: response.statusCode, errorCode: 'invalid_redirect', errorMessage: 'This link returned an invalid redirect.' }); }
+        continue;
+      }
+      const finalUrl = target.url.toString();
+      if (response.statusCode === 404 || response.statusCode === 410) {
+        return result('broken', { finalUrl, httpStatus: response.statusCode, errorCode: `http_${response.statusCode}`, errorMessage: 'This link returned a not found response.' });
+      }
+      if (response.statusCode >= 200 && response.statusCode < 300) return result('ok', { finalUrl, httpStatus: response.statusCode });
+      return result('unknown', { finalUrl, httpStatus: response.statusCode || null, errorCode: response.statusCode ? `http_${response.statusCode}` : 'empty_response', errorMessage: 'This link could not be confirmed as working.' });
+    }
+    return result('unknown', { errorCode: 'too_many_redirects', errorMessage: 'This link redirects too many times to check safely.' });
+  } catch (cause) {
+    const errorCode = cause instanceof CaptureError ? cause.code : cause && typeof cause === 'object' && 'code' in cause && typeof cause.code === 'string' ? cause.code : 'check_failed';
+    return result('unknown', { errorCode: errorCode.slice(0, 80), errorMessage: 'This link could not be checked safely right now.' });
+  }
 }
 
 export interface MediaResponsePayload { statusCode: number; location: string | undefined; contentType: string; body: Buffer }

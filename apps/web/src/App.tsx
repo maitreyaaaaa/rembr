@@ -33,7 +33,8 @@ interface KnowledgeGraphLink { id: string; source: string; target: string; type:
 interface KnowledgeGraph { nodes: KnowledgeGraphNode[]; links: KnowledgeGraphLink[]; groups: KnowledgeGraphGroup[]; stats: { indexedItems: number; conceptNodes: number; links: number }; truncated: boolean }
 interface CheckupItem { id: string; title: string; status: string; created_at: string }
 interface CheckupReminder { id: string; itemId: string; remindAt: string; status: 'pending'; reason: string; note: string; item: CheckupItem }
-interface LibraryCheckup { generatedAt: string; summary: { savedItems: number; unorganizedItems: number; needsAttention: number; olderSaves: number }; needsAttention: CheckupItem[]; olderSaves: CheckupItem[]; dueReminders: CheckupReminder[]; upcomingReminders: CheckupReminder[]; weeklyRediscovery: CheckupItem[]; dailyPick: CheckupItem | null; readOnly: true }
+interface LinkHealthCheck { id: string; itemId: string; title: string; status: 'ok' | 'broken' | 'unknown'; sourceUrl: string; finalUrl: string | null; httpStatus: number | null; errorCode: string; errorMessage: string; checkedAt: string }
+interface LibraryCheckup { generatedAt: string; summary: { savedItems: number; unorganizedItems: number; needsAttention: number; olderSaves: number }; linkHealth: { checkedItems: number; brokenCount: number; unknownCount: number; lastCheckedAt: string | null; brokenLinks: LinkHealthCheck[] }; needsAttention: CheckupItem[]; olderSaves: CheckupItem[]; dueReminders: CheckupReminder[]; upcomingReminders: CheckupReminder[]; weeklyRediscovery: CheckupItem[]; dailyPick: CheckupItem | null; readOnly: true }
 interface LibraryAnswer { question: string; answer: string; citations: Array<{ id: string; title: string; snippet: string }>; resultIds: string[]; searchEventId: string | null; mode: 'lexical-excerpts' }
 const AI_DISCLOSURE_VERSION = '2026-10-29-v1';
 interface Session { user: User; profile: Profile | null; profileComplete: boolean; accountStatus: 'active' | 'disabled' }
@@ -417,6 +418,7 @@ function KnowledgeGraphPage() {
 function LibraryCheckupPage() {
   const [checkup, setCheckup] = useState<LibraryCheckup | null>(null);
   const [loading, setLoading] = useState(true);
+  const [checkingLinks, setCheckingLinks] = useState(false);
   const [error, setError] = useState('');
   const [reminderBusyId, setReminderBusyId] = useState('');
   const load = useCallback(async () => {
@@ -438,6 +440,12 @@ function LibraryCheckupPage() {
     catch (cause) { setError(messageOf(cause, 'Could not update this reminder.')); }
     finally { setReminderBusyId(''); }
   }
+  async function checkLinks() {
+    setCheckingLinks(true); setError('');
+    try { await api('/api/knowledge/links/check', { method: 'POST', body: JSON.stringify({ limit: 10 }) }); await load(); }
+    catch (cause) { setError(messageOf(cause, 'Could not check your saved links.')); }
+    finally { setCheckingLinks(false); }
+  }
   const sections: Array<{ title: string; description: string; items: CheckupItem[] }> = checkup ? [
     { title: 'Needs a look', description: 'Paused, failed, partial, or retrying saves.', items: checkup.needsAttention },
     { title: 'Saved 3+ months ago', description: 'Older items you may want to revisit.', items: checkup.olderSaves },
@@ -446,7 +454,8 @@ function LibraryCheckupPage() {
   return <><PageHeader eyebrow="Library care" title="A quick check-in." description="Find saves that may need attention and rediscover things you kept." actions={<button className="quiet-button" type="button" disabled={loading} onClick={() => void load()}>{loading ? 'Refreshing…' : 'Refresh checkup'}</button>} />
     {error && <div className="notice error phase2-retry-notice" role="alert"><span>{error}</span><button className="quiet-button" type="button" onClick={() => void load()}>Try again</button></div>}
     {loading && !checkup ? <div className="phase2-state" role="status">Reviewing your library…</div> : checkup && <>
-      <section className="phase2-panel" aria-label="Library checkup summary"><div className="phase2-filter-grid"><div><p className="eyebrow">Saved items</p><strong>{checkup.summary.savedItems}</strong></div><div><p className="eyebrow">Needs a look</p><strong>{checkup.summary.needsAttention}</strong></div><div><p className="eyebrow">Not organized</p><strong>{checkup.summary.unorganizedItems}</strong></div><div><p className="eyebrow">Older than 90 days</p><strong>{checkup.summary.olderSaves}</strong></div></div><p className="phase2-helper">Checks are read-only. Rembr never changes or deletes items automatically. You can choose to set reminders; these checks work with AI providers disabled.</p></section>
+      <section className="phase2-panel" aria-label="Library checkup summary"><div className="phase2-filter-grid"><div><p className="eyebrow">Saved items</p><strong>{checkup.summary.savedItems}</strong></div><div><p className="eyebrow">Needs a look</p><strong>{checkup.summary.needsAttention}</strong></div><div><p className="eyebrow">Not organized</p><strong>{checkup.summary.unorganizedItems}</strong></div><div><p className="eyebrow">Older than 90 days</p><strong>{checkup.summary.olderSaves}</strong></div></div><p className="phase2-helper">Checkup never changes or deletes saved items automatically. Link probes run only when you request them; reminders are also your choice. These features work with AI providers disabled.</p></section>
+      <section className="phase2-panel" aria-labelledby="link-health-title"><div className="phase2-page-heading"><div><h2 id="link-health-title">Saved link health</h2><p>Check public links when you ask. Recent checks are kept for seven days to avoid repeat visits.</p></div><button className="quiet-button" type="button" disabled={checkingLinks} onClick={() => void checkLinks()}>{checkingLinks ? 'Checking up to 10…' : 'Check up to 10 links'}</button></div><div className="phase2-filter-grid"><div><p className="eyebrow">Checked</p><strong>{checkup.linkHealth.checkedItems}</strong></div><div><p className="eyebrow">Not found</p><strong>{checkup.linkHealth.brokenCount}</strong></div><div><p className="eyebrow">Could not confirm</p><strong>{checkup.linkHealth.unknownCount}</strong></div></div>{checkup.linkHealth.lastCheckedAt && <p className="phase2-helper">Last checked {date(checkup.linkHealth.lastCheckedAt)}. “Could not confirm” may mean the site blocked or timed out during the check.</p>}{checkup.linkHealth.brokenLinks.length > 0 ? <ul className="phase2-manage-list">{checkup.linkHealth.brokenLinks.map((item) => <li key={item.id}><div><Link to={`/app/items/${encodeURIComponent(item.itemId)}`}>{item.title}</Link><p className="phase2-helper">HTTP {item.httpStatus ?? 'unknown'} · checked {date(item.checkedAt)}</p></div><span className="phase2-pill soft">Not found</span></li>)}</ul> : <p className="phase2-state">No confirmed broken links. Run a check to review saved pages.</p>}</section>
       {(checkup.dueReminders.length > 0 || checkup.upcomingReminders.length > 0) && <section className="phase2-panel"><h2>Reminders</h2>{checkup.dueReminders.length > 0 && <><h3>Due now</h3><ReminderItems items={checkup.dueReminders} busyId={reminderBusyId} onUpdate={updateReminder} /></>}{checkup.upcomingReminders.length > 0 && <><h3>Coming up</h3><ReminderItems items={checkup.upcomingReminders} busyId={reminderBusyId} onUpdate={updateReminder} /></>}</section>}
       {checkup.dailyPick && <section className="phase2-panel"><h2>Picked for today</h2><p className="phase2-helper">A consistent daily pick from your recent library.</p><CheckupItems items={[checkup.dailyPick]} busyId={reminderBusyId} onRemind={scheduleReminder} /></section>}
       {sections.map((section) => <section className="phase2-panel" key={section.title}><h2>{section.title}</h2><p className="phase2-helper">{section.description}</p>{section.items.length ? <CheckupItems items={section.items} busyId={reminderBusyId} onRemind={scheduleReminder} /> : <p className="phase2-state">Nothing to show here right now.</p>}</section>)}
