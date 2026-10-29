@@ -181,13 +181,27 @@ function hashtags(value: string): string[] {
   return [...new Set([...value.matchAll(/#([\p{L}\p{N}_]+)/gu)].map((match) => match[1]!.toLowerCase()))].slice(0, 40);
 }
 
+/**
+ * Some Instagram JSON exports contain UTF-8 bytes that were decoded as
+ * Latin-1 before being escaped into JSON (for example, Iâ<U+0080><U+0099>ll).
+ * Repair only byte-like runs that decode as valid UTF-8, leaving ordinary
+ * accented text and invalid sequences untouched.
+ */
+function repairInstagramUtf8Mojibake(value: string): string {
+  if (!/[\u0080-\u009f]/.test(value)) return value;
+  return value.replace(/[\u0080-\u00ff]{2,}/g, (run) => {
+    try { return new TextDecoder('utf-8', { fatal: true }).decode(Buffer.from(run, 'latin1')); }
+    catch { return run; }
+  });
+}
+
 function instagramMapValue(map: Record<string, unknown>, labels: string[]): string {
   for (const label of labels) {
     const value = map[label];
     if (!value || typeof value !== 'object') continue;
     const entry = value as Record<string, unknown>;
     const raw = entry.value ?? entry.title ?? entry.href;
-    if (typeof raw === 'string' && raw.trim()) return raw.trim().slice(0, 1200);
+    if (typeof raw === 'string' && raw.trim()) return repairInstagramUtf8Mojibake(raw.trim()).slice(0, 1200);
   }
   return '';
 }
@@ -233,12 +247,12 @@ function instagramJsonRecords(value: unknown, sourceFile: string, inheritedColle
   if (!value || typeof value !== 'object') return found;
   const object = value as Record<string, unknown>;
   const map = instagramLabelMap(object);
-  const collection = inheritedCollection || instagramMapValue(map, ['Collection name', 'Name']) || (/saved_collections/i.test(sourceFile) ? String(object.title ?? '') : '') || null;
+  const collection = inheritedCollection || instagramMapValue(map, ['Collection name', 'Name']) || (/saved_collections/i.test(sourceFile) ? repairInstagramUtf8Mojibake(String(object.title ?? '')) : '') || null;
   const ownStrings = stringsFromJson(object);
   const links = [...new Set(ownStrings.flatMap((text) => [...text.matchAll(URL_PATTERN)].map((match) => normalizeInstagramUrl(match[0])).filter((url): url is string => Boolean(url))))];
   const hasChildren = ['media', 'items', 'children', 'saved_saved_media', 'saved_saved_collections'].some((key) => Array.isArray(object[key]) || (object[key] && typeof object[key] === 'object'));
   if (links.length && (!hasChildren || Object.keys(map).length > 0)) {
-    const caption = instagramMapValue(map, ['Caption', 'Title', 'Text']) || String(object.title ?? '').slice(0, 1200);
+    const caption = instagramMapValue(map, ['Caption', 'Title', 'Text']) || repairInstagramUtf8Mojibake(String(object.title ?? '')).slice(0, 1200);
     const ownerName = instagramMapValue(map, ['Name', 'Full name']); const ownerUsername = instagramMapValue(map, ['Username', 'Author', 'Account username']);
     const savedAt = instagramTimestamp(map, object.timestamp); const tags = hashtags(caption);
     for (const url of links) {
