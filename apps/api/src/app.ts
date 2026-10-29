@@ -14,6 +14,7 @@ import { createImportRouter } from './imports/routes.js';
 import { LocalImportStorage, type ImportStorage } from './imports/storage.js';
 import { createJobRouter } from './jobs/routes.js';
 import { createAiRouter } from './ai/routes.js';
+import { createMetaModelClient } from './ai/meta-client.js';
 import { createKnowledgeRouter } from './knowledge/routes.js';
 import { createSmartCollectionRouter } from './smart-collections/routes.js';
 import { LocalAssetStorage, type AssetStorage } from './assets/storage.js';
@@ -33,7 +34,7 @@ function errorResponse(code: string, message: string, requestId?: string) {
   return { error: { code, message, ...(requestId ? { requestId } : {}) } };
 }
 
-export function createApp(database: DatabaseHandle, options: { validateUrl?: typeof validatePublicUrl; checkLink?: typeof checkPublicPage; assetDirectory?: string; assetStorage?: AssetStorage; importDirectory?: string; importStorage?: ImportStorage; mediaDirectory?: string; mediaStorage?: MediaStorage } = {}) {
+export function createApp(database: DatabaseHandle, options: { validateUrl?: typeof validatePublicUrl; checkLink?: typeof checkPublicPage; assetDirectory?: string; assetStorage?: AssetStorage; importDirectory?: string; importStorage?: ImportStorage; mediaDirectory?: string; mediaStorage?: MediaStorage; answerModel?: (prompt: string) => Promise<{ text: string; inputTokens: number; outputTokens: number }>; providerAvailable?: () => Promise<boolean> } = {}) {
   const app = express();
   const assetStorage = options.assetStorage ?? new LocalAssetStorage(options.assetDirectory ?? config.assetDirectory);
   const importStorage = options.importStorage ?? new LocalImportStorage(options.importDirectory ?? config.importDirectory);
@@ -131,7 +132,16 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
 
   app.use('/api', createAccountRouter(database, assetStorage));
   app.use('/api', createAiRouter(database));
-  app.use('/api', createKnowledgeRouter(database, assetStorage, { checkLink: options.checkLink }));
+  const answerClient = options.answerModel ? undefined : config.META_API_KEY ? createMetaModelClient({ apiKey: config.META_API_KEY }) : undefined;
+  const providerAvailable = options.providerAvailable ?? (async () => {
+    if (!answerClient) return false;
+    const status = await database.prepare('SELECT meta_api_configured,last_heartbeat_at FROM ai_worker_status WHERE singleton=TRUE')
+      .get() as { meta_api_configured: boolean | number; last_heartbeat_at: string } | undefined;
+    const heartbeat = Date.parse(status?.last_heartbeat_at ?? '');
+    return Boolean(status && status.meta_api_configured && Number.isFinite(heartbeat) && Date.now() - heartbeat <= 90_000);
+  });
+  app.use('/api', createKnowledgeRouter(database, assetStorage, { checkLink: options.checkLink,
+    answerModel: options.answerModel ?? (answerClient ? (prompt) => answerClient.analyzeText(prompt) : undefined), providerAvailable }));
   app.use('/api', createSmartCollectionRouter(database, assetStorage));
 
   const requireSignedIn = requireUser(database) as RequestHandler;

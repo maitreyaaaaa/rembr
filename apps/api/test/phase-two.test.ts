@@ -13,10 +13,10 @@ import { LocalAssetStorage } from '../src/assets/storage.js';
 const origin = 'http://127.0.0.1:5173';
 const password = 'correct-horse-battery-staple';
 
-async function withApi(run: (baseUrl: string, database: Awaited<ReturnType<typeof createTestDatabase>>, assetsPath: string) => Promise<void>) {
+async function withApi(run: (baseUrl: string, database: Awaited<ReturnType<typeof createTestDatabase>>, assetsPath: string) => Promise<void>, appOptions: Parameters<typeof createApp>[1] = {}) {
   const database = await createTestDatabase();
   const assetsPath = await mkdtemp(join(tmpdir(), 'rembr-phase2-assets-'));
-  const app = createApp(database, { validateUrl: async (input) => ({ url: new URL(input), address: '93.184.216.34', family: 4 }), assetDirectory: assetsPath });
+  const app = createApp(database, { validateUrl: async (input) => ({ url: new URL(input), address: '93.184.216.34', family: 4 }), assetDirectory: assetsPath, ...appOptions });
   const server = app.listen(0, '127.0.0.1');
   await once(server, 'listening');
   const address = server.address() as AddressInfo;
@@ -170,6 +170,40 @@ test('item list filters, keyset pagination, metadata overrides and organization 
     assert.equal((await fetch(`${baseUrl}/api/tags/${tag.id}`, { method: 'DELETE', headers: { Cookie: first.cookie } })).status, 204);
     assert.equal((await fetch(`${baseUrl}/api/collections/${collection.id}`, { method: 'DELETE', headers: { Cookie: first.cookie } })).status, 204);
   });
+});
+
+test('Phase 4 grounded answers require separate consent and only retain citations to retrieved owner items', async () => {
+  let modelCalls = 0;
+  let modelPrompt = '';
+  await withApi(async (baseUrl) => {
+    const owner = await register(baseUrl, 'grounded-answer@example.test');
+    await profile(baseUrl, owner.cookie, 'grounded_answer');
+    await fetch(`${baseUrl}/api/onboarding`, { method: 'PUT', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ skipped: true, contentTypes: [], referralSource: '' }) });
+    const created = await createPage(baseUrl, owner.cookie, 'https://evidence.test/design-system');
+    const item = (await created.json() as { item: { id: string } }).item;
+    await fetch(`${baseUrl}/api/items/${item.id}`, { method: 'PATCH', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ titleOverride: 'Design systems', descriptionOverride: 'A reliable system for accessible product teams.' }) });
+    const noConsent = await fetch(`${baseUrl}/api/knowledge/answer`, { method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ question: 'What did I save about design systems?' }) });
+    assert.equal((await noConsent.json() as { mode: string }).mode, 'lexical-excerpts');
+    assert.equal(modelCalls, 0);
+    const missingDisclosure = await fetch(`${baseUrl}/api/knowledge/ai-preferences`, { method: 'PUT', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: true }) });
+    assert.equal(missingDisclosure.status, 400);
+    const consent = await fetch(`${baseUrl}/api/knowledge/ai-preferences`, { method: 'PUT', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: true, disclosureVersion: '2026-10-29-v1' }) });
+    assert.equal(consent.status, 200);
+    const grounded = await fetch(`${baseUrl}/api/knowledge/answer`, { method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ question: 'What did I save about design systems?' }) });
+    const body = await grounded.json() as { mode: string; claims: Array<{ text: string; citationIds: string[] }>; citations: Array<{ id: string }> };
+    assert.equal(body.mode, 'grounded-ai');
+    assert.equal(modelCalls, 1);
+    assert.match(modelPrompt, /untrusted data/i);
+    assert.deepEqual(body.claims, [{ text: 'The note is about accessible product teams.', citationIds: [item.id] }]);
+    assert.deepEqual(body.citations.map((citation) => citation.id), [item.id]);
+  }, { providerAvailable: async () => true, answerModel: async (prompt) => {
+    modelCalls += 1; modelPrompt = prompt;
+    const foundId = /"id":"([^"]+)"/.exec(prompt)?.[1] ?? '';
+    return { text: JSON.stringify({ claims: [
+      { text: 'The note is about accessible product teams.', citationIds: [foundId] },
+      { text: 'Unsupported claim.', citationIds: ['not-a-retrieved-item'] },
+    ] }), inputTokens: 100, outputTokens: 40 };
+  } });
 });
 
 test('Phase 4 synthetic retrieval fixture reports graded ranking metrics through the API', async () => {
@@ -392,10 +426,10 @@ test('Postgres schema starts with the complete empty Rembr model', async () => {
   try {
     const result = await database.prepare(`SELECT count(*) AS count FROM information_schema.tables
       WHERE table_schema='public' AND table_type='BASE TABLE'`).get() as { count: string };
-    assert.equal(Number(result.count), 38);
+    assert.equal(Number(result.count), 39);
     const rls = await database.prepare(`SELECT count(*) AS count FROM pg_class c
       JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='r' AND c.relrowsecurity`).get() as { count: string };
-    assert.equal(Number(rls.count), 38);
+    assert.equal(Number(rls.count), 39);
     const mediaAnalysisTables = await database.prepare(`SELECT count(*) AS count FROM information_schema.tables
       WHERE table_schema='public' AND table_name IN ('ai_analysis_preferences','ai_worker_status','ai_analysis_jobs','ai_analysis_results','ai_import_usage','ai_monthly_usage','ai_usage_reservations')`).get() as { count: string };
     assert.equal(Number(mediaAnalysisTables.count), 7);
