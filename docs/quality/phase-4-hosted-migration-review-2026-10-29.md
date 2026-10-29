@@ -39,14 +39,14 @@ Read-only table inspection confirms the two newest migrations describe real host
 
 ## Migration-history risk and next steps
 
-The hosted and local migration versions do not line up for nine already-recorded migration names. Supabase's migration guide says to inspect local/remote status and reconcile history before pushing; a name match alone does not prove that a differently versioned migration contains identical SQL. The Supabase CLI is not installed in this checkout, and no attempt was made to push, repair, or apply migrations.
+The hosted and local migration versions do not line up for nine already-recorded migration names. A read-only query retrieved the statements stored in `supabase_migrations.schema_migrations`; after normalizing CRLF line endings and the terminal newline, MD5 hashes matched the local SQL contents for all 11 recorded migrations. This confirms that the version mismatch is bookkeeping drift, not a difference in the SQL already applied. The Supabase CLI is not installed in this checkout, and no attempt was made to repair history or apply migrations.
 
 Before a hosted write:
 
-1. Use a correctly linked Supabase CLI checkout to inspect `supabase migration list` and the exact remote/local schema difference.
-2. Compare each differently versioned migration's SQL with the remote applied state. Do not use `migration repair` unless the actual schema proves the matching migration already ran.
-3. Validate the two new migrations against the reconciled history and a non-production database or isolated branch.
-4. Review the consent/job impact, apply through the migration workflow, then verify columns, constraints, migration history, application health, and owner-scoped entity retrieval.
+1. Use a correctly linked Supabase CLI checkout and its current `supabase migration list` / `supabase migration repair --help` output to confirm the exact version pairs and supported repair syntax.
+2. Because all 11 remote SQL bodies match the local files, repair only migration history: mark the nine hosted alternate version IDs reverted and their corresponding local filename versions applied. Do not re-run the already-applied SQL.
+3. Validate the two new migrations against the reconciled history locally and in a non-production database or isolated branch.
+4. Review the consent/job impact and obtain approval for the hosted schema write. Then apply the two pending migrations through the standard migration workflow and verify columns, constraints, migration history, application health, and owner-scoped entity retrieval.
 
 ## Advisor baseline
 
