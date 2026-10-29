@@ -17,7 +17,7 @@ function toItem(row: Row) {
     titleOverride: row.title_override == null ? null : String(row.title_override),
     descriptionOverride: row.description_override == null ? null : String(row.description_override),
     kind: String(row.item_kind ?? 'page'), status, errorCode: row.error_code ? String(row.error_code) : null,
-    createdAt: String(row.created_at), updatedAt: String(row.updated_at), textPreview: String(row.text_content ?? '').slice(0, 240),
+    createdAt: String(row.created_at), updatedAt: String(row.updated_at), textPreview: String(row.text_content || row.note_preview || '').slice(0, 240),
     ...(row.include_text ? { text: String(row.text_content ?? ''), fetchedAt: row.fetched_at ? String(row.fetched_at) : null } : {}),
   };
 }
@@ -153,7 +153,9 @@ export function createLibraryRepository(database: DatabaseHandle) {
       const rows = await database.prepare(`WITH ranked_items AS (
           SELECT saved_items.*, COALESCE(saved_items.title_override,saved_items.title) AS effective_title,
             COALESCE(saved_items.description_override,saved_items.description) AS effective_description,
-            extracted_artifacts.text_content, processing_jobs.status AS job_status, job_pause_states.pause_cause,
+            extracted_artifacts.text_content,
+            (SELECT LEFT(notes.body,240) FROM notes WHERE notes.owner_id=saved_items.owner_id AND notes.item_id=saved_items.id) AS note_preview,
+            processing_jobs.status AS job_status, job_pause_states.pause_cause,
             ${scoreExpression} AS search_score
           FROM saved_items
           LEFT JOIN extracted_artifacts ON extracted_artifacts.item_id=saved_items.id AND extracted_artifacts.owner_id=saved_items.owner_id

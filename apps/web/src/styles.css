@@ -513,6 +513,14 @@ h1, h2, h3, p { margin-top: 0; }
 .smart-collection-groups .phase2-card-actions { justify-content: flex-start; flex-wrap: wrap; }
 .search-result-feedback { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-top: 13px; color: var(--muted); font-size: 11px; }
 .search-result-feedback .quiet-button[aria-pressed='true'] { border-color: var(--primary); color: var(--primary); }
+.library-answer-panel { margin-bottom: 16px; }
+.library-answer-panel h2 { margin-bottom: 8px; }
+.library-answer-panel .phase2-inline-form { align-items: end; }
+.library-answer-result { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 16px; }
+.library-answer-result > p:first-child { color: var(--text); line-height: 1.6; }
+.library-answer-result .phase2-manage-list li { align-items: flex-start; }
+.library-answer-result .phase2-manage-list li > div { min-width: 0; }
+.library-answer-result .phase2-preserve-text { margin: 8px 0 0; font-size: 12px; }
 @media (max-width: 760px) {
   .phase2-topbar { grid-template-columns: auto 1fr; gap: 8px 14px; padding: 13px 0; }
   .phase2-nav { grid-column: 1 / -1; grid-row: 2; justify-content: start; flex-wrap: wrap; overflow: visible; }
