@@ -419,6 +419,17 @@ test('Phase 4 synthetic retrieval fixture reports graded ranking metrics through
       body: JSON.stringify({ titleOverride: 'बगीचा योजना', descriptionOverride: 'धूप और वर्षा' }),
     })).status, 200);
 
+    const artFixtureIds: string[] = [];
+    for (const [path, title] of [['art', 'Art history guide'], ['hyphenated-art', 'Smart-art archive'], ['substring-decoy', 'Cartography patterns']] as const) {
+      const created = await createPage(baseUrl, owner.cookie, `https://fixture.test/${path}`);
+      const { item } = await created.json() as { item: { id: string } };
+      assert.equal((await fetch(`${baseUrl}/api/items/${item.id}`, {
+        method: 'PATCH', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ titleOverride: title, descriptionOverride: '' }),
+      })).status, 200);
+      artFixtureIds.push(item.id);
+    }
+
     const tieIds: string[] = [];
     for (const path of ['tie-a', 'tie-b']) {
       const tiedPage = await createPage(baseUrl, owner.cookie, `https://fixture.test/${path}`);
@@ -495,6 +506,11 @@ test('Phase 4 synthetic retrieval fixture reports graded ranking metrics through
       method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ question: 'बगीचा योजना' }),
     });
     assert.deepEqual((await unicodeAnswer.json() as { citations: Array<{ id: string }> }).citations.map(({ id }) => id), [unicodeItem.id]);
+    const artSearch = await fetch(`${baseUrl}/api/items?search=art&sort=relevance`, { headers: { Cookie: owner.cookie } });
+    assert.deepEqual((await artSearch.json() as { items: Array<{ id: string }> }).items.map(({ id }) => id).sort(), artFixtureIds.slice(0, 2).sort());
+    const artPhrase = await fetch(`${baseUrl}/api/items?search=art%20history&matchMode=phrase&sort=relevance`, { headers: { Cookie: owner.cookie } });
+    assert.deepEqual((await artPhrase.json() as { items: Array<{ id: string }> }).items.map(({ id }) => id), [artFixtureIds[0]]);
+
     const empty = await fetch(`${baseUrl}/api/items?search=zzquasarfixturemissing`, { headers: { Cookie: owner.cookie } });
     const emptyBody = await empty.json() as { items: unknown[]; hasMore: boolean };
     assert.deepEqual(emptyBody.items, []);

@@ -8,17 +8,17 @@ export interface ItemListQuery {
 }
 export interface ItemCursorKey { key: string; id: string }
 type Row = Record<string, unknown>;
-const SEARCH_FIELDS = `lower(COALESCE(saved_items.title_override,saved_items.title)) LIKE lower(?) ESCAPE '!'
-  OR lower(COALESCE(saved_items.description_override,saved_items.description,'')) LIKE lower(?) ESCAPE '!'
-  OR lower(saved_items.original_url) LIKE lower(?) ESCAPE '!'
-  OR lower(COALESCE(extracted_artifacts.text_content,'')) LIKE lower(?) ESCAPE '!'
-  OR EXISTS (SELECT 1 FROM notes WHERE notes.owner_id=saved_items.owner_id AND notes.item_id=saved_items.id AND lower(notes.body) LIKE lower(?) ESCAPE '!')
+const SEARCH_FIELDS = `COALESCE(saved_items.title_override,saved_items.title) ~* ?
+  OR COALESCE(saved_items.description_override,saved_items.description,'') ~* ?
+  OR saved_items.original_url ~* ?
+  OR COALESCE(extracted_artifacts.text_content,'') ~* ?
+  OR EXISTS (SELECT 1 FROM notes WHERE notes.owner_id=saved_items.owner_id AND notes.item_id=saved_items.id AND notes.body ~* ?)
   OR EXISTS (SELECT 1 FROM ai_analysis_results analysis WHERE analysis.owner_id=saved_items.owner_id
-    AND analysis.item_id=saved_items.id AND (lower(analysis.summary) LIKE lower(?) ESCAPE '!' OR lower(analysis.visual_description) LIKE lower(?) ESCAPE '!'
-      OR lower(analysis.ocr_text) LIKE lower(?) ESCAPE '!' OR lower(analysis.transcript) LIKE lower(?) ESCAPE '!'
-      OR lower(analysis.keywords_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tags_json) LIKE lower(?) ESCAPE '!'
-      OR lower(analysis.brands_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tools_json) LIKE lower(?) ESCAPE '!'
-      OR lower(analysis.people_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.repositories_json) LIKE lower(?) ESCAPE '!'))`;
+    AND analysis.item_id=saved_items.id AND (analysis.summary ~* ? OR analysis.visual_description ~* ?
+      OR analysis.ocr_text ~* ? OR analysis.transcript ~* ?
+      OR analysis.keywords_json ~* ? OR analysis.tags_json ~* ?
+      OR analysis.brands_json ~* ? OR analysis.tools_json ~* ?
+      OR analysis.people_json ~* ? OR analysis.repositories_json ~* ?))`;
 const SEARCH_CONCEPTS: Record<string, string[]> = {
   security: ['security','secure','soc','soc2','compliance','audit','privacy','control','controls','access','data','protection','certification','certifications'],
   compliance: ['compliance','soc','soc2','audit','privacy','control','controls','policy','policies','certification','certifications'],
@@ -34,24 +34,45 @@ const SEARCH_CONCEPTS: Record<string, string[]> = {
 function queryGroups(value: string): string[][] {
   return tokenizeSearchTerms(value).map((token) => SEARCH_CONCEPTS[token] ?? [token]);
 }
+function searchPattern(value: string, allowInflection = false): string {
+  const normalized = value.normalize('NFKC').trim();
+  const isCjk = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u.test(normalized);
+  const variants = new Set([normalized]);
+  if (allowInflection && !isCjk && /^[\p{L}\p{M}]+$/u.test(normalized)) {
+    if (/[bcdfghjklmnpqrstvwxz]y$/iu.test(normalized)) {
+      const stem = normalized.slice(0, -1);
+      variants.add(`${stem}ies`);
+      variants.add(`${stem}ied`);
+    } else {
+      variants.add(`${normalized}s`);
+      variants.add(`${normalized}es`);
+      variants.add(`${normalized}ed`);
+      variants.add(`${normalized}ing`);
+      if (normalized.endsWith('e')) variants.add(`${normalized.slice(0, -1)}ing`);
+    }
+  }
+  const literal = [...variants].map((variant) => variant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '[[:space:]]+'));
+  if (isCjk) return literal.join('|');
+  return `(^|[^[:alnum:]])(${literal.join('|')})([^[:alnum:]]|$)`;
+}
 const TERM_SCORE_FIELDS: Array<{ points: number; placeholders: number; sql: (count: number) => string }> = [
-  { points: 30, placeholders: 1, sql: (count) => Array.from({ length: count }, () => `lower(COALESCE(saved_items.title_override,saved_items.title)) LIKE lower(?) ESCAPE '!'`).join(' OR ') },
-  { points: 18, placeholders: 1, sql: (count) => Array.from({ length: count }, () => `lower(COALESCE(saved_items.description_override,saved_items.description,'')) LIKE lower(?) ESCAPE '!'`).join(' OR ') },
-  { points: 12, placeholders: 1, sql: (count) => Array.from({ length: count }, () => `lower(saved_items.original_url) LIKE lower(?) ESCAPE '!'`).join(' OR ') },
-  { points: 10, placeholders: 1, sql: (count) => Array.from({ length: count }, () => `lower(COALESCE(extracted_artifacts.text_content,'')) LIKE lower(?) ESCAPE '!'`).join(' OR ') },
-  { points: 10, placeholders: 1, sql: (count) => Array.from({ length: count }, () => 'EXISTS (SELECT 1 FROM notes WHERE notes.owner_id=saved_items.owner_id AND notes.item_id=saved_items.id AND lower(notes.body) LIKE lower(?) ESCAPE \'!\')').join(' OR ') },
+  { points: 30, placeholders: 1, sql: (count) => Array.from({ length: count }, () => 'COALESCE(saved_items.title_override,saved_items.title) ~* ?').join(' OR ') },
+  { points: 18, placeholders: 1, sql: (count) => Array.from({ length: count }, () => "COALESCE(saved_items.description_override,saved_items.description,'') ~* ?").join(' OR ') },
+  { points: 12, placeholders: 1, sql: (count) => Array.from({ length: count }, () => 'saved_items.original_url ~* ?').join(' OR ') },
+  { points: 10, placeholders: 1, sql: (count) => Array.from({ length: count }, () => "COALESCE(extracted_artifacts.text_content,'') ~* ?").join(' OR ') },
+  { points: 10, placeholders: 1, sql: (count) => Array.from({ length: count }, () => 'EXISTS (SELECT 1 FROM notes WHERE notes.owner_id=saved_items.owner_id AND notes.item_id=saved_items.id AND notes.body ~* ?)').join(' OR ') },
   { points: 8, placeholders: 10, sql: (count) => Array.from({ length: count }, () => `EXISTS (SELECT 1 FROM ai_analysis_results analysis WHERE analysis.owner_id=saved_items.owner_id AND analysis.item_id=saved_items.id
-    AND (lower(analysis.summary) LIKE lower(?) ESCAPE '!' OR lower(analysis.visual_description) LIKE lower(?) ESCAPE '!'
-      OR lower(analysis.ocr_text) LIKE lower(?) ESCAPE '!' OR lower(analysis.transcript) LIKE lower(?) ESCAPE '!'
-      OR lower(analysis.keywords_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tags_json) LIKE lower(?) ESCAPE '!'
-      OR lower(analysis.brands_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tools_json) LIKE lower(?) ESCAPE '!'
-      OR lower(analysis.people_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.repositories_json) LIKE lower(?) ESCAPE '!'))`).join(' OR ') },
+    AND (analysis.summary ~* ? OR analysis.visual_description ~* ?
+      OR analysis.ocr_text ~* ? OR analysis.transcript ~* ?
+      OR analysis.keywords_json ~* ? OR analysis.tags_json ~* ?
+      OR analysis.brands_json ~* ? OR analysis.tools_json ~* ?
+      OR analysis.people_json ~* ? OR analysis.repositories_json ~* ?))`).join(' OR ') },
 ];
 function termScoreSql(group: string[]): string {
   return `+ (${TERM_SCORE_FIELDS.map((field) => `CASE WHEN (${field.sql(group.length)}) THEN ${field.points} ELSE 0 END`).join(' + ')})`;
 }
 function termScoreParams(group: string[]): string[] {
-  return TERM_SCORE_FIELDS.flatMap((field) => group.flatMap((term) => Array.from({ length: field.placeholders }, () => `%${term.replace(/[!%_]/g, '!$&')}%`)));
+  return TERM_SCORE_FIELDS.flatMap((field) => group.flatMap((term) => Array.from({ length: field.placeholders }, () => searchPattern(term, true))));
 }
 
 function toItem(row: Row) {
@@ -148,7 +169,7 @@ export function createLibraryRepository(database: DatabaseHandle) {
           WHEN processing_jobs.status='completed' THEN 'ready' ELSE saved_items.status END)=?`);
         params.push(query.status);
       }
-      const safeSearch = `%${query.search.replace(/[!%_]/g, '!$&')}%`;
+      const safeSearch = searchPattern(query.search);
       if (query.search) {
         if (query.matchMode === 'phrase') {
           clauses.push(`(${SEARCH_FIELDS})`);
@@ -157,7 +178,7 @@ export function createLibraryRepository(database: DatabaseHandle) {
           for (const group of queryGroups(query.search)) {
             clauses.push(`(${group.map(() => `(${SEARCH_FIELDS})`).join(' OR ')})`);
             for (const term of group) {
-              const pattern = `%${term.replace(/[!%_]/g, '!$&')}%`;
+              const pattern = searchPattern(term, true);
               params.push(...Array.from({ length: 15 }, () => pattern));
             }
           }
@@ -188,17 +209,17 @@ export function createLibraryRepository(database: DatabaseHandle) {
       }
       const scoreExpression = query.sort === 'relevance' && query.search.trim() ? `
         (CASE WHEN lower(COALESCE(saved_items.title_override,saved_items.title))=lower(?) THEN 100 ELSE 0 END
-        + CASE WHEN lower(COALESCE(saved_items.title_override,saved_items.title)) LIKE lower(?) ESCAPE '!' THEN 70 ELSE 0 END
-        + CASE WHEN lower(COALESCE(saved_items.description_override,saved_items.description,'')) LIKE lower(?) ESCAPE '!' THEN 40 ELSE 0 END
-        + CASE WHEN lower(saved_items.original_url) LIKE lower(?) ESCAPE '!' THEN 30 ELSE 0 END
-        + CASE WHEN lower(COALESCE(extracted_artifacts.text_content,'')) LIKE lower(?) ESCAPE '!' THEN 20 ELSE 0 END
-        + CASE WHEN EXISTS (SELECT 1 FROM notes WHERE notes.owner_id=saved_items.owner_id AND notes.item_id=saved_items.id AND lower(notes.body) LIKE lower(?) ESCAPE '!') THEN 20 ELSE 0 END
+        + CASE WHEN COALESCE(saved_items.title_override,saved_items.title) ~* ? THEN 70 ELSE 0 END
+        + CASE WHEN COALESCE(saved_items.description_override,saved_items.description,'') ~* ? THEN 40 ELSE 0 END
+        + CASE WHEN saved_items.original_url ~* ? THEN 30 ELSE 0 END
+        + CASE WHEN COALESCE(extracted_artifacts.text_content,'') ~* ? THEN 20 ELSE 0 END
+        + CASE WHEN EXISTS (SELECT 1 FROM notes WHERE notes.owner_id=saved_items.owner_id AND notes.item_id=saved_items.id AND notes.body ~* ?) THEN 20 ELSE 0 END
         + CASE WHEN EXISTS (SELECT 1 FROM ai_analysis_results analysis WHERE analysis.owner_id=saved_items.owner_id AND analysis.item_id=saved_items.id
-            AND (lower(analysis.summary) LIKE lower(?) ESCAPE '!' OR lower(analysis.visual_description) LIKE lower(?) ESCAPE '!'
-              OR lower(analysis.ocr_text) LIKE lower(?) ESCAPE '!' OR lower(analysis.transcript) LIKE lower(?) ESCAPE '!'
-            OR lower(analysis.keywords_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tags_json) LIKE lower(?) ESCAPE '!'
-            OR lower(analysis.brands_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tools_json) LIKE lower(?) ESCAPE '!'
-            OR lower(analysis.people_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.repositories_json) LIKE lower(?) ESCAPE '!')) THEN 15 ELSE 0 END
+            AND (analysis.summary ~* ? OR analysis.visual_description ~* ?
+              OR analysis.ocr_text ~* ? OR analysis.transcript ~* ?
+            OR analysis.keywords_json ~* ? OR analysis.tags_json ~* ?
+            OR analysis.brands_json ~* ? OR analysis.tools_json ~* ?
+            OR analysis.people_json ~* ? OR analysis.repositories_json ~* ?)) THEN 15 ELSE 0 END
         ${query.matchMode === 'phrase' ? '' : queryGroups(query.search).map((group) => termScoreSql(group)).join(' ')}
         )` : 'NULL';
       const scoreParams = query.sort === 'relevance' && query.search.trim() ? [query.search, ...Array.from({ length: 15 }, () => safeSearch),
