@@ -55,6 +55,20 @@ test('Instagram JSON retains caption, owner, saved date, hashtags, and collectio
   assert.equal(item?.metadata.savedAt, new Date(1_700_000_000_000).toISOString());
 });
 
+test('Instagram JSON maps the current label_values export shape and record timestamp', () => {
+  const bytes = Buffer.from(JSON.stringify([{ fbid: 'ignored', timestamp: 1_700_000_001, media: [], label_values: [
+    { label: 'URL', href: 'https://www.instagram.com/p/CURRENT123/' },
+    { label: 'Caption', value: 'A saved caption #reading' },
+    { label: 'Title', value: 'A saved caption #reading' },
+  ] }]));
+  const [item] = parsePlatformExports([{ name: 'your_instagram_activity/saved/saved_posts.json', bytes }]);
+  assert.equal(item?.url, 'https://www.instagram.com/p/CURRENT123/');
+  assert.equal(item?.title, 'A saved caption #reading');
+  assert.equal(item?.description, 'A saved caption #reading');
+  assert.deepEqual(item?.metadata.hashtags, ['reading']);
+  assert.equal(item?.metadata.savedAt, new Date(1_700_000_001_000).toISOString());
+});
+
 test('Pinterest canonicalization rejects lookalike hosts and direct TXT files', () => {
   const csv = Buffer.from('url,title\nhttps://www.pinterest.com/pin/12345/,Pin title\nhttps://notpinterest.com/pin/777/,bad\n');
   const items = parsePlatformExports([{ name: 'pins.csv', bytes: csv }]);

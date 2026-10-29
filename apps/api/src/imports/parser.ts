@@ -185,7 +185,30 @@ function instagramMapValue(map: Record<string, unknown>, labels: string[]): stri
   return '';
 }
 
-function instagramTimestamp(map: Record<string, unknown>): string {
+function instagramLabelMap(object: Record<string, unknown>): Record<string, unknown> {
+  const map = object.string_map_data && typeof object.string_map_data === 'object'
+    ? { ...(object.string_map_data as Record<string, unknown>) }
+    : {};
+  if (!Array.isArray(object.label_values)) return map;
+  for (const raw of object.label_values) {
+    if (!raw || typeof raw !== 'object') continue;
+    const entry = raw as Record<string, unknown>;
+    const label = typeof entry.label === 'string' ? entry.label.trim() : '';
+    if (!label) continue;
+    const dict = entry.dict && typeof entry.dict === 'object' ? entry.dict as Record<string, unknown> : {};
+    const value = entry.value ?? entry.href ?? entry.title ?? dict.title;
+    const previous = map[label];
+    if (previous && typeof previous === 'object') {
+      const prior = previous as Record<string, unknown>;
+      if (typeof prior.value === 'string' && prior.value.trim()) continue;
+    }
+    if (typeof value === 'string' && value.trim()) map[label] = { ...entry, value: value.trim() };
+    else if (entry.timestamp != null) map[label] = entry;
+  }
+  return map;
+}
+
+function instagramTimestamp(map: Record<string, unknown>, recordTimestamp?: unknown): string {
   for (const entry of Object.values(map)) {
     if (!entry || typeof entry !== 'object') continue;
     const raw = (entry as Record<string, unknown>).timestamp;
@@ -193,6 +216,8 @@ function instagramTimestamp(map: Record<string, unknown>): string {
     const seconds = Number(raw);
     if (Number.isFinite(seconds) && seconds > 0) return new Date(seconds * 1000).toISOString();
   }
+  const seconds = Number(recordTimestamp);
+  if (Number.isFinite(seconds) && seconds > 0) return new Date(seconds * 1000).toISOString();
   return '';
 }
 
@@ -200,7 +225,7 @@ function instagramJsonRecords(value: unknown, sourceFile: string, inheritedColle
   if (Array.isArray(value)) { for (const child of value) instagramJsonRecords(child, sourceFile, inheritedCollection, found); return found; }
   if (!value || typeof value !== 'object') return found;
   const object = value as Record<string, unknown>;
-  const map = object.string_map_data && typeof object.string_map_data === 'object' ? object.string_map_data as Record<string, unknown> : {};
+  const map = instagramLabelMap(object);
   const collection = inheritedCollection || instagramMapValue(map, ['Collection name', 'Name']) || (/saved_collections/i.test(sourceFile) ? String(object.title ?? '') : '') || null;
   const ownStrings = stringsFromJson(object);
   const links = [...new Set(ownStrings.flatMap((text) => [...text.matchAll(URL_PATTERN)].map((match) => normalizeInstagramUrl(match[0])).filter((url): url is string => Boolean(url))))];
@@ -208,7 +233,7 @@ function instagramJsonRecords(value: unknown, sourceFile: string, inheritedColle
   if (links.length && (!hasChildren || Object.keys(map).length > 0)) {
     const caption = instagramMapValue(map, ['Caption', 'Title', 'Text']) || String(object.title ?? '').slice(0, 1200);
     const ownerName = instagramMapValue(map, ['Name', 'Full name']); const ownerUsername = instagramMapValue(map, ['Username', 'Author', 'Account username']);
-    const savedAt = instagramTimestamp(map); const tags = hashtags(caption);
+    const savedAt = instagramTimestamp(map, object.timestamp); const tags = hashtags(caption);
     for (const url of links) {
       if (found.length >= MAX_IMPORT_ITEMS) throw new ImportParseError('item_count_limit', 'An export cannot contain more than 5,000 saved links.');
       const id = url.match(/\/(?:p|reel|tv)\/([a-z\d_-]+)/i)?.[1] ?? null;
