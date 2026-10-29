@@ -24,6 +24,32 @@ function Arrow({ diagonal = false }: { diagonal?: boolean }) {
   return <span aria-hidden="true" className={diagonal ? 'arrow-mark arrow-mark-diagonal' : 'arrow-mark'}>{diagonal ? '↗' : '→'}</span>;
 }
 
+const sourcePlatforms: Array<{ name: string; logo: string; background: string; darkMark?: boolean }> = [
+  { name: 'Instagram', logo: '/platforms/instagram.svg', background: '#fff9d9' },
+  { name: 'Pinterest', logo: '/platforms/pinterest.svg', background: '#e60023' },
+  { name: 'Facebook', logo: '/platforms/facebook.svg', background: '#1877f2' },
+  { name: 'LinkedIn', logo: '/platforms/linkedin.svg', background: '#0a66c2' },
+  { name: 'X', logo: '/platforms/x.svg', background: '#fff', darkMark: true },
+];
+
+function RotatingPlatformLogo() {
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  useEffect(() => {
+    const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
+    if (motionPreference.matches) return;
+    const timer = window.setInterval(() => setActiveIndex((current) => (current + 1) % sourcePlatforms.length), 1400);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const platform = sourcePlatforms[activeIndex]!;
+  return <span className="platform-ticker" role="img" aria-label={`Platform examples: ${sourcePlatforms.map(({ name }) => name).join(', ')}`}>
+    <span className="platform-ticker-icon" key={platform.name} style={{ background: platform.background }}>
+      <img className={platform.darkMark ? 'platform-logo platform-logo-dark' : 'platform-logo'} src={platform.logo} alt="" />
+    </span>
+  </span>;
+}
+
 function SiteHeader({ page }: { page: Page }) {
   const [menuOpen, setMenuOpen] = useState(false);
 
@@ -85,10 +111,10 @@ function HomePage() {
       <div className="hero-grain" aria-hidden="true"/>
       <div className="hero-layout">
         <div className="hero-copy">
-          <h1 data-hero-copy>Keep the<br/><span className="hero-highlight">good stuff.</span><br/>Find it <span className="hero-outline">again.</span></h1>
-          <p className="hero-lede" data-hero-copy>Save a page, add what you want to remember, and find it again later.</p>
+          <h1 data-hero-copy>Never lose<br/>a post saved<br/>on <RotatingPlatformLogo/></h1>
+          <p className="hero-lede" data-hero-copy>Bring saved posts from Instagram, Pinterest, and X into one library. Save links from Facebook, LinkedIn, or anywhere on the web. Keep the source, add a note, and find it again.</p>
           <div className="hero-actions" data-hero-copy>
-            <a className="button button-ink" href="/app">Start your library <Arrow diagonal/></a>
+            <a className="button button-ink" href="/app">Keep your saved posts <Arrow diagonal/></a>
             <a className="underlined-link" href="#the-idea">See how it works <span aria-hidden="true">↓</span></a>
           </div>
         </div>
@@ -97,7 +123,7 @@ function HomePage() {
     </section>
 
     <section className="signal-strip" aria-label="A personal library for things worth remembering">
-      <div className="signal-inner"><p>For pages, ideas, and links you mean to revisit.</p></div>
+      <div className="signal-inner"><p>Posts, pins, threads, and links. Together at last.</p></div>
     </section>
 
     <section className="idea-section" id="the-idea">
@@ -116,7 +142,7 @@ function HomePage() {
         <div><h2>Save it.<br/><span>Shape it.</span><br/>Find it.</h2></div>
       </div>
       <div className="ritual-steps">
-        <article className="ritual-step step-capture" data-reveal><span className="step-number">01</span><div className="step-glyph glyph-capture" aria-hidden="true"><span>↘</span><i/><i/><i/></div><div className="step-copy"><h3>Save a page.</h3><p>Import bookmarks from supported services.</p></div><span className="step-thread" aria-hidden="true">······</span></article>
+        <article className="ritual-step step-capture" data-reveal><span className="step-number">01</span><div className="step-glyph glyph-capture" aria-hidden="true"><span>↘</span><i/><i/><i/></div><div className="step-copy"><h3>Bring over your posts.</h3><p>Import saved-post exports from Instagram, Pinterest, or X. Save a link from anywhere.</p></div><span className="step-thread" aria-hidden="true">······</span></article>
         <article className="ritual-step step-organize" data-reveal><span className="step-number">02</span><div className="step-glyph glyph-organize" aria-hidden="true"><i/><i/><i/><b>✳</b></div><div className="step-copy"><h3>Add your context.</h3><p>Write notes and group related finds.</p></div><span className="step-thread" aria-hidden="true">······</span></article>
         <article className="ritual-step step-return" data-reveal><span className="step-number">03</span><div className="step-glyph glyph-return" aria-hidden="true"><span>⌕</span><i/><i/></div><div className="step-copy"><h3>Find it again.</h3><p>Search your library and open the source.</p></div></article>
       </div>
@@ -153,7 +179,7 @@ function HomePage() {
     <section className="faq-section">
       <div className="faq-intro" data-reveal><h2>Questions,<br/><span>answered.</span></h2></div>
       <div className="faq-list" data-reveal>
-        <details><summary>What can I save?<span>＋</span></summary><p>Public pages and bookmarks from supported imports. Add notes or organize them in collections.</p></details>
+        <details><summary>Can I bring in posts I already saved?<span>＋</span></summary><p>Yes. Import saved-post exports from Instagram, Pinterest, and X. You can also save a public link from Facebook, LinkedIn, or another site.</p></details>
         <details><summary>How do I find a saved page?<span>＋</span></summary><p>Search your library or browse your collections. Answers about your library link back to the saved sources they use.</p></details>
         <details><summary>Will Rembr take action for me?<span>＋</span></summary><p>No action reaches another service without your approval. Review it first, then choose whether to continue.</p></details>
         <details><summary>Can I export or delete my library?<span>＋</span></summary><p>Yes. Review what will be included before you confirm an export or deletion.</p></details>
@@ -171,8 +197,8 @@ function PageHero({ title, accent, description }: { title: ReactNode; accent?: s
 
 function FeaturesPage() {
   return <main id="top" className="subpage-main">
-    <PageHero title={<>A place for<br/>the things you</>} accent="want to keep." description="Save useful pages, add context, and find them again in your personal library."/>
-    <section className="feature-story feature-story-yellow" data-reveal><div className="feature-story-number">01</div><div className="feature-story-copy"><h2>Save what caught your eye.</h2><p>Save a page or import a supported bookmark. Its original link stays with it.</p></div><div className="feature-story-art capture-art" aria-hidden="true"><span>LINK</span><i>↘</i><b>KEPT</b></div></section>
+    <PageHero title={<>Your saved posts,<br/>all in one</>} accent="place." description="Bring posts in from Instagram, Pinterest, and X. Save links from anywhere else. Keep the source beside your notes."/>
+    <section className="feature-story feature-story-yellow" data-reveal><div className="feature-story-number">01</div><div className="feature-story-copy"><h2>Bring in the posts you saved.</h2><p>Import Instagram, Pinterest, and X saved-post exports, or save a public page link directly.</p></div><div className="feature-story-art capture-art" aria-hidden="true"><span>POST</span><i>↘</i><b>KEPT</b></div></section>
     <section className="feature-story feature-story-orange" data-reveal><div className="feature-story-number">02</div><div className="feature-story-copy"><h2>Keep related things together.</h2><p>Add notes, tags, or collections to shape your library.</p></div><div className="feature-story-art connect-art" aria-hidden="true"><span>IDEA</span><i/><i/><i/><b>THREAD</b></div></section>
     <section className="feature-story feature-story-ink" data-reveal><div className="feature-story-number">03</div><div className="feature-story-copy"><h2>Find the page you need.</h2><p>Search what you saved. Ask questions and follow answers to their sources.</p></div><div className="feature-story-art return-art" aria-hidden="true"><span>⌕</span><b>FOUND<br/>AGAIN</b></div></section>
     <section className="feature-trust" data-reveal><h2>You stay in control.</h2><p>Review an external action before it runs. Approve it when you're ready.</p><a className="underlined-link" href="/about">How Rembr handles actions <span aria-hidden="true">↗</span></a></section>
@@ -182,9 +208,9 @@ function FeaturesPage() {
 
 function AboutPage() {
   return <main id="top" className="subpage-main about-main">
-    <PageHero title={<>We forget links.<br/>We remember</>} accent="what they meant." description="A personal library for the useful things you find online."/>
+    <PageHero title={<>We save the post.<br/>We remember</>} accent="why it mattered." description="A home for saved posts, useful links, and the context you want to keep."/>
     <section className="about-statement" data-reveal><p>“Later” should be a place you can return to.</p><span aria-hidden="true">✳</span></section>
-    <section className="about-columns"><article data-reveal><h2>Keep what caught your attention.</h2><p>Save a page with its source and any notes you want to keep.</p></article><article data-reveal><h2>Come back with the context.</h2><p>Search and organize your library. You choose what to save and what to share.</p></article></section>
+    <section className="about-columns"><article data-reveal><h2>Keep what caught your attention.</h2><p>Bring in posts from Instagram, Pinterest, or X. Save a public link from anywhere else.</p></article><article data-reveal><h2>Come back with the context.</h2><p>Keep the original source. Add your own notes, organize related finds, and search your library when you need them.</p></article></section>
     <section className="about-manifesto" data-reveal><h2>Keep the source.<br/>Keep your context.</h2><a className="button button-yellow" href="/app">Open your library <Arrow diagonal/></a></section>
   </main>;
 }
@@ -215,11 +241,11 @@ export function MarketingSite() {
   const siteRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const titles: Record<Page, string> = { home: 'Rembr: Save web pages and find them again', features: 'Personal library for saved links | Rembr', about: 'Why Rembr keeps your ideas together | Rembr', contact: 'Contact Rembr | Questions and feedback' };
+    const titles: Record<Page, string> = { home: 'Rembr: Keep Instagram, Pinterest & X (Twitter) saves', features: 'Bring your saved posts together | Rembr', about: 'Why Rembr keeps your saved posts together | Rembr', contact: 'Contact Rembr | Questions and feedback' };
     const descriptions: Record<Page, string> = {
-      home: 'Save useful web pages, keep notes with their sources, and find your saved links again in Rembr, a personal library for the web.',
-      features: 'Save pages, organize them with notes and collections, search your library, and return to the sources you kept.',
-      about: 'Rembr is a personal library for useful things you find online. Keep the source, add context, and find it again.',
+      home: 'Import saved Instagram, Pinterest, and X (Twitter) posts into one library. Save links from Facebook, LinkedIn, and across the web, then add notes and find them again.',
+      features: 'Bring saved posts in from Instagram, Pinterest, and X. Save other links, add context, and search your library.',
+      about: 'Rembr brings your saved posts and links into one place. Keep the source, add context, and find them again.',
       contact: 'Contact Rembr with a question, account issue, or product feedback.',
     };
     document.title = titles[page];

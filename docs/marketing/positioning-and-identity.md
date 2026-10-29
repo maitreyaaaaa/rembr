@@ -5,11 +5,11 @@
 
 ## Position
 
-Rembr is a personal library for things a person chooses to keep and find again. The marketing story may describe the complete Phase 4–6 product scope because the user plans to finish all phases before launch. Keep each capability clearly within the planned release and do not publish the site to users until every phase and launch gate is complete.
+Rembr is a personal library for social posts and web links a person chooses to keep and find again. The marketing story may describe the complete Phase 4–6 product scope because the user plans to finish all phases before launch. Keep each capability clearly within the planned release and do not publish the site to users until every phase and launch gate is complete.
 
 ### What we are
 
-- A personal shelf for selected public pages.
+- A home for saved social posts, public pages, and useful links.
 - A save-and-return workflow that keeps the source link beside extracted text.
 - A focused personal library whose saved items keep their source and context.
 - A phased product whose launch claims must match implemented and verified behavior.
@@ -24,12 +24,12 @@ Rembr is a personal library for things a person chooses to keep and find again. 
 ## Audience and message
 
 **Audience:** people who find useful things online and want to return to them.
-**Primary job:** keep something for later with enough context to find it again.
+**Primary job:** keep a post or link for later with enough context to find it again.
 **Primary action:** open or create a Rembr library.  
 **Secondary action:** learn what the current product supports or send product feedback.
 
-**Core message:** “Keep the good stuff. Find it when you need it.”  
-**Supporting message:** “Save a page, add context, and find it again later.”
+**Core message:** “Never lose a post you meant to keep.”
+**Supporting message:** “Bring Instagram, Pinterest, and X saved-post exports into one library. Save other public links directly; keep the source, add context, and find it again.”
 
 ## Voice
 
@@ -59,7 +59,7 @@ The app retains its own visual tokens. Marketing uses Space Grotesk Bold for dis
 
 ## Reference boundary
 
-The live IScraper marketing page was visually reviewed on 2026-10-28. Its dark canvas, white display type, neon lime CTA, orange highlights, motion, and oversized hero informed hierarchy and energy only. Rembr's cream-and-sorbet palette, wordmark, copy, illustration, and page composition are independent. Do not reuse IScraper's logo, text, page assets, or brand colors.
+The live IScraper marketing page is also the product-parity reference. Its concise saved-post positioning and changing platform-mark cue informed Rembr's message and interaction. Rembr uses its own wordmark, palette, typography, illustrations, and adapted copy; platform marks identify the social services named in the story.
 
 The Teak homepage was visually reviewed on 2026-10-28 for the oversized heavy headlines, single retro keyword highlight, compact announcement strip, and crisp contrast. Treat this as a visual reference only; keep Rembr's product claims and original composition.
 

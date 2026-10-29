@@ -5,17 +5,17 @@
 
 ## Product context
 
-Rembr helps people keep useful pages and ideas, preserve their sources and personal notes, and find them again. The intended launch story includes the full phase roadmap. Every capability remains a planned claim until its phase is implemented and verified. Do not imply that a planned action is currently available.
+Rembr brings saved social posts and useful web links into one library, keeps their sources beside personal notes, and makes them easier to find again. Instagram, Pinterest, and X exports are the current supported saved-post imports; public links can be saved directly. The intended launch story includes the full phase roadmap. Every capability remains a planned claim until its phase is implemented and verified. Do not imply that a planned action is currently available.
 
 The audience is intentionally broad because this repo has no user interview language or search analytics to justify a narrow segment. Treat query phrases below as candidates, not measured demand.
 
 ## Voice
 
-- **Plainspoken:** use words people use for their task: save a page, add a note, search your library, open the source.
+- **Plainspoken:** use words people use for their task: bring in saved posts, save a link, add a note, search your library, open the source.
 - **Warm, with restraint:** let a headline have character; keep forms, status, settings, and errors direct.
 - **Specific:** say what will happen and what the user can do next. Avoid vague promises such as “make it yours” where the interface needs to explain an action.
 - **Respectful:** no guilt, fake urgency, invented social proof, or pressure to connect or share.
-- **Consistent:** call the saved material a page, note, bookmark, or saved item according to its actual type. Use “library” for the whole collection.
+- **Consistent:** call saved material a post, link, note, or bookmark according to its actual type. Name platform import limits where they affect the task. Use “library” for the whole collection.
 
 ## Writing rules
 
@@ -30,7 +30,7 @@ The audience is intentionally broad because this repo has no user interview lang
 
 ## Marketing pages
 
-- **Home:** name the emotional benefit, then explain the product in ordinary language. The primary CTA is “Start your library.” Keep one clear secondary path for people who want to understand the product first.
+- **Home:** name saved posts as the product's starting point, then explain imports and link saving in ordinary language. Name Instagram, Pinterest, and X exports where relevant; do not imply direct sync or platform exports for Facebook and LinkedIn. Keep one clear secondary path for people who want to understand the product first.
 - **Features:** organize the story by the user's sequence: save, organize, find again, stay in control. Explain supported sources where they matter. Keep feature claims gated by phase evidence until launch.
 - **About:** explain the point of view in a few concrete paragraphs. Avoid repeating the hero in a manifesto or several slogan-like section headers.
 - **Contact:** set the expectation that the form opens an email draft and does not send or store it. Keep required field labels visible.
