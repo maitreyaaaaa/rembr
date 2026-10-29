@@ -4,7 +4,7 @@
 
 This is a small, deterministic sanity fixture for the current lexical scoring rule. The API integration test executes it against a synthetic owner and reports MRR and nDCG. It contains no customer data and is not representative evidence of retrieval quality or latency; a larger reviewed query set remains future work.
 
-The API suite exercises cross-field multi-term matching, one curated `security` to `audit/privacy` expansion, exact-phrase exclusion, owner-bound feedback, and cited evidence retrieval. The six-item fixture below checks graded ordering through the API; the same test also covers extracted-text-only and Hindi query/search, grounded Q&A tokenization, type/tag/collection filters, empty results, deterministic tie-breaking, and cross-owner isolation. These checks do not establish ranking quality across a representative corpus.
+The API suite exercises cross-field multi-term matching, one curated `security` to `audit/privacy` expansion, exact-phrase exclusion, owner-bound feedback, and cited evidence retrieval. The six-item fixture below checks graded ordering through the API; the same test also covers extracted-text-only and Hindi query/search, grounded Q&A tokenization, type/tag/collection filters, empty results, deterministic tie-breaking, cross-owner isolation, and stable ranking after a title edit. These checks do not establish ranking quality across a representative corpus.
 
 ## Current rule
 
@@ -38,7 +38,7 @@ Phrase matches add the original field weights on top of per-term scores. The sep
 | F5 | Note | Sprint notes | Note-body phrase + two note terms | 40 | 2 |
 | F6 | Page | Design cues | One title term + one description term | 48 | 2 |
 
-The API test creates these fixtures, submits `design system`, and checks the ordered IDs F1, F2, F3, F6, F5, F4. With relevance grades `[3,3,2,2,2,1]`, this fixture yields reciprocal rank 1.0 and nDCG 1.0. The cross-field F6 score (48) ranks above the note-body F5 score (40); the URL's hyphenated terms score 24 because the exact spaced phrase is absent. Phrase mode includes only rows whose one searchable field contains `design system`. Supplemental cases verify extracted-text-only matching, Hindi lexical search and grounded Q&A, page/note filtering, tag and collection filters, empty results, same-score/date ID ordering, and exclusion of a foreign owner's matching save. The fixture does not test substring false positives, language-specific stop words, the full synonym map, ranking stability under edits, or semantic search.
+The API test creates these fixtures, submits `design system`, and checks the ordered IDs F1, F2, F3, F6, F5, F4. With relevance grades `[3,3,2,2,2,1]`, this fixture yields reciprocal rank 1.0 and nDCG 1.0. The cross-field F6 score (48) ranks above the note-body F5 score (40); the URL's hyphenated terms score 24 because the exact spaced phrase is absent. Phrase mode includes only rows whose one searchable field contains `design system`. Supplemental cases verify extracted-text-only matching, Hindi lexical search and grounded Q&A, page/note filtering, tag and collection filters, empty results, same-score/date ID ordering, exclusion of a foreign owner's matching save, and identical ordering on repeated searches after an effective-title edit. The fixture does not test substring false positives, language-specific stop words, the full synonym map, broader multilingual normalization, or semantic search.
 
 ## Feedback and data handling
 
@@ -51,4 +51,4 @@ The API test creates these fixtures, submits `design system`, and checks the ord
 
 ## Next evaluation gate
 
-Build a larger human-reviewed query set with graded relevance before using MRR/nDCG to make retrieval-quality claims. Add tests for substring false positives, multilingual normalization, the full curated synonym map, and ranking stability after source edits. Measure latency separately with documented hardware, database state, and fixture size. Do not use this six-item synthetic result to claim retrieval quality or performance.
+Build a larger human-reviewed query set with graded relevance before using MRR/nDCG to make retrieval-quality claims. Add tests for substring false positives, broader multilingual normalization, and the full curated synonym map. Measure latency separately with documented hardware, database state, and fixture size. Do not use this six-item synthetic result to claim retrieval quality or performance.

@@ -457,6 +457,17 @@ test('Phase 4 synthetic retrieval fixture reports graded ranking metrics through
     assert.equal(reciprocalRank, 1);
     assert.equal(ndcg, 1);
 
+    assert.equal((await fetch(`${baseUrl}/api/items/${ids.F4}`, {
+      method: 'PATCH', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ titleOverride: 'Design system archive', descriptionOverride: '' }),
+    })).status, 200);
+    const afterEdit = await fetch(`${baseUrl}/api/items?search=design%20system&matchMode=terms&sort=relevance`, { headers: { Cookie: owner.cookie } });
+    const afterEditIds = (await afterEdit.json() as { items: Array<{ id: string }> }).items.map(({ id }) => id);
+    const afterEditRepeat = await fetch(`${baseUrl}/api/items?search=design%20system&matchMode=terms&sort=relevance`, { headers: { Cookie: owner.cookie } });
+    const repeatedAfterEditIds = (await afterEditRepeat.json() as { items: Array<{ id: string }> }).items.map(({ id }) => id);
+    assert.deepEqual(afterEditIds, repeatedAfterEditIds);
+    assert.ok(afterEditIds.indexOf(ids.F4) < afterEditIds.indexOf(ids.F3));
+
     const typeFiltered = await fetch(`${baseUrl}/api/items?search=design%20system&type=note`, { headers: { Cookie: owner.cookie } });
     assert.deepEqual((await typeFiltered.json() as { items: Array<{ id: string }> }).items.map(({ id }) => id), [ids.F5]);
     const tagFiltered = await fetch(`${baseUrl}/api/items?search=design%20system&tagId=${encodeURIComponent(tagId)}`, { headers: { Cookie: owner.cookie } });
