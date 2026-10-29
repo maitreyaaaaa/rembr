@@ -75,11 +75,13 @@ export async function claimNextJob(database: DatabaseHandle, now = new Date()): 
     const job = await database.prepare(`SELECT processing_jobs.id,processing_jobs.item_id,processing_jobs.owner_id,processing_jobs.import_id,
         processing_jobs.correlation_id,processing_jobs.generation,processing_jobs.source_order,saved_items.original_url,saved_items.source_platform,processing_jobs.attempts,processing_jobs.max_attempts
       FROM processing_jobs JOIN saved_items ON saved_items.id=processing_jobs.item_id AND saved_items.owner_id=processing_jobs.owner_id
+      JOIN users ON users.id=processing_jobs.owner_id
       WHERE processing_jobs.attempts<processing_jobs.max_attempts AND NOT EXISTS (
         SELECT 1 FROM job_pause_states p WHERE p.owner_id=processing_jobs.owner_id AND p.job_id=processing_jobs.id
-      ) AND ((processing_jobs.status IN ('queued','retry_wait') AND processing_jobs.available_at<=?)
+      ) AND users.account_status='active' AND ((processing_jobs.status IN ('queued','retry_wait') AND processing_jobs.available_at<=?)
         OR (processing_jobs.status='processing' AND processing_jobs.lease_expires_at<=?))
-      ORDER BY processing_jobs.created_at ASC, processing_jobs.import_id ASC, processing_jobs.source_order ASC NULLS LAST, processing_jobs.id ASC LIMIT 1`).get(timestamp, timestamp) as Omit<ClaimedJob, 'lease_token'> | undefined;
+      ORDER BY processing_jobs.created_at ASC, processing_jobs.import_id ASC, processing_jobs.source_order ASC NULLS LAST, processing_jobs.id ASC LIMIT 1
+      FOR UPDATE OF users SKIP LOCKED`).get(timestamp, timestamp) as Omit<ClaimedJob, 'lease_token'> | undefined;
     if (!job) return undefined;
     const leaseToken = randomUUID(); const attempts = job.attempts + 1;
     const changed = await database.prepare(`UPDATE processing_jobs SET status='processing',attempts=?,lease_token=?,lease_expires_at=?,heartbeat_at=?,updated_at=?
@@ -142,10 +144,18 @@ export async function cleanupInactiveMedia(database: DatabaseHandle, storage: Me
   await storage.removeUnknown(keys);
 }
 
+async function queueMediaCleanup(database: DatabaseHandle, keys: string[], now = new Date().toISOString()): Promise<void> {
+  for (const key of new Set(keys)) {
+    await database.prepare(`INSERT INTO media_cleanup_queue (storage_key,attempt_count,last_error,created_at,updated_at)
+      VALUES (?,0,'worker_write_fenced',?,?) ON CONFLICT(storage_key) DO NOTHING`).run(key, now, now);
+  }
+}
+
 export async function processNextJob(database: DatabaseHandle, fetchPage: PageFetcher = fetchPublicPage,
   mediaProcessor: MediaProcessor = { fetchMedia: fetchPublicMedia, storage: new LocalMediaStorage(config.mediaDirectory) }): Promise<string | null> {
   const job = await claimNextJob(database);
   if (!job) return null;
+  const writtenMediaKeys: string[] = [];
   try {
     const page = await fetchPage(job.original_url);
     const extracted = extractPage(page.html, page.finalUrl);
@@ -159,6 +169,7 @@ export async function processNextJob(database: DatabaseHandle, fetchPage: PageFe
         const detectedMime = detectSupportedMediaMime(downloaded.bytes, downloaded.mime);
         if (!detectedMime || detectedMime !== downloaded.mime) throw new CaptureError('media_signature_mismatch', 'The media type did not match its file contents.');
         const stored = await mediaProcessor.storage.write(downloaded.bytes, detectedMime);
+        writtenMediaKeys.push(stored.key);
         mediaResults.push({ sourceUrl, storageKey: stored.key, mime: stored.mime, byteSize: downloaded.bytes.length, sha256: stored.sha256, status: 'ready', errorCode: null });
       } catch (cause) {
         mediaResults.push({ sourceUrl, storageKey: null, mime: null, byteSize: 0, sha256: null, status: 'failed', errorCode: cause instanceof CaptureError ? cause.code : 'media_store_failed' });
@@ -167,11 +178,13 @@ export async function processNextJob(database: DatabaseHandle, fetchPage: PageFe
     const mediaFailed = mediaResults.some((result) => result.status === 'failed');
     const now = new Date().toISOString();
     const finish = database.transaction(async () => {
-      const active = await database.prepare(`SELECT status FROM processing_jobs WHERE id=? AND owner_id=? AND item_id=? AND lease_token=?
-        AND status IN ('processing','cancel_requested')`).get(job.id, job.owner_id, job.item_id, job.lease_token) as { status: string } | undefined;
+      const active = await database.prepare(`SELECT processing_jobs.status FROM processing_jobs JOIN users ON users.id=processing_jobs.owner_id
+        WHERE processing_jobs.id=? AND processing_jobs.owner_id=? AND processing_jobs.item_id=? AND processing_jobs.lease_token=?
+        AND processing_jobs.status IN ('processing','cancel_requested') AND users.account_status='active' FOR UPDATE OF users`)
+        .get(job.id, job.owner_id, job.item_id, job.lease_token) as { status: string } | undefined;
       const item = await database.prepare('SELECT id FROM saved_items WHERE id=? AND owner_id=?').get(job.item_id, job.owner_id);
       if (!active || !item) return false;
-      if (active.status === 'cancel_requested') return cancelOwnedAttempt(database, job, now);
+      if (active.status === 'cancel_requested') { await cancelOwnedAttempt(database, job, now); return 'cancelled'; }
       await database.prepare(`INSERT INTO extracted_artifacts (id,owner_id,item_id,title,description,text_content,fetched_at,created_at)
         VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(item_id) DO UPDATE SET title=excluded.title,description=excluded.description,
         text_content=excluded.text_content,fetched_at=excluded.fetched_at`)
@@ -195,8 +208,9 @@ export async function processNextJob(database: DatabaseHandle, fetchPage: PageFe
       return true;
     });
     const committed = await finish();
+    if (committed !== true) await queueMediaCleanup(database, writtenMediaKeys);
     await cleanupInactiveMedia(database, mediaProcessor.storage);
-    return committed ? job.id : null;
+    return committed === false ? null : job.id;
   } catch (error) {
     const code = failureCode(error); const now = new Date().toISOString();
     const retry = TRANSIENT_FAILURES.has(code) && job.attempts < job.max_attempts;
@@ -218,6 +232,8 @@ export async function processNextJob(database: DatabaseHandle, fetchPage: PageFe
       finishImportIfIdle(database, job.owner_id, job.import_id, now);
     });
     await fail();
+    await queueMediaCleanup(database, writtenMediaKeys);
+    await cleanupInactiveMedia(database, mediaProcessor.storage);
     return job.id;
   }
 }

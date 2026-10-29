@@ -12,7 +12,7 @@ import { createImportRepository } from '../src/imports/repository.js';
 import type { ParsedImportItem } from '../src/imports/parser.js';
 import { LocalImportStorage } from '../src/imports/storage.js';
 import { LocalMediaStorage } from '../src/media/storage.js';
-import { processNextJob } from '../src/worker/process-job.js';
+import { claimNextJob, processNextJob } from '../src/worker/process-job.js';
 import { CaptureError } from '../src/items/safe-fetch.js';
 
 const password = 'correct-horse-battery-staple';
@@ -452,5 +452,48 @@ test('cancellation during a running fetch fences the final artifact write', asyn
     await processing;
     assert.equal((await database.prepare('SELECT count(*) AS count FROM extracted_artifacts WHERE item_id=?').get(item.id) as { count: number }).count, 0);
     assert.equal((await database.prepare('SELECT status FROM processing_jobs WHERE item_id=?').get(item.id) as { status: string }).status, 'cancelled');
+  });
+});
+
+test('a capture media file is removed when its owner is frozen before commit', async () => {
+  await withApi(async (baseUrl, database) => {
+    const owner = await register(baseUrl, 'media-fenced@example.test', 'media_fenced');
+    const capture = await fetch(`${baseUrl}/api/items`, { method: 'POST', headers: { Cookie: owner, 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'https://example.com/media-fenced' }) });
+    const item = (await capture.json() as { item: { id: string } }).item;
+    const account = await database.prepare('SELECT owner_id FROM saved_items WHERE id=?').get(item.id) as { owner_id: string };
+    const removed: string[] = [];
+    const storage = {
+      async initialize() {},
+      async write() {
+        await database.transaction(async () => {
+          await database.prepare("UPDATE users SET account_status='disabled' WHERE id=?").run(account.owner_id);
+          await database.prepare("UPDATE processing_jobs SET status='cancelled',lease_token=NULL,lease_expires_at=NULL WHERE item_id=?").run(item.id);
+        })();
+        return { key: 'media-fenced.media', mime: 'image/png' as const, bytes: 8, sha256: 'a'.repeat(64) };
+      },
+      async read() { throw new Error('not used'); },
+      async remove(key: string) { removed.push(key); },
+      async removeUnknown() {},
+    };
+    const image = Buffer.from([137,80,78,71,13,10,26,10]);
+    const result = await processNextJob(database,
+      async () => ({ finalUrl: 'https://example.com/media-fenced', contentType: 'text/html', html: '<img src="https://cdn.example/image.png">' }),
+      { storage, fetchMedia: async (url) => ({ finalUrl: url, mime: 'image/png', bytes: image }) });
+    assert.equal(result, null);
+    assert.deepEqual(removed, ['media-fenced.media']);
+    assert.equal((await database.prepare('SELECT count(*) AS count FROM media_artifacts WHERE item_id=?').get(item.id) as { count: number }).count, 0);
+    assert.equal((await database.prepare('SELECT count(*) AS count FROM media_cleanup_queue').get() as { count: number }).count, 0);
+    assert.equal((await database.prepare('SELECT status FROM processing_jobs WHERE item_id=?').get(item.id) as { status: string }).status, 'cancelled');
+  });
+});
+
+test('capture worker does not claim jobs for disabled accounts', async () => {
+  await withApi(async (baseUrl, database) => {
+    const owner = await register(baseUrl, 'disabled-worker@example.test', 'disabled_worker');
+    const capture = await fetch(`${baseUrl}/api/items`, { method: 'POST', headers: { Cookie: owner, 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'https://example.com/disabled-worker' }) });
+    const item = (await capture.json() as { item: { id: string } }).item;
+    await database.prepare("UPDATE users SET account_status='disabled' WHERE email='disabled-worker@example.test'").run();
+    assert.equal(await claimNextJob(database), undefined);
+    assert.equal((await database.prepare('SELECT status FROM processing_jobs WHERE item_id=?').get(item.id) as { status: string }).status, 'queued');
   });
 });
