@@ -172,6 +172,52 @@ test('item list filters, keyset pagination, metadata overrides and organization 
   });
 });
 
+test('Phase 4 synthetic retrieval fixture reports graded ranking metrics through the API', async () => {
+  await withApi(async (baseUrl) => {
+    const owner = await register(baseUrl, 'retrieval-eval@example.test');
+    await profile(baseUrl, owner.cookie, 'retrieval_eval');
+    const fixtures = [
+      { key: 'F1', url: 'https://fixture.test/f1', title: 'Design system', description: '', grade: 3 },
+      { key: 'F2', url: 'https://fixture.test/f2', title: 'Design system checklist', description: '', grade: 3 },
+      { key: 'F3', url: 'https://fixture.test/f3', title: 'UI guidance', description: 'Design system for product teams', grade: 2 },
+      { key: 'F4', url: 'https://fixture.test/design-system', title: 'Component library', description: '', grade: 1 },
+      { key: 'F6', url: 'https://fixture.test/f6', title: 'Design cues', description: 'System mapping', grade: 2 },
+    ];
+    const ids: Record<string, string> = {};
+    for (const fixture of fixtures) {
+      const created = await createPage(baseUrl, owner.cookie, fixture.url);
+      assert.equal(created.status, 202);
+      const { item } = await created.json() as { item: { id: string } };
+      ids[fixture.key] = item.id;
+      const updated = await fetch(`${baseUrl}/api/items/${item.id}`, {
+        method: 'PATCH', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ titleOverride: fixture.title, descriptionOverride: fixture.description }),
+      });
+      assert.equal(updated.status, 200);
+    }
+    const noteForm = new FormData(); noteForm.set('title', 'Sprint notes'); noteForm.set('body', 'Design system migration notes');
+    const note = await fetch(`${baseUrl}/api/notes`, { method: 'POST', headers: { Cookie: owner.cookie }, body: noteForm });
+    assert.equal(note.status, 201);
+    ids.F5 = (await note.json() as { item: { id: string } }).item.id;
+    const grades = new Map(fixtures.map(({ key, grade }) => [ids[key]!, grade]));
+    grades.set(ids.F5, 2);
+
+    const response = await fetch(`${baseUrl}/api/items?search=design%20system&matchMode=terms&sort=relevance`, { headers: { Cookie: owner.cookie } });
+    assert.equal(response.status, 200);
+    const ranked = (await response.json() as { items: Array<{ id: string }> }).items.map(({ id }) => id);
+    const rankedGrades = ranked.map((id) => grades.get(id) ?? 0);
+    const dcg = (values: number[]) => values.reduce((sum, grade, index) => sum + (2 ** grade - 1) / Math.log2(index + 2), 0);
+    const idealGrades = [...grades.values()].sort((a, b) => b - a);
+    const ndcg = dcg(rankedGrades) / dcg(idealGrades);
+    const firstRelevantRank = rankedGrades.findIndex((grade) => grade > 0) + 1;
+    const reciprocalRank = firstRelevantRank ? 1 / firstRelevantRank : 0;
+
+    assert.deepEqual(ranked, [ids.F1, ids.F2, ids.F3, ids.F6, ids.F5, ids.F4]);
+    assert.equal(reciprocalRank, 1);
+    assert.equal(ndcg, 1);
+  });
+});
+
 test('notes accept bounded image assets, enforce owner reads, and cascade with their item', async () => {
   await withApi(async (baseUrl, database) => {
     const owner = await register(baseUrl, 'note-owner@example.test');

@@ -2,9 +2,9 @@
 
 ## Purpose and status
 
-This is a small, deterministic sanity fixture for the current lexical scoring rule. It is a hand-calculated specification, not an executed quality benchmark and not evidence of query latency. The fixture contains no customer data. A runnable test and a larger labeled query set remain future work.
+This is a small, deterministic sanity fixture for the current lexical scoring rule. The API integration test executes it against a synthetic owner and reports MRR and nDCG. It contains no customer data and is not representative evidence of retrieval quality or latency; a larger reviewed query set remains future work.
 
-The API suite has now exercised a synthetic owner fixture for cross-field multi-term matching, one curated `security` to `audit/privacy` expansion, exact-phrase exclusion, owner-bound feedback, and cited evidence retrieval. This verifies those specific paths, not ranking quality across a representative corpus.
+The API suite exercises cross-field multi-term matching, one curated `security` to `audit/privacy` expansion, exact-phrase exclusion, owner-bound feedback, and cited evidence retrieval. The six-item fixture below also checks graded ordering through the API. These checks do not establish ranking quality across a representative corpus.
 
 ## Current rule
 
@@ -34,11 +34,11 @@ Phrase matches add the original field weights on top of per-term scores. The sep
 | F1 | Page | Design system | Exact title + phrase + two title terms | 230 | 3 |
 | F2 | Page | Design system checklist | Phrase + two title terms | 130 | 3 |
 | F3 | Page | UI guidance | Description phrase + two description terms | 76 | 2 |
-| F4 | Page | Component library | URL phrase + two URL terms | 54 | 2 |
-| F5 | Note | Sprint notes | Note-body phrase + two note terms | 40 | 1 |
-| F6 | Page | UI patterns | Analysis phrase + two analysis terms | 31 | 1 |
+| F4 | Page | Component library | Two URL terms (`design-system`; URL cannot contain the spaced phrase) | 24 | 1 |
+| F5 | Note | Sprint notes | Note-body phrase + two note terms | 40 | 2 |
+| F6 | Page | Design cues | One title term + one description term | 48 | 2 |
 
-Expected ordering is F1, F2, F3, F4, F5, F6 before timestamp and ID tie-breakers. The fixture checks the intended priority ordering across fields. The default mode requires both query groups to appear somewhere; the phrase mode would include only rows whose one searchable field contains `design system`. It does not test substring false positives, multilingual stop words, the full synonym map, ranking stability under edits, or semantic search.
+The API test creates these fixtures, submits `design system`, and checks the ordered IDs F1, F2, F3, F6, F5, F4. With relevance grades `[3,3,2,2,2,1]`, this fixture yields reciprocal rank 1.0 and nDCG 1.0. The cross-field F6 score (48) ranks above the note-body F5 score (40); the URL's hyphenated terms score 24 because the exact spaced phrase is absent. Phrase mode includes only rows whose one searchable field contains `design system`. The fixture does not test substring false positives, multilingual stop words, the full synonym map, ranking stability under edits, or semantic search.
 
 ## Feedback and data handling
 
@@ -51,4 +51,4 @@ Expected ordering is F1, F2, F3, F4, F5, F6 before timestamp and ID tie-breakers
 
 ## Next evaluation gate
 
-Turn these rows into executable fixtures through the actual repository/API, add additional exact-title, text-only, metadata-filter, empty-result, tie-break, and tenant-isolation cases, then report MRR/nDCG or another defined metric over a reviewed query set. Measure latency separately with documented hardware, database state, and fixture size. Do not use this hand calculation to claim retrieval quality or performance.
+Expand the executable fixture with text-only and metadata-filter queries, empty results, tie-breaks, and tenant isolation. Build a larger reviewed query set before using MRR/nDCG to make retrieval-quality claims. Measure latency separately with documented hardware, database state, and fixture size. Do not use this six-item synthetic result to claim retrieval quality or performance.
