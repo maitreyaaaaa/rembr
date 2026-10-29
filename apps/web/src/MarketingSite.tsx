@@ -1,8 +1,13 @@
-import { useEffect, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { AnnotatedText } from './components/ui/annotated-text';
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { gsap } from 'gsap';
+import { ScrollTrigger } from 'gsap/ScrollTrigger';
+import { useGSAP } from '@gsap/react';
 
 type Page = 'home' | 'features' | 'about' | 'contact';
+
 const contactEmail = import.meta.env.VITE_CONTACT_EMAIL?.trim();
+
+gsap.registerPlugin(ScrollTrigger, useGSAP);
 
 function pageForPath(path: string): Page {
   if (path.startsWith('/features')) return 'features';
@@ -12,115 +17,194 @@ function pageForPath(path: string): Page {
 }
 
 function Brand() {
-  return <a className="ice-brand" href="/" aria-label="Rembr home">rembr<span>.</span></a>;
+  return <a className="brand-mark" href="/" aria-label="Rembr home">rembr<span>.</span></a>;
 }
 
-function Header({ page }: { page: Page }) {
+function Arrow({ diagonal = false }: { diagonal?: boolean }) {
+  return <span aria-hidden="true" className={diagonal ? 'arrow-mark arrow-mark-diagonal' : 'arrow-mark'}>{diagonal ? '↗' : '→'}</span>;
+}
+
+function SiteHeader({ page }: { page: Page }) {
   const [menuOpen, setMenuOpen] = useState(false);
-  return <><div className="ice-promo"><span>A softer internet, one saved page at a time.</span><a href="/features">See how Rembr works <b aria-hidden="true">↗</b></a></div><header className="ice-header"><div className="ice-header-inner"><Brand />
-    <button className="ice-menu-toggle" type="button" aria-expanded={menuOpen} aria-controls="ice-nav" onClick={() => setMenuOpen(!menuOpen)}><span>{menuOpen ? 'Close' : 'Menu'}</span><b aria-hidden="true">{menuOpen ? '×' : '☰'}</b></button>
-    <nav id="ice-nav" className={menuOpen ? 'ice-nav is-open' : 'ice-nav'} aria-label="Main navigation">
-      <a aria-current={page === 'features' ? 'page' : undefined} href="/features">What it does</a><a aria-current={page === 'about' ? 'page' : undefined} href="/about">Our approach</a><a aria-current={page === 'contact' ? 'page' : undefined} href="/contact">Contact</a><a className="ice-nav-cta" href="/app">Open your library <span aria-hidden="true">↗</span></a>
-    </nav>
-  </div></header></>;
-}
 
-function Footer() {
-  return <footer className="ice-footer"><div className="ice-footer-main"><div><Brand /><p>A softer place for the good things you find online.</p></div><div className="ice-footer-links"><a href="/features">What it does</a><a href="/about">Our approach</a><a href="/contact">Contact</a><a href="/app">Open your library</a></div></div><div className="ice-footer-bottom"><span>© {new Date().getFullYear()} Rembr</span><span>Made for the things you want to find again.</span></div></footer>;
-}
-
-function CookieIllustration() {
-  return <div className="scoop-scene" aria-label="Illustration of a saved page tucked into a colorful library" role="img"><div className="scoop-orbit scoop-orbit-one"/><div className="scoop-orbit scoop-orbit-two"/><div className="scoop-sticker sticker-pistachio">KEEP<br />THIS</div><div className="scoop-card scoop-card-back"><span className="scoop-label">A LITTLE NOTE</span><i/><i/><i/></div><div className="scoop-card scoop-card-front"><div className="scoop-card-top"><span>REMEMBER THIS</span><span>↗</span></div><div className="scoop-card-scoop"><span>✳</span></div><small>YOUR SAVED WEB</small><strong>Good things<br />worth keeping.</strong><div className="scoop-card-lines"><i/><i/><i/></div></div><div className="scoop-sticker sticker-cherry">FIND IT<br />LATER ↗</div></div>;
-}
-
-function FeatureCard({ number, title, copy, tone }: { number: string; title: string; copy: string; tone: string }) {
-  return <article className={`ice-feature ${tone}`}><span className="ice-feature-number">{number}</span><span className="ice-feature-mark" aria-hidden="true">✳</span><h3>{title}</h3><p>{copy}</p></article>;
-}
-
-const faqItems = [
-  {
-    question: 'Okay, what can I actually save?',
-    answer: 'A public page or article with an HTTP or HTTPS link. Paste it into your library and Rembr will try to keep a readable copy, with the original link close by.',
-  },
-  {
-    question: 'Will it work on every website?',
-    answer: 'We wish! Some sites block automated requests or do not expose much readable text. If a page cannot be processed, Rembr shows a failure and keeps the source link with your saved item.',
-  },
-  {
-    question: 'Can I search the whole article later?',
-    answer: 'Not yet. Search currently checks saved page titles and URLs. You can still open the readable text for a page you saved.',
-  },
-  {
-    question: 'Does Rembr summarize pages with AI?',
-    answer: 'Not right now. Rembr saves a readable copy of the page; AI summaries and ask-your-library search are not part of this version.',
-  },
-  {
-    question: 'Can I save something behind a login or paywall?',
-    answer: 'No. Rembr only processes public pages and does not sign in to websites or fetch paywalled content.',
-  },
-  {
-    question: 'So, how much does it cost?',
-    answer: 'Pricing has not been announced for this early build. We will share the details once the plan is set.',
-  },
-];
-
-function FaqAccordion() {
-  const [openIndex, setOpenIndex] = useState(0);
-
-  function handleKeyDown(event: KeyboardEvent<HTMLButtonElement>, index: number) {
-    let nextIndex: number | undefined;
-    if (event.key === 'ArrowDown') nextIndex = (index + 1) % faqItems.length;
-    if (event.key === 'ArrowUp') nextIndex = (index - 1 + faqItems.length) % faqItems.length;
-    if (event.key === 'Home') nextIndex = 0;
-    if (event.key === 'End') nextIndex = faqItems.length - 1;
-    if (nextIndex !== undefined) {
-      event.preventDefault();
-      document.getElementById(`ice-faq-trigger-${nextIndex}`)?.focus();
-    }
+  function onMenuKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    if (event.key === 'Escape') setMenuOpen(false);
   }
 
-  return <div className="ice-faq-list">
-    {faqItems.map((item, index) => {
-      const isOpen = openIndex === index;
-      const triggerId = `ice-faq-trigger-${index}`;
-      const panelId = `ice-faq-panel-${index}`;
-      return <article className={`ice-faq-item${isOpen ? ' is-open' : ''}`} key={item.question}>
-        <h3><button id={triggerId} className="ice-faq-trigger" type="button" aria-expanded={isOpen} aria-controls={panelId} onClick={() => setOpenIndex(isOpen ? -1 : index)} onKeyDown={(event) => handleKeyDown(event, index)}>
-          <span>{item.question}</span><span className="ice-faq-icon" aria-hidden="true">+</span>
-        </button></h3>
-        <div id={panelId} className="ice-faq-panel" role="region" aria-labelledby={triggerId} aria-hidden={!isOpen} inert={!isOpen}>
-          <div className="ice-faq-answer"><p>{item.answer}</p></div>
-        </div>
-      </article>;
-    })}
+  return <header className="site-header">
+    <div className="site-header-inner">
+      <Brand />
+      <button className="menu-toggle" type="button" aria-expanded={menuOpen} aria-controls="site-nav" onClick={() => setMenuOpen((open) => !open)} onKeyDown={onMenuKeyDown}>
+        <span>{menuOpen ? 'Close' : 'Menu'}</span><span className="menu-glyph" aria-hidden="true">{menuOpen ? '×' : '＋'}</span>
+      </button>
+      <nav id="site-nav" className={menuOpen ? 'site-nav is-open' : 'site-nav'} aria-label="Main navigation">
+        <a aria-current={page === 'features' ? 'page' : undefined} href="/features" onClick={() => setMenuOpen(false)}>The library</a>
+        <a aria-current={page === 'about' ? 'page' : undefined} href="/about" onClick={() => setMenuOpen(false)}>Our point of view</a>
+        <a aria-current={page === 'contact' ? 'page' : undefined} href="/contact" onClick={() => setMenuOpen(false)}>Say hello</a>
+        <a className="nav-cta" href="/app" onClick={() => setMenuOpen(false)}>Open Rembr <Arrow diagonal/></a>
+      </nav>
+    </div>
+  </header>;
+}
+
+function SiteFooter() {
+  return <footer className="site-footer">
+    <div className="footer-main">
+      <div className="footer-brand-block"><Brand/><p>A little more room for what matters.</p></div>
+      <div className="footer-link-group"><span>EXPLORE</span><a href="/features">The library</a><a href="/about">Our point of view</a><a href="/contact">Say hello</a></div>
+      <div className="footer-link-group"><span>YOUR SPACE</span><a href="/app">Open Rembr</a><a href="/app?tab=settings">Account & settings</a></div>
+    </div>
+    <div className="footer-bottom"><span>© {new Date().getFullYear()} Rembr</span><span>Keep what catches you. Find it when it matters.</span><a href="#top">Back to top ↑</a></div>
+  </footer>;
+}
+
+function ArchiveScene() {
+  return <div className="archive-scene" role="img" aria-label="Illustration of saved ideas collecting into a searchable personal library">
+    <div className="archive-sun" data-parallax="sun" aria-hidden="true"><span/><span/><span/></div>
+    <div className="archive-orbit archive-orbit-one" data-parallax="orbit" aria-hidden="true"/>
+    <div className="archive-orbit archive-orbit-two" data-parallax="orbit" aria-hidden="true"/>
+    <div className="archive-paper archive-paper-back" data-hero-art aria-hidden="true">
+      <span className="paper-index">FIELD NOTE / 014</span><div className="paper-art-lines"><i/><i/><i/></div><span className="paper-scribble">keep this thought</span>
+    </div>
+    <div className="archive-paper archive-paper-front" data-hero-art aria-hidden="true">
+      <div className="archive-window-top"><span className="window-dots"><i/><i/><i/></span><span>YOUR LIBRARY</span><b>↗</b></div>
+      <div className="archive-search"><span>⌕</span><span>Find a thread, a title, a thought…</span><kbd>⌘ K</kbd></div>
+      <article className="archive-saved-item">
+        <div className="saved-art"><svg viewBox="0 0 100 94" aria-hidden="true"><path d="M0 0h100v94H0z" fill="#FD4D1B"/><path d="M0 66c19-24 32-22 48-3S78 85 100 53v41H0z" fill="#FBE02E"/><circle cx="70" cy="24" r="13" fill="#171411"/><path d="M16 18h24M16 27h16" stroke="#171411" strokeWidth="3" strokeLinecap="round"/></svg></div>
+        <div className="saved-copy"><span>ARTICLE · 6 MIN</span><strong>A thought worth coming back to</strong><small>Saved with its source and your notes</small></div>
+      </article>
+      <div className="archive-tags"><span>IDEAS</span><span>TO READ</span><span>+ 2</span></div>
+      <div className="archive-bottomline"><span>A GOOD THING KEPT</span><span className="archive-signal"><i/> READY WHEN YOU ARE</span></div>
+    </div>
   </div>;
 }
 
+function Eyebrow({ children, dark = false }: { children: ReactNode; dark?: boolean }) {
+  return <p className={dark ? 'eyebrow eyebrow-dark' : 'eyebrow'}><span aria-hidden="true"/>{children}</p>;
+}
+
 function HomePage() {
-  return <>
-    <main>
-      <section className="ice-hero"><div className="ice-hero-copy"><p className="ice-eyebrow"><span/>A calm home for your open tabs</p><h1>Keep <AnnotatedText variant="highlight" delay={0.12}>good</AnnotatedText> stuff.<br/>Find it <AnnotatedText variant="underline" delay={0.3}>again.</AnnotatedText></h1><p className="ice-hero-lede">Save a public page once. Come back to a clean, readable copy with the original link right there.</p><div className="ice-hero-actions"><a className="ice-button ice-button-dark" href="/app">Make your library <span aria-hidden="true">↗</span></a><a className="ice-text-link" href="#how-it-works">See how it works <span aria-hidden="true">↓</span></a></div><p className="ice-hero-note"><span aria-hidden="true">✳</span> Made for pages you want to come back to.</p></div><CookieIllustration/><div className="ice-scroll-hint" aria-hidden="true">SCROLL A LITTLE <span>↓</span></div></section>
-      <section className="ice-marquee" aria-label="Things you can save"><div aria-hidden="true">ARTICLES <span>✳</span> IDEAS <span>✳</span> RECIPES <span>✳</span> RESEARCH <span>✳</span> GOOD READS <span>✳</span> ARTICLES <span>✳</span> IDEAS <span>✳</span> RECIPES <span>✳</span> RESEARCH <span>✳</span> GOOD READS <span>✳</span></div></section>
-      <section className="ice-section ice-why" id="how-it-works"><div className="ice-section-intro"><p className="ice-eyebrow"><span/>A small ritual for the internet</p><h2>Save now.<br/>Read on your <AnnotatedText variant="circle" delay={0.2}>time.</AnnotatedText></h2><p>Rembr gives useful public pages a place to wait for you, without asking you to keep a dozen tabs open.</p></div><div className="ice-steps"><article><span>01</span><div><h3>Drop in a link</h3><p>Paste a public web page or article into your library.</p></div><b aria-hidden="true">↗</b></article><article><span>02</span><div><h3>Let it settle</h3><p>Rembr saves the page and prepares a readable copy.</p></div><b aria-hidden="true">✳</b></article><article><span>03</span><div><h3>Find your way back</h3><p>Search by title or URL, then open the saved text or original source.</p></div><b aria-hidden="true">⌕</b></article></div></section>
-      <section className="ice-section ice-feature-band"><div className="ice-section-heading"><div><p className="ice-eyebrow"><span/>The useful bits</p><h2>Less tab juggling.<br/>More room to <span className="keyword-mark keyword-pink">think.</span></h2></div><a className="ice-text-link" href="/features">Explore the details <span aria-hidden="true">↗</span></a></div><div className="ice-feature-grid"><FeatureCard number="01 / SAVE" title="One place to put it" copy="Keep a personal list of public pages you want to revisit." tone="feature-peach"/><FeatureCard number="02 / READ" title="A clearer copy" copy="Open the readable text Rembr extracted, with the source link beside it." tone="feature-lilac"/><FeatureCard number="03 / FIND" title="Search what you saved" copy="Look through saved pages by their title or web address." tone="feature-green"/></div></section>
-      <section className="ice-truth"><div className="ice-truth-mark" aria-hidden="true">✳</div><div><p className="ice-eyebrow"><span/>Small and honest, on purpose</p><h2>Just the <span className="keyword-mark keyword-pink">useful</span> part<br/>of saving for later.</h2><p>Today, Rembr works with public web pages. It is not a bulk crawler, it does not access private or paywalled pages, and it does not promise perfect extraction on every site.</p><a className="ice-text-link" href="/about">What we are building (and not building) <span aria-hidden="true">↗</span></a></div><aside><span>RIGHT NOW</span><strong>Public pages<br/>in. Readable copies<br/>back out.</strong><i aria-hidden="true">↗</i></aside></section>
-      <section className="ice-faq" aria-label="Frequently asked questions"><div><p className="ice-eyebrow"><span/>The questions in your tabs</p><h2><span className="keyword-mark keyword-yellow">Good</span> to know.</h2><p>Real answers about what Rembr can do today.</p></div><FaqAccordion/></section>
-      <section className="ice-last-call"><p className="ice-eyebrow"><span/>Your next good read is waiting</p><h2>Give the tabs<br/>a little <span className="keyword-mark keyword-yellow">break.</span></h2><a className="ice-button ice-button-dark" href="/app">Start a library <span aria-hidden="true">↗</span></a><p>No feeds to catch up on. Just the pages you chose to keep.</p></section>
-    </main>
-  </>;
+  return <main id="top">
+    <section className="hero-section">
+      <div className="hero-grain" aria-hidden="true"/>
+      <div className="hero-layout">
+        <div className="hero-copy">
+          <Eyebrow>YOUR OWN LITTLE CORNER OF THE INTERNET</Eyebrow>
+          <h1 data-hero-copy>Keep the<br/><span className="hero-highlight">good stuff.</span><br/>Find it <span className="hero-outline">again.</span></h1>
+          <p className="hero-lede" data-hero-copy>Pages, ideas, and useful threads—kept with their context, ready when you need them.</p>
+          <div className="hero-actions" data-hero-copy>
+            <a className="button button-ink" href="/app">Start your library <Arrow diagonal/></a>
+            <a className="underlined-link" href="#the-idea">Take a look <span aria-hidden="true">↓</span></a>
+          </div>
+          <div className="hero-footnote" data-hero-copy><span className="footnote-mark" aria-hidden="true">✳</span><span>Built for the things you choose to keep.</span></div>
+        </div>
+        <ArchiveScene/>
+      </div>
+      <a className="hero-scroll-cue" href="#the-idea"><span>SCROLL TO REMEMBER</span><b aria-hidden="true">↓</b></a>
+    </section>
+
+    <section className="signal-strip" aria-label="A personal library for things worth remembering">
+      <div className="signal-inner"><span>GOOD READS</span><i>✳</i><span>SMALL IDEAS</span><i>✳</i><span>USEFUL THREADS</span><i>✳</i><span>THINGS TO TRY</span><i>✳</i><span>YOUR KIND OF THINGS</span></div>
+    </section>
+
+    <section className="idea-section" id="the-idea">
+      <div className="idea-heading" data-reveal>
+        <Eyebrow dark>THE INTERNET IS FULL OF GOOD THINGS</Eyebrow>
+        <h2>Later gets<br/>a <span>little crowded.</span></h2>
+      </div>
+      <div className="idea-aside" data-reveal>
+        <p>Open tabs pile up. Saved links disappear into lists. The thing you meant to remember gets harder to find.</p>
+        <p className="idea-answer">Rembr gives the good stuff a place to land—and a way back.</p>
+        <a className="text-link text-link-light" href="/about">Why we're making this <Arrow diagonal/></a>
+      </div>
+      <div className="idea-index" aria-hidden="true"><span>R</span><b>01—03</b></div>
+    </section>
+
+    <section className="ritual-section">
+      <div className="ritual-header" data-reveal>
+        <div><Eyebrow>THE REMBR RHYTHM</Eyebrow><h2>Save it.<br/><span>Shape it.</span><br/>Find it.</h2></div>
+        <p>Nothing to keep up with. Just a simple loop that turns passing finds into something you can return to.</p>
+      </div>
+      <div className="ritual-steps">
+        <article className="ritual-step step-capture" data-reveal><span className="step-number">01</span><div className="step-glyph glyph-capture" aria-hidden="true"><span>↘</span><i/><i/><i/></div><div className="step-copy"><span>CAPTURE</span><h3>Keep the spark.</h3><p>Save a page or bring in supported items from the places you already use.</p></div><span className="step-thread" aria-hidden="true">······</span></article>
+        <article className="ritual-step step-organize" data-reveal><span className="step-number">02</span><div className="step-glyph glyph-organize" aria-hidden="true"><i/><i/><i/><b>✳</b></div><div className="step-copy"><span>ADD CONTEXT</span><h3>Make it yours.</h3><p>Keep notes, group related finds, and follow the ideas that connect them.</p></div><span className="step-thread" aria-hidden="true">······</span></article>
+        <article className="ritual-step step-return" data-reveal><span className="step-number">03</span><div className="step-glyph glyph-return" aria-hidden="true"><span>⌕</span><i/><i/></div><div className="step-copy"><span>REDISCOVER</span><h3>Pick up the thread.</h3><p>Search your library, revisit what you saved, and ask questions with sources close by.</p></div></article>
+      </div>
+    </section>
+
+    <section className="constellation-section">
+      <div className="constellation-copy" data-reveal><Eyebrow>MORE THAN A PILE OF LINKS</Eyebrow><h2>Good ideas<br/>have <span>neighbors.</span></h2><p>Collections, connections, and reminders help your saved things become easier to move through—not another feed demanding your attention.</p><a className="button button-yellow" href="/features">Meet your library <Arrow diagonal/></a></div>
+      <div className="constellation-art" data-parallax="constellation" aria-label="An abstract map connecting saved ideas" role="img">
+        <svg viewBox="0 0 520 460" aria-hidden="true"><path className="constellation-line" d="M75 104C143 107 158 169 221 173S329 88 411 126M81 315c77-9 84-81 149-91s103 93 193 83M221 173c-9 49 5 89 9 131m-9-131c79 13 100 24 161 60"/><circle cx="75" cy="104" r="9"/><circle cx="411" cy="126" r="9"/><circle cx="81" cy="315" r="9"/><circle cx="423" cy="307" r="9"/><circle cx="221" cy="173" r="18"/><circle cx="230" cy="304" r="12"/><circle cx="382" cy="233" r="12"/></svg>
+        <div className="constellation-note note-center"><span>ONE IDEA</span><b>Making room<br/>to think</b><small>3 saved things nearby</small></div>
+        <div className="constellation-note note-top"><span>ARTICLE</span><b>Attention is a<br/>quiet practice</b></div>
+        <div className="constellation-note note-bottom"><span>YOUR NOTE</span><b>Come back to<br/>this on Friday</b></div>
+        <span className="constellation-tag tag-one">FOCUS</span><span className="constellation-tag tag-two">READ LATER</span>
+      </div>
+      <div className="constellation-orbit" aria-hidden="true"/>
+    </section>
+
+    <section className="control-section">
+      <div className="control-intro" data-reveal><Eyebrow dark>ROOM TO EXPLORE. CONTROL THAT STAYS YOURS.</Eyebrow><h2>Helpful tools.<br/><span>Your call.</span></h2><p>Capture from where you work. Let useful connections surface. Review anything that would act outside your library.</p></div>
+      <div className="control-panel" data-reveal>
+        <div className="control-panel-head"><span>WHEN A WORKFLOW NEEDS YOU</span><span className="control-live"><i/> YOUR REVIEW</span></div>
+        <div className="control-action"><span className="action-icon">↗</span><div><b>Share this reading list</b><small>3 saved pages · prepared for your review</small></div><span className="action-state">DRAFT</span></div>
+        <div className="control-divider"><span/><i>YOUR APPROVAL</i><span/></div>
+        <div className="control-buttons" aria-hidden="true"><span className="review-button">Review details</span><span className="approve-button">Approve when ready <Arrow/></span></div>
+        <p className="control-note">External actions stay behind a clear review step.</p>
+      </div>
+      <span className="control-side-note" aria-hidden="true">A LITTLE SPACE<br/>TO THINK FIRST</span>
+    </section>
+
+    <section className="kept-section">
+      <div className="kept-stamp" aria-hidden="true">✳</div>
+      <div className="kept-copy" data-reveal><Eyebrow>BUILT AROUND YOUR LIBRARY</Eyebrow><h2>Your thoughts.<br/><span>Your context.</span><br/>Your way.</h2><p>Keep the source nearby. Add your own notes. Export what you have built. Manage your account and data in one place.</p><a className="text-link" href="/features">Explore the details <Arrow diagonal/></a></div>
+      <div className="kept-list" data-reveal><div><span>01</span><b>Sources stay connected</b><i>↗</i></div><div><span>02</span><b>Your notes keep their place</b><i>✳</i></div><div><span>03</span><b>Controls stay within reach</b><i>⌘</i></div></div>
+    </section>
+
+    <section className="faq-section">
+      <div className="faq-intro" data-reveal><Eyebrow>GOOD QUESTIONS</Eyebrow><h2>Before you<br/><span>save a spot.</span></h2><p>Clear answers, so you know what you're getting.</p></div>
+      <div className="faq-list" data-reveal>
+        <details><summary>What can I keep in Rembr?<span>＋</span></summary><p>Public pages and other supported sources you choose to save, along with notes and organization that help you return to them.</p></details>
+        <details><summary>How do I find something again?<span>＋</span></summary><p>Search and browse your library, use your collections and tags, or follow related ideas. Optional answers can point back to the saved items they use.</p></details>
+        <details><summary>Does Rembr take actions for me?<span>＋</span></summary><p>Capturing and organizing are under your control. Workflows that affect another service show you what is prepared and ask for approval before execution.</p></details>
+        <details><summary>Can I export or remove my data?<span>＋</span></summary><p>Your account includes clear data controls for reviewing, exporting, and deleting your library. The exact scope is shown before a request is confirmed.</p></details>
+        <details><summary>Will every page save perfectly?<span>＋</span></summary><p>No. Websites expose content differently. Rembr shows processing outcomes and keeps the original source close when a readable copy is incomplete.</p></details>
+      </div>
+    </section>
+
+    <section className="final-call" data-reveal><div className="final-call-sun" aria-hidden="true"/><Eyebrow dark>MAKE ROOM FOR WHAT MATTERS</Eyebrow><h2>Keep the spark.<br/><span>Find the thread.</span></h2><a className="button button-ink" href="/app">Start your library <Arrow diagonal/></a><p>Not another feed. A place for the things you chose to keep.</p></section>
+  </main>;
+}
+
+function PageHero({ label, title, accent, description }: { label: string; title: ReactNode; accent?: string; description: string }) {
+  return <section className="subpage-hero" data-reveal><Eyebrow>{label}</Eyebrow><h1>{title}{accent && <><br/><span>{accent}</span></>}</h1><p>{description}</p><a className="button button-ink" href="/app">Open Rembr <Arrow diagonal/></a><span className="subpage-asterisk" aria-hidden="true">✳</span></section>;
 }
 
 function FeaturesPage() {
-  return <main className="ice-subpage"><section className="ice-subhero"><p className="ice-eyebrow"><span/>What Rembr does today</p><h1>Keep a <span className="keyword-mark keyword-yellow">readable</span><br/>piece of the web.</h1><p>Rembr is an early, focused way to save a public page and return to its text later.</p><a className="ice-button ice-button-dark" href="/app">Open your library <span aria-hidden="true">↗</span></a></section><section className="ice-feature-grid ice-feature-grid-page"><FeatureCard number="01 / CAPTURE" title="Save a public page" copy="Add an HTTP or HTTPS URL from your library. Rembr checks and processes the page in the background." tone="feature-peach"/><FeatureCard number="02 / READ" title="Keep the source nearby" copy="See the extracted title and readable text together with a link back to the original page." tone="feature-lilac"/><FeatureCard number="03 / SEARCH" title="Find by title or URL" copy="Search the pages you saved by their title or address." tone="feature-green"/><FeatureCard number="04 / YOUR ACCOUNT" title="A private library" copy="Your saved items are associated with your signed-in account. Sign out when you are done." tone="feature-blue"/></section><section className="ice-limitations"><p className="ice-eyebrow"><span/>A clear first version</p><h2>What Rembr does not do yet</h2><div className="ice-limit-list"><p><b>It only captures public pages.</b> It does not sign in to websites or access content behind a paywall.</p><p><b>It is not a bulk crawler.</b> Each page is saved when you choose to submit its URL.</p><p><b>Extraction can vary by page.</b> Some sites block automated requests or do not expose readable text.</p><p><b>No AI search, browser extension, or automation is advertised here.</b> Those capabilities are not part of the current product experience.</p></div></section></main>;
+  return <main id="top" className="subpage-main">
+    <PageHero label="THE LIBRARY" title={<>A place for<br/>the things you</>} accent="want to keep." description="Save useful finds, add your own context, and make it easier to pick the thread back up later."/>
+    <section className="feature-story feature-story-yellow" data-reveal><div className="feature-story-number">01 / CAPTURE</div><div className="feature-story-copy"><h2>Catch the thought<br/>before it goes.</h2><p>Bring a page into your library from the web or a supported import. Keep the original source attached so the way back is never a mystery.</p></div><div className="feature-story-art capture-art" aria-hidden="true"><span>LINK</span><i>↘</i><b>KEPT</b></div></section>
+    <section className="feature-story feature-story-orange" data-reveal><div className="feature-story-number">02 / CONNECT</div><div className="feature-story-copy"><h2>See what belongs<br/>together.</h2><p>Use notes, tags, collections, smart groups, and connections to shape a library that reflects how you think.</p></div><div className="feature-story-art connect-art" aria-hidden="true"><span>IDEA</span><i/><i/><i/><b>THREAD</b></div></section>
+    <section className="feature-story feature-story-ink" data-reveal><div className="feature-story-number">03 / RETURN</div><div className="feature-story-copy"><h2>Find your way<br/>back with context.</h2><p>Search across what you saved. Ask questions that stay connected to the source material, and bring old ideas back into view.</p></div><div className="feature-story-art return-art" aria-hidden="true"><span>⌕</span><b>FOUND<br/>AGAIN</b></div></section>
+    <section className="feature-trust" data-reveal><Eyebrow>YOU STAY IN THE LOOP</Eyebrow><h2>Useful automation.<br/><span>Human judgment.</span></h2><p>Review what a workflow is about to do before it reaches another service. See the decision, approve it when you're ready, and keep an audit trail.</p><a className="underlined-link" href="/about">How Rembr thinks about this <span aria-hidden="true">↗</span></a></section>
+    <section className="feature-limit" data-reveal><span>GOOD TO KNOW</span><p>Rembr is designed around sources you choose and supported ways to bring them in. Processing can vary by source. Workflows that affect external services require your approval.</p><a href="/contact">Have a question? Say hello <Arrow diagonal/></a></section>
+  </main>;
 }
 
 function AboutPage() {
-  return <main className="ice-subpage"><section className="ice-subhero about-subhero"><p className="ice-eyebrow"><span/>Our approach</p><h1>The <span className="keyword-mark keyword-yellow">internet</span> is full<br/>of “save for later.”</h1><p>Rembr is for the smaller, more human version of that promise: save a public page you chose, keep a readable copy, and make it easier to find again.</p></section><section className="ice-about-columns"><article><span className="ice-about-stamp">WE ARE</span><h2>A personal reading shelf.</h2><p>A focused place for public articles and pages you deliberately keep. A library with the original source close by, and a simple search by title or URL.</p></article><article><span className="ice-about-stamp stamp-not">WE ARE NOT</span><h2>A crawler or a magic archive.</h2><p>Rembr does not collect pages in bulk, bypass sign-in, or promise that every site will extract cleanly. It is an early product, and its current scope is deliberately narrow.</p></article></section><section className="ice-about-note"><span>OUR NORTH STAR</span><p>Make it easier to return to something you found meaningful, without turning “later” into another feed.</p></section></main>;
+  return <main id="top" className="subpage-main about-main">
+    <PageHero label="OUR POINT OF VIEW" title={<>We forget links.<br/>We remember</>} accent="what they meant." description="Rembr is a personal library for the useful, curious, and meaningful things you find across the web."/>
+    <section className="about-statement" data-reveal><div className="about-statement-number">A SMALL PROMISE</div><p>“Later” should feel like a place you can return to—not a pile you feel guilty about.</p><span aria-hidden="true">✳</span></section>
+    <section className="about-columns"><article data-reveal><Eyebrow>WHAT WE'RE MAKING</Eyebrow><h2>A quieter kind of memory.</h2><p>A place for your chosen finds, their sources, and the context you add. Search, organization, and gentle rediscovery help you get back to the idea—not just the tab.</p></article><article data-reveal><Eyebrow>HOW WE WANT IT TO FEEL</Eyebrow><h2>Useful, open, and yours.</h2><p>Rembr should help without taking over. You decide what to save, what to connect, and whether an external workflow should happen. Your library should stay understandable as it grows.</p></article></section>
+    <section className="about-manifesto" data-reveal><span>THE SHORT VERSION</span><h2>Keep the source.<br/>Keep your context.<br/><em>Keep your say.</em></h2><a className="button button-yellow" href="/app">Make room in Rembr <Arrow diagonal/></a></section>
+  </main>;
 }
 
 function ContactPage() {
   const [sent, setSent] = useState(false);
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+
+  function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!contactEmail) return;
     const form = new FormData(event.currentTarget);
@@ -128,18 +212,77 @@ function ContactPage() {
     const message = encodeURIComponent(`From: ${String(form.get('email') ?? '')}\n\n${String(form.get('message') ?? '')}`);
     window.location.href = `mailto:${contactEmail}?subject=${subject}&body=${message}`;
     setSent(true);
-  };
-  return <main className="ice-subpage contact-page"><section className="ice-subhero"><p className="ice-eyebrow"><span/>A note is always welcome</p><h1>Say <span className="keyword-mark keyword-pink">hello.</span></h1><p>Questions, useful feedback, or a page Rembr should handle better? Send a note and tell us what happened.</p></section><section className="ice-contact-card"><div className="ice-contact-aside"><span className="ice-contact-spark" aria-hidden="true">✳</span><h2>Help us make<br/>“later” better.</h2><p>We read product feedback closely. For account access, open your library and sign in with the email you registered.</p><a href="/app" className="ice-text-link">Go to Rembr <span aria-hidden="true">↗</span></a></div><form onSubmit={submit} className="ice-contact-form"><label htmlFor="contact-email">Your email</label><input id="contact-email" name="email" type="email" autoComplete="email" required maxLength={254} placeholder="you@example.com"/><label htmlFor="contact-subject">What is this about?</label><select id="contact-subject" name="subject" defaultValue="Feedback"><option>Feedback</option><option>Account help</option><option>Something is not working</option><option>Other</option></select><label htmlFor="contact-message">Your message</label><textarea id="contact-message" name="message" required minLength={10} maxLength={3000} rows={5} placeholder="A little context helps us understand…"/><button className="ice-button ice-button-dark" type="submit" disabled={!contactEmail}>{sent ? 'Email draft opened' : 'Write your message'} <span aria-hidden="true">↗</span></button>{!contactEmail && <p className="contact-config-note">The contact form is ready, but a support address has not been configured yet.</p>}</form></section></main>;
+  }
+
+  return <main id="top" className="subpage-main contact-main">
+    <PageHero label="SAY HELLO" title={<>A note can<br/>start a</>} accent="good thing." description="Questions, useful feedback, or a moment where Rembr could work better? We'd like to hear about it."/>
+    <section className="contact-layout" data-reveal><div className="contact-note"><span>✳</span><h2>Tell us what<br/>you were trying<br/>to remember.</h2><p>Your note opens in your own email app when a support address is configured. It isn't sent automatically from this page.</p><a className="text-link" href="/app">Need account access? Open Rembr <Arrow diagonal/></a></div>
+      <form onSubmit={submit} className="contact-form"><div className="form-heading"><span>01 — YOUR NOTE</span><p>We read every detail we can.</p></div><label htmlFor="contact-email">Your email</label><input id="contact-email" name="email" type="email" autoComplete="email" required maxLength={254} placeholder="you@example.com"/><label htmlFor="contact-subject">What is this about?</label><select id="contact-subject" name="subject" defaultValue="Feedback"><option>Feedback</option><option>Account help</option><option>Something is not working</option><option>Other</option></select><label htmlFor="contact-message">Your message</label><textarea id="contact-message" name="message" required minLength={10} maxLength={3000} rows={5} placeholder="A little context helps us understand…"/><button className="button button-ink" type="submit" disabled={!contactEmail}>{sent ? 'Email draft opened' : 'Write your message'} <Arrow diagonal/></button>{!contactEmail && <p className="contact-config-note">A support address has not been configured yet, so the email action is unavailable.</p>}</form>
+    </section>
+  </main>;
 }
 
 export function MarketingSite() {
   const page = pageForPath(window.location.pathname);
+  const siteRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
-    const titles: Record<Page, string> = { home: 'Rembr — Keep the good stuff', features: 'What Rembr does — Rembr', about: 'Our approach — Rembr', contact: 'Contact — Rembr' };
-    const descriptions: Record<Page, string> = { home: 'A calm, private home for public web pages you want to read again.', features: 'Save a public page, keep a readable copy and search your Rembr library.', about: 'What Rembr is building: a focused personal shelf for public pages you want to revisit.', contact: 'Send the Rembr team a question or product note.' };
+    const titles: Record<Page, string> = { home: 'Rembr — Keep the good stuff', features: 'Your library — Rembr', about: 'Our point of view — Rembr', contact: 'Say hello — Rembr' };
+    const descriptions: Record<Page, string> = {
+      home: 'A personal library for the things you find useful, curious, and worth returning to.',
+      features: 'Save your finds, add context, connect ideas, and find your way back in Rembr.',
+      about: 'Why Rembr is making a quieter, more personal kind of internet memory.',
+      contact: 'Send Rembr a question, product note, or useful piece of feedback.',
+    };
     document.title = titles[page];
     document.querySelector('meta[name="description"]')?.setAttribute('content', descriptions[page]);
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#fff9ef');
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#FBE02E');
   }, [page]);
-  return <div className="marketing-site"><Header page={page}/>{page === 'features' ? <FeaturesPage/> : page === 'about' ? <AboutPage/> : page === 'contact' ? <ContactPage/> : <HomePage/>}<Footer/></div>;
+
+  useGSAP(() => {
+    const media = gsap.matchMedia();
+    media.add({
+      motion: '(prefers-reduced-motion: no-preference)',
+      desktop: '(min-width: 900px)',
+    }, (context) => {
+      const { motion, desktop } = context.conditions as { motion: boolean; desktop: boolean };
+      if (!motion) return;
+
+      const intro = gsap.timeline({ defaults: { ease: 'power3.out' } });
+      intro.from('[data-hero-copy]', { y: 28, autoAlpha: 0, duration: 0.72, stagger: 0.1 })
+        .from('[data-hero-art]', { y: 24, autoAlpha: 0, rotate: -3, duration: 0.9, stagger: 0.08 }, '-=0.48');
+
+      gsap.utils.toArray<HTMLElement>('[data-reveal]').forEach((element) => {
+        gsap.fromTo(element, { y: 24, autoAlpha: 0 }, {
+          y: 0,
+          autoAlpha: 1,
+          duration: 0.75,
+          ease: 'power3.out',
+          immediateRender: false,
+          scrollTrigger: { trigger: element, start: 'top 88%', once: true },
+        });
+      });
+
+      if (desktop) {
+        gsap.to('[data-parallax="sun"]', {
+          yPercent: 9,
+          rotate: 8,
+          ease: 'none',
+          scrollTrigger: { trigger: '.hero-section', start: 'top top', end: 'bottom top', scrub: 0.8 },
+        });
+        gsap.to('[data-parallax="constellation"]', {
+          y: -24,
+          ease: 'none',
+          scrollTrigger: { trigger: '.constellation-section', start: 'top bottom', end: 'bottom top', scrub: 1 },
+        });
+      }
+    });
+    return () => media.revert();
+  }, { scope: siteRef });
+
+  return <div ref={siteRef} className="marketing-site" id="top">
+    <SiteHeader page={page}/>
+    {page === 'features' ? <FeaturesPage/> : page === 'about' ? <AboutPage/> : page === 'contact' ? <ContactPage/> : <HomePage/>}
+    <SiteFooter/>
+  </div>;
 }

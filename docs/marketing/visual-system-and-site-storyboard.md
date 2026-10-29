@@ -1,22 +1,22 @@
 # Rembr marketing visual system and site storyboard
 
-**Status:** Review draft. This document proposes a direction; it does not authorize a site rebuild or new animation dependency yet.
-**Scope:** The complete planned public site and its handoff to `/app`: home, features, about, contact/help, pricing, and legal/privacy routes. Existing implementation currently covers only `/`, `/features`, `/about`, and `/contact`; the roadmap assigns additional public surfaces to later phases.
+**Status:** Implemented marketing direction, 2026-10-29. This records the current site design and motion decisions.
+**Scope:** Current public routes `/`, `/features`, `/about`, and `/contact`, plus their handoff to `/app`. Pricing and legal/privacy routes remain future work and must use verified product and legal details.
 **Product evidence checked:** Current marketing component, web app import UI, Phase 3 import design, and Phase 4 implementation notes in this checkout on 2026-10-29.
 
 ## Creative direction
 
 ### Recommendation
 
-Build Rembr as a **bright, tactile “save it for your future self” brand**. Use the sun-yellow and red-orange palette from the user's reference image, anchored by near-black type and generous warm-white space. Give the product UI a quieter pale-yellow canvas, ink text, and a small amount of orange for emphasis. Keep the two surfaces related by color, but make the app more restrained so long reading sessions stay comfortable.
+Build Rembr as a **bright, tactile “save it for your future self” brand**. Use the sun-yellow and red-orange palette from the user's reference image, anchored by near-black type. Use warm paper as a breathing space, not a white SaaS canvas. Keep the product UI palette separate and restrained so long reading sessions stay comfortable.
 
 The marketing site should feel vivid and memorable at first glance, then calm and credible as it explains the product. The orange and yellow provide recognition; typography, layout, real product states, and copy establish trust. Avoid making every section a saturated color block.
 
 **Positioning thread:** “Keep the good stuff. Find it when you need it.” Tell one complete journey: a useful thing catches your eye, you save it, Rembr makes it easier to return to, and later you find it when it matters.
 
-### Relationship to the current direction
+### Relationship to the implemented direction
 
-This proposal replaces the current **Soft Serve Editorial** marketing colors if approved. It retains the existing Rembr name and Space Grotesk / DM Sans pairing, keeps the marketing and application CSS boundaries, and does not copy IScraper's logo, assets, or palette. The signed-in app remains on its Daybreak type tokens while its proposed background/accent colors are reviewed as part of the full app design pass.
+This direction replaces **Soft Serve Editorial** on the marketing site. It retains the Rembr name and Space Grotesk / DM Sans pairing, keeps marketing and application CSS boundaries, and does not copy IScraper's logo, assets, or palette. The signed-in app retains its own design tokens.
 
 ## Color system
 
@@ -27,13 +27,13 @@ The two bright colors come from the supplied reference image. Ink and warm surfa
 | Marketing | Sun yellow | `#FBE02E` | Hero field, a few large section panels, keyword marks, illustration shapes |
 | Marketing | Red-orange | `#FD4D1B` | Primary accent, small emphasis, selected section panels, motion cue |
 | Both | Ink | `#171411` | Headings, body text, outlines, navigation, icons |
-| Marketing | Warm paper | `#FFFEF6` | Main breathing space and content surfaces |
+| Marketing | Warm paper | `#FFF9D9` | Warm breathing space and content surfaces |
 | App | Pale yellow canvas | `#FFF9D9` | Main workspace background; keep the tint subtle across long reading sessions |
 | App | Reading surface | `#FFFEF6` | Saved-item text, forms, and cards above the canvas |
 | App | Orange action | `#FD4D1B` | Primary emphasis and selected controls, in limited areas |
 | App | Semantic status | Existing semantic tokens | Keep success, warning, error, and processing meaning distinct; never encode state by color alone |
 
-**Contrast guidance:** Ink on the proposed yellow, orange, pale-yellow, and warm-paper colors measures approximately 13.81:1, 5.46:1, 17.30:1, and 18.14:1 respectively. These are calculations for flat colors; implementation still needs contrast checks for actual text sizes, opacity, focus rings, overlays, and component states. Use ink on the orange CTA; white on `#FD4D1B` is not suitable for normal-size text. Prefer ink labels and icons on yellow. Keep large red-orange regions to a few deliberate moments so the yellow stays sunny rather than visually noisy.
+**Contrast guidance:** Ink on sun yellow, red-orange, pale-yellow, and warm-paper measures approximately 13.81:1, 5.46:1, 17.30:1, and 17.30:1 respectively. Use ink on orange actions and highlights. Review focus, opacity, and component states alongside these flat-color ratios.
 
 **Use ratio:** Start with warm paper and pale-yellow as the majority; let yellow make the brand recognizable; reserve orange for focal points. Black should carry information, not become a large app background by default.
 
@@ -59,8 +59,7 @@ The `Integrate` marketing font is not bundled in the repo and existing notes say
 - **Character:** sunny, warm, capable, lightly playful, and useful. The product is a personal library, not a candy brand or a productivity dashboard.
 - **Shapes:** confident rounded rectangles and organic cut-paper shapes. Use a simple, repeatable visual motif such as a saved-page “ticket” or bookmark tab. Avoid a different novelty sticker in every section.
 - **Product visuals:** use accurate Rembr UI when showing the library, search, import, or saved-item states. A concept illustration is allowed when labeled as an illustration and not rendered as a fake screenshot.
-- **Instagram visual:** Rembr currently exposes a platform-export upload/import flow, not a direct Instagram share-sheet action. The honest phone sequence is: Instagram saved-post export is selected → Rembr upload/import status → recognizable imported post appears in the library → later rediscovery. The app copy currently says Instagram import includes at most the 300 newest saved posts and reels. Confirm that limit and the exact export steps against the current parser/UI before final public copy. Do not show a “Save to Rembr” Instagram button unless that action is implemented.
-- **Asset plan:** first use a real screen recording if the user has one of the actual export/import flow. Otherwise create a controlled synthetic phone mockup using invented post content and the current app UI. Avoid a real user's Instagram account, private data, or a fabricated testimonial. Video is helpful for final production polish, not a blocker for approving the storyboard.
+- **Current asset plan:** use bespoke CSS composition and a small inline illustration to keep the page quick and product-independent. Do not add the Instagram phone scene or future concept in this pass. Revisit only when the user asks for that later phase.
 
 ## Marketing story: homepage
 
@@ -69,9 +68,9 @@ The page should move from recognition to proof, then give a clear next action. K
 | Beat | Story and suggested content | Visual direction | Motion role |
 |---|---|---|---|
 | 1. Opening frame | “Keep the good stuff. Find it when you need it.” Supporting line: save a useful page or bring in saved-post exports, then return to the source and readable copy from one library. Main CTA: “Open your library.” Secondary: “See how it works.” | Warm-paper header. Hero on sun yellow with ink typography. One orange path/ribbon leads to an accurate library card or phone frame. | One short entrance timeline: headline, support, CTA, then illustration. No delayed or hidden critical copy. |
-| 2. Recognition | “That post you meant to come back to.” Show a familiar saved-post card as a recognizable content example, then show where it lives in Rembr. Make it clear that Instagram arrives through an export import. | Phone frame with synthetic, clearly fictional post; a small adjacent Rembr import screen. Yellow and orange become the visual bridge. | Phone and library card move by a few pixels at different rates; avoid spinning phone or full-screen scroll pin. |
-| 3. Product proof | “A place for the things you chose to keep.” Show actual Rembr library states: item title/source, notes or tags where present, and import results where relevant. | Transition to a mostly warm-white section; use actual current screenshots or faithful DOM-based product surfaces. | Reveal the selected UI panel once as it enters view. Keep all content in document flow. |
-| 4. The simple loop | Save a public URL or import a supported export → Rembr processes recognized links → return through library search and organization. Explain failure/partial outcomes in plain language. | Three horizontal steps on desktop; stacked readable steps on mobile. Use an orange connector and numbered ink labels. | Subtle connector drawing or number emphasis, triggered once; no scroll-controlled content gate. |
+| 2. Recognition | “A place for the things you chose to keep.” Show a saved-page example and where it lives in Rembr. | Bespoke archive illustration with an editorial saved-item panel; no fake screenshot or platform-specific scene. | Small staggered reveal; keep all content in document flow. |
+| 3. Product proof | Show the complete product journey in the planned release: capture, search, organization, rediscovery, and account controls. | Alternating yellow, orange, ink, and warm-paper panels with a mix of typography and simple interface illustrations. | One-time reveals and restrained parallax on decorative layers only. |
+| 4. The simple loop | Save → organize → find again, with clear explanation that deeper capabilities arrive in later phases. | Wide story sections with a small orange connector and numbered labels. | Subtle connector or number emphasis; no scroll-controlled content gate. |
 | 5. Organize and rediscover (Phase 4) | “Your library should help you find the thread again.” Show search, tags/collections, Smart Collections, Checkup, reminders, graph, and grounded answers/summaries as the completed product story. Explain that answers cite saved sources and AI enrichment is optional and consent-based. | Select two or three proof points, then link to a complete feature page. Show citations and rediscovery controls in actual product UI. | One scroll-linked sequence may connect a saved item to its group and rediscovery view, but the full states remain visible without motion. |
 | 6. Save from where you find it (Phase 5) | Demonstrate the browser extension and approved connected workflows as explicit user-initiated actions. For automations or publishing, show draft → pending approval → approved → executed/logged, with the human decision visible. | Browser capture frame or workflow panel based on completed Phase 5 UI. Keep “save” and consequential external actions visually distinct. | Small state transition can show a capture or approval decision; never auto-execute in a marketing animation in a way that implies approval is skipped. |
 | 7. Control your account and data (Phase 6) | Show settings, export, deletion, privacy controls, account/security activity, and billing only where the corresponding behavior and live configuration are complete. Explain what each control does in plain language. | An orderly settings/data-control composition with clear labels and confirmation states; no vague security badges. | Keep privacy choices and destructive-action explanations still and readable. |
@@ -114,7 +113,7 @@ Do not reduce the product's intended feature scope to what happens to be in the 
 
 ### Principle
 
-Motion should make the save → organize → rediscover story easier to follow. The page should feel confident and lively, not like a demo that commandeers scrolling. Keep native browser scrolling and progressive enhancement. Existing Motion and CSS transitions already cover component-level interaction; the proposal is to use GSAP only for a small number of marketing-site timelines/ScrollTrigger beats if those sequences materially improve the story.
+Motion should make the save → organize → rediscover story easier to follow. The page should feel confident and lively without commandeering scrolling. Keep native browser scrolling and progressive enhancement. GSAP and ScrollTrigger provide a short hero entrance, one-time section reveals, and restrained desktop-only decorative parallax. Lenis is not included; native scrolling is already smooth and predictable, and another scroll layer would add little to this design.
 
 ### Proposed motion vocabulary
 
@@ -133,7 +132,7 @@ Motion should make the save → organize → rediscover story easier to follow. 
 - Prefer transforms and opacity. Do not animate layout geometry continuously or run scroll-linked effects on large image/video surfaces without performance review.
 - Mobile defaults to static composition or very small movement; do not assume hover.
 - Reduced-motion preference removes parallax, scrubbed movement, and decorative entrance travel. Keep the final visual state and the complete content visible. A visible site-wide motion control can be considered if persistent animation remains; avoid adding a preference control before there is a real persistent motion system.
-- GSAP setup must be scoped and cleaned up in React. Use the current GSAP `gsap.matchMedia()` API for breakpoint and reduced-motion variants; `ScrollTrigger.matchMedia()` is deprecated. Use `useGSAP()`/`gsap.context()` cleanup patterns. Verify current package and license terms before installing.
+- GSAP setup is scoped and cleaned up in React with `useGSAP()` and `gsap.matchMedia()` variants. Reduced-motion users receive static content. Parallax is decorative and desktop-only.
 
 These constraints follow W3C guidance that interaction-triggered nonessential animation should be disableable and that parallax can cause vestibular symptoms. GSAP's official docs describe ScrollTrigger as trigger/scrub/pin capable and support media-query variants; this proposal uses only the trigger/small-scrub subset. See [W3C Animation from Interactions](https://www.w3.org/WAI/WCAG21/Understanding/animation-from-interactions), [GSAP ScrollTrigger](https://gsap.com/docs/v3/Plugins/ScrollTrigger/), [gsap.matchMedia()](https://gsap.com/docs/v3/GSAP/gsap.matchMedia%28%29/), and [gsap.context()](https://gsap.com/docs/v3/GSAP/gsap.context%28%29/).
 
@@ -145,24 +144,21 @@ Readwise Reader's current documentation shows established read-later expectation
 
 **Already specified by the user:** marketing may use image yellow `#FBE02E`, red-orange `#FD4D1B`, and black text; the product app may use a very light-yellow background, orange accent, and dark/black secondary roles. The app and marketing site remain distinct but related.
 
-**Proposed in this draft:** Space Grotesk + DM Sans roles; `#171411` ink; `#FFF9D9` app canvas; `#FFFEF6` reading surface; the homepage story above; limited GSAP/ScrollTrigger use.
+**Implemented:** Space Grotesk + DM Sans roles; `#171411` ink; `#FBE02E` sun yellow; `#FD4D1B` red-orange; warm-paper sections; the home/features/about/contact story; limited GSAP/ScrollTrigger motion.
 
 **Resolved by the user:** The eventual marketing scope can include features from Phases 4, 5, and 6, and the site can be prepared before those phases finish. All phases must be complete before the site is released to users. The phase-aware release gate above operationalizes that direction.
 
-**Must confirm before production artwork or final copy:** Instagram direct-save versus export-import framing; primary audience; whether real product video is available. The Instagram export visual can proceed as a concept without a video, but a real recording will make a final phone mockup more accurate.
+The user deferred the Instagram scene and future concept for later. No Instagram-specific artwork is part of the current site.
 
 ## Approval questions
 
-1. **Instagram scene:** Should the storyboard show the currently implemented Instagram export/import flow, a future direct share-to-Rembr idea clearly marked as a concept, or avoid Instagram until direct saving exists?
-2. **Primary audience:** Should the home page speak broadly to people saving useful links, or lead with a sharper audience such as creators, students/researchers, or people collecting inspiration?
-If there is a screen recording of the real Instagram export/import or later retrieval flow, send it before the phone mockup is finalized. It is not needed to review this direction.
+The current audience framing remains broad: people who want to keep useful things and find them again. More focused campaign pages can be added later if audience evidence supports them.
 
 ## Approval gate and implementation sequence
 
-1. Review the palette, typography, story, Instagram framing, and audience questions in this document.
-2. After approval, update the canonical marketing positioning/page-map docs and create a small static storyboard or mockup with synthetic data.
-3. Review the desktop/mobile compositions and actual product screenshots; decide if GSAP adds enough value over existing Motion/CSS transitions.
-4. Implement the approved marketing changes; run source checks and viewport/reduced-motion review separately from any live product/provider claims.
+1. Keep the homepage, feature page, about page, and contact page aligned with the implemented visual system.
+2. Revisit Instagram-specific artwork only when requested and when its depiction matches the product state being released.
+3. Before public launch, confirm each Phase 4–6 claim against completed implementation and release gates; the site is not ready for users before all phases are complete.
 
 ## Sources
 

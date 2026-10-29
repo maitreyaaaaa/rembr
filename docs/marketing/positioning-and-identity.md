@@ -1,35 +1,35 @@
 # Rembr marketing positioning and identity
 
-**Status:** Implemented marketing direction, 2026-10-28  
+**Status:** Implemented marketing direction, refreshed 2026-10-29
 **Product evidence:** [Phase 1 implementation record](../rebuild-plan/phase-1-record.md), [current product design brief](../screens/rembr-design-system-brief.md), [phase-gated roadmap](../rebuild-plan/phase-gated-roadmap.md).
 
 ## Position
 
-Rembr is an early personal library for public web pages a person chooses to save and read again. The current promise is intentionally small: submit a public URL, let the service prepare readable text, and return to the saved copy or its original source from a signed-in library.
+Rembr is a personal library for things a person chooses to keep and find again. The marketing story may describe the complete Phase 4–6 product scope because the user plans to finish all phases before launch. Keep each capability clearly within the planned release and do not publish the site to users until every phase and launch gate is complete.
 
 ### What we are
 
 - A personal shelf for selected public pages.
 - A save-and-return workflow that keeps the source link beside extracted text.
-- A focused early product whose limits are visible to visitors.
-- A product whose current implementation is deterministic capture and retrieval, not AI magic.
+- A focused personal library whose saved items keep their source and context.
+- A phased product whose launch claims must match implemented and verified behavior.
 
 ### What we are not
 
-- A bulk crawler, a social-media downloader, or a way to bypass sign-in or paywalls.
+- A bulk crawler, or a way to bypass sign-in or paywalls.
 - A guarantee that every public page can be fetched or extracted perfectly.
 - A browser extension, AI answer engine, semantic search product, or automation platform in this release. Such capabilities must not appear as available product features until they are implemented and verified.
-- A replacement for the original publisher or source; saved text keeps a link to its source.
+- A replacement for the original publisher or source; saved content keeps a link to its source.
 
 ## Audience and message
 
-**Audience:** people who find useful public articles and web pages and want a simple way to return to them.  
-**Primary job:** keep a page for later without depending on an open tab.  
+**Audience:** people who find useful things online and want to return to them.
+**Primary job:** keep something for later with enough context to find it again.
 **Primary action:** open or create a Rembr library.  
 **Secondary action:** learn what the current product supports or send product feedback.
 
 **Core message:** “Keep the good stuff. Find it when you need it.”  
-**Supporting message:** “Save a public page once. Come back to a clean, readable copy with the original link right there.”
+**Supporting message:** “Pages, ideas, and useful threads—kept with their context, ready when you need them.”
 
 ## Voice
 
@@ -39,22 +39,20 @@ Rembr is an early personal library for public web pages a person chooses to save
 - State product limits plainly. Do not use “all your web,” “never lose anything,” “works everywhere,” “private by design,” or unverified performance/security claims.
 - Do not invent pricing, testimonials, supported-site counts, usage figures, availability promises, or team contact details.
 
-## Marketing visual system: Soft Serve Editorial
+## Marketing visual system: Bright archive
 
-The marketing identity is deliberately separate from the Daybreak application palette. It uses a warm paper field with a fine grid, deep plum text, butter-yellow and hot-pink keyword highlights, mint panels, soft paper cards, and an editorial composition. The visual signature is an illustrated saved-page card with overlapping “scoop” shapes and small collectible stickers. It should read as tactile and friendly, not as a literal dessert shop. The headline treatment takes inspiration from [Teak](https://teak.io/?ref=unsection.com); Rembr keeps its own copy, illustration, layout, and identity.
+The marketing identity is deliberately distinct from the application palette. It uses sun yellow, red-orange, ink, warm paper, oversized editorial typography, tactile paper-like geometry, and a bespoke archive illustration. Color sections alternate with warm paper and ink fields to keep the composition readable and avoid a generic white SaaS look. The headline treatment takes broad inspiration from [Teak](https://teak.io/?ref=unsection.com); Rembr keeps its own copy, illustration, layout, and identity.
 
 | Role | Token | Value | Usage |
 |---|---|---|---|
-| Canvas | `--ice-cream` | `#F7F6EF` | Main page background and grid |
-| Surface | `--ice-paper` | `#FFFEFB` | Cards and form surfaces |
-| Text | `--ice-ink` | `#35191F` | Headings, controls, and primary action |
-| Muted text | `--ice-muted` | `#65545A` | Body copy and secondary links |
-| Primary | `--ice-peach` | `#F2DD43` | Main CTA and yellow keyword highlight |
-| Secondary | `--ice-pistachio` | `#C9F1DF` | Announcement bar, panels, and mint keyword highlight |
-| Accent | `--ice-cherry` | `#ED5BA2` | Pink keyword highlight and small accents |
-| Supporting green | `--ice-blueberry` | `#1D8061` | Illustration and focus contrast |
+| Canvas | `--sun` | `#FBE02E` | Hero and selected large panels |
+| Accent | `--orange` | `#FD4D1B` | Emphasis, graphic fields, and selected panels |
+| Text | `--ink` | `#171411` | Headings, body text, controls, outlines |
+| Warm paper | `--paper` | `#FFF9D9` | Breathing space, cards, and footer surfaces |
+| App canvas | App token | `#FFF9D9` | Separate signed-in workspace background |
+| Reading surface | App token | `#FFFEF6` | Saved-item reading and form surfaces |
 
-The application keeps its approved Daybreak palette and type scale. The marketing site uses Space Grotesk Bold for display and DM Sans for body/UI; Integrate is reserved for one highlighted keyword in a heading or subheading. The marketing wordmark uses Space Grotesk. These identities should not bleed into each other through global selectors. An Integrate webfont asset is not currently present in the repository, so the CSS falls back to Space Grotesk until a webfont-licensed asset is supplied. Creative Fabrica lists web-font embedding under its Enterprise Web Font license; do not bundle the font under a license that does not grant that right ([license terms](https://www.creativefabrica.com/enterprise-license/)).
+The app retains its own visual tokens. Marketing uses Space Grotesk Bold for display and DM Sans for body/UI. The marketing wordmark uses Space Grotesk. Keep the two identities isolated through scoped styles. Integrate is not bundled; do not imply it is in use until an appropriately licensed asset is supplied. Creative Fabrica lists web-font embedding under its Enterprise Web Font license ([license terms](https://www.creativefabrica.com/enterprise-license/)).
 
 ## Reference boundary
 
@@ -70,7 +68,8 @@ The user asked whether Rembr could create an original display typeface with a fe
 
 ## Motion and access
 
-- Use short CSS reveal, float, marquee, and card-hover motion to support the soft editorial metaphor.
+- Use a short GSAP hero entrance, one-time section reveals, and subtle desktop-only decorative parallax to make the page feel alive.
+- Keep native scrolling; Lenis is not included because it adds little value for this page and introduces another scroll layer.
 - Respect `prefers-reduced-motion`; motion must not contain essential information.
 - Keep navigation, page content, and form labels available to keyboard and assistive technology users.
 - Recheck text contrast for any palette changes. Do not rely on color alone for product status.
