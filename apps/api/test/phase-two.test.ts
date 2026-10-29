@@ -9,6 +9,7 @@ import { test } from 'node:test';
 import { createApp } from '../src/app.js';
 import { createTestDatabase } from '../src/db/database.js';
 import { AI_SEARCH_DISCLOSURE_VERSION } from '../src/knowledge/ai-search-preferences.js';
+import { MetaApiError } from '../src/ai/meta-client.js';
 import { recoverAssets } from '../src/assets/recovery.js';
 import { LocalAssetStorage } from '../src/assets/storage.js';
 
@@ -244,6 +245,8 @@ test('Phase 4 grounded answers require separate consent and only retain citation
 test('Phase 4 saved-item summaries are user-triggered, consent-gated, owner-scoped, bounded, and accounted', async () => {
   let modelCalls = 0;
   let prompt = '';
+  let providerAvailable = false;
+  let responseMode: 'success' | 'uncertain' | 'invalid' = 'success';
   await withApi(async (baseUrl, database) => {
     const owner = await register(baseUrl, 'saved-summary-owner@example.test');
     const other = await register(baseUrl, 'saved-summary-other@example.test');
@@ -275,6 +278,12 @@ test('Phase 4 saved-item summaries are user-triggered, consent-gated, owner-scop
       method: 'PUT', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled: true, disclosureVersion: AI_SEARCH_DISCLOSURE_VERSION }),
     });
+    const unavailableSummary = await fetch(`${baseUrl}/api/knowledge/items/${item.id}/summary`, {
+      method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({}),
+    });
+    assert.equal(unavailableSummary.status, 503);
+    assert.equal((await unavailableSummary.json() as { error: { code: string } }).error.code, 'ai_provider_unavailable');
+    providerAvailable = true;
     const generated = await fetch(`${baseUrl}/api/knowledge/items/${item.id}/summary`, {
       method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({}),
     });
@@ -313,9 +322,45 @@ test('Phase 4 saved-item summaries are user-triggered, consent-gated, owner-scop
     assert.equal(Number(usage.reserved_microusd), 0);
     const columns = await database.prepare(`SELECT column_name FROM information_schema.columns WHERE table_name='ai_saved_item_summaries'`).all() as Array<{ column_name: string }>;
     assert.equal(columns.some(({ column_name }) => column_name.includes('source_text')), false);
-  }, { providerAvailable: async () => true, answerModel: {
+    providerAvailable = false;
+    const ask = () => fetch(`${baseUrl}/api/knowledge/answer`, {
+      method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: 'garden project' }),
+    });
+    const unavailableAnswer = await ask();
+    const unavailableBody = await unavailableAnswer.json() as { mode: string; citations: Array<{ id: string }> };
+    assert.equal(unavailableBody.mode, 'lexical-excerpts');
+    assert.deepEqual(unavailableBody.citations.map(({ id }) => id), [item.id]);
+    assert.equal(modelCalls, 2);
+
+    providerAvailable = true;
+    responseMode = 'uncertain';
+    const uncertainAnswer = await ask();
+    const uncertainBody = await uncertainAnswer.json() as { mode: string; citations: Array<{ id: string }>; answer: string };
+    assert.equal(uncertainBody.mode, 'lexical-excerpts');
+    assert.deepEqual(uncertainBody.citations.map(({ id }) => id), [item.id]);
+    assert.match(uncertainAnswer.headers.get('x-rembr-ai-fallback') ?? '', /status is unknown/i);
+    assert.doesNotMatch(uncertainBody.answer, /private provider diagnostic/);
+    const uncertainReservations = await database.prepare(`SELECT count(*) AS count FROM ai_search_usage_reservations WHERE status='held'`).get() as { count: number };
+    assert.equal(uncertainReservations.count, 1);
+
+    responseMode = 'invalid';
+    const invalidAnswer = await ask();
+    const invalidBody = await invalidAnswer.json() as { mode: string; citations: Array<{ id: string }> };
+    assert.equal(invalidBody.mode, 'lexical-excerpts');
+    assert.deepEqual(invalidBody.citations.map(({ id }) => id), [item.id]);
+    assert.match(invalidAnswer.headers.get('x-rembr-ai-fallback') ?? '', /Grounded AI is unavailable/i);
+
+    assert.equal((await database.prepare('SELECT count(*) AS count FROM ai_saved_item_summaries').get() as { count: number }).count, 2);
+    assert.equal(modelCalls, 4);
+  }, { providerAvailable: async () => providerAvailable, answerModel: {
     countTextInputTokens: async () => 100,
-    analyzeText: async (value) => { modelCalls += 1; prompt = value; return { text: JSON.stringify({ summary: 'A concise summary grounded in the saved source.' }), inputTokens: 100, outputTokens: 10 }; },
+    analyzeText: async (value) => {
+      modelCalls += 1; prompt = value;
+      if (responseMode === 'uncertain') throw new MetaApiError('outcome_unknown', 'private provider diagnostic', { retryable: false, outcomeUnknown: true });
+      if (responseMode === 'invalid') return { text: 'not-json', inputTokens: 100, outputTokens: 10 };
+      return { text: JSON.stringify({ summary: 'A concise summary grounded in the saved source.' }), inputTokens: 100, outputTokens: 10 };
+    },
   } });
 });
 
