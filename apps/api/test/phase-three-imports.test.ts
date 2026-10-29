@@ -67,6 +67,47 @@ test('Phase 3 import manifests precede chunks, auto-queue parsed items, deduplic
     assert.equal(imported.import.cleanup_status, 'complete');
     assert.equal(imported.entries[0]?.status, 'queued');
     assert.equal((await database.prepare('SELECT count(*) AS count FROM processing_jobs').get() as { count: number }).count, 1);
+    const progressResponse = await fetch(`${baseUrl}/api/imports/${manifest.importId}/progress`, { headers: { Cookie: owner } });
+    assert.equal(progressResponse.status, 200);
+    const progress = (await progressResponse.json() as { progress: Record<string, number | string> }).progress;
+    assert.deepEqual(progress, {
+      importId: manifest.importId,
+      status: 'queued',
+      total: 1,
+      settled: 0,
+      saved: 0,
+      paused: 0,
+      queued: 1,
+      processing: 0,
+      retryWaiting: 0,
+      failed: 0,
+      cancelled: 0,
+      parseFailed: 0,
+    });
+    const pausedAt = new Date().toISOString();
+    await database.prepare(`INSERT INTO job_pause_states (owner_id,job_id,pause_cause,paused_at)
+      SELECT owner_id,id,'operator',? FROM processing_jobs WHERE import_id=?`).run(pausedAt, manifest.importId);
+    const pausedProgress = (await (await fetch(`${baseUrl}/api/imports/${manifest.importId}/progress`, { headers: { Cookie: owner } })).json() as { progress: { paused: number; queued: number; settled: number } }).progress;
+    assert.deepEqual({ paused: pausedProgress.paused, queued: pausedProgress.queued, settled: pausedProgress.settled }, { paused: 1, queued: 0, settled: 0 });
+    await database.prepare('DELETE FROM job_pause_states WHERE job_id=(SELECT id FROM processing_jobs WHERE import_id=?)').run(manifest.importId);
+    await database.prepare(`UPDATE processing_jobs SET status='partial' WHERE import_id=?`).run(manifest.importId);
+    const settledProgress = (await (await fetch(`${baseUrl}/api/imports/${manifest.importId}/progress`, { headers: { Cookie: owner } })).json() as { progress: { saved: number; settled: number; processing: number } }).progress;
+    assert.deepEqual({ saved: settledProgress.saved, settled: settledProgress.settled, processing: settledProgress.processing }, { saved: 1, settled: 1, processing: 0 });
+    await database.prepare(`UPDATE processing_jobs SET status='retry_wait' WHERE import_id=?`).run(manifest.importId);
+    const retryProgress = (await (await fetch(`${baseUrl}/api/imports/${manifest.importId}/progress`, { headers: { Cookie: owner } })).json() as { progress: { retryWaiting: number; settled: number } }).progress;
+    assert.deepEqual({ retryWaiting: retryProgress.retryWaiting, settled: retryProgress.settled }, { retryWaiting: 1, settled: 0 });
+    await database.prepare(`UPDATE processing_jobs SET status='processing' WHERE import_id=?`).run(manifest.importId);
+    const processingProgress = (await (await fetch(`${baseUrl}/api/imports/${manifest.importId}/progress`, { headers: { Cookie: owner } })).json() as { progress: { processing: number; settled: number } }).progress;
+    assert.deepEqual({ processing: processingProgress.processing, settled: processingProgress.settled }, { processing: 1, settled: 0 });
+    await database.prepare(`UPDATE processing_jobs SET status='failed' WHERE import_id=?`).run(manifest.importId);
+    const failedProgress = (await (await fetch(`${baseUrl}/api/imports/${manifest.importId}/progress`, { headers: { Cookie: owner } })).json() as { progress: { failed: number; settled: number; saved: number } }).progress;
+    assert.deepEqual({ failed: failedProgress.failed, settled: failedProgress.settled, saved: failedProgress.saved }, { failed: 1, settled: 1, saved: 0 });
+    await database.prepare(`UPDATE processing_jobs SET status='cancelled' WHERE import_id=?`).run(manifest.importId);
+    const cancelledProgress = (await (await fetch(`${baseUrl}/api/imports/${manifest.importId}/progress`, { headers: { Cookie: owner } })).json() as { progress: { cancelled: number; settled: number } }).progress;
+    assert.deepEqual({ cancelled: cancelledProgress.cancelled, settled: cancelledProgress.settled }, { cancelled: 1, settled: 1 });
+
+    const otherOwner = await register(baseUrl, 'other-importer@example.test', 'other_importer');
+    assert.equal((await fetch(`${baseUrl}/api/imports/${manifest.importId}/progress`, { headers: { Cookie: otherOwner } })).status, 404);
     const saved = await fetch(`${baseUrl}/api/items?search=Saved%20pin`, { headers: { Cookie: owner } });
     assert.equal((await saved.json() as { items: Array<{ title: string; kind: string }> }).items[0]?.title, 'Saved pin');
 
@@ -78,6 +119,8 @@ test('Phase 3 import manifests precede chunks, auto-queue parsed items, deduplic
     assert.equal(await service.processNextImport(), secondManifest.importId);
     const duplicateDetail = await (await fetch(`${baseUrl}/api/imports/${secondManifest.importId}`, { headers: { Cookie: owner } })).json() as { import: { status: string; new_count: number; duplicate_count: number } };
     assert.equal(duplicateDetail.import.status, 'completed');
+    const duplicateProgress = (await (await fetch(`${baseUrl}/api/imports/${secondManifest.importId}/progress`, { headers: { Cookie: owner } })).json() as { progress: { total: number; settled: number; parseFailed: number; status: string } }).progress;
+    assert.deepEqual({ total: duplicateProgress.total, settled: duplicateProgress.settled, parseFailed: duplicateProgress.parseFailed, status: duplicateProgress.status }, { total: 0, settled: 0, parseFailed: 0, status: 'completed' });
     assert.equal(duplicateDetail.import.new_count, 0);
     assert.equal(duplicateDetail.import.duplicate_count, 1);
     assert.equal((await database.prepare('SELECT count(*) AS count FROM processing_jobs').get() as { count: number }).count, 1);

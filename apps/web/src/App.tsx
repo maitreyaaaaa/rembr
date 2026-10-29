@@ -6,6 +6,7 @@ import {
 import { MarketingSite } from './MarketingSite.js';
 import { AvatarUpload } from './components/AvatarUpload.js';
 import { PasswordStrengthField } from './components/PasswordStrengthField.js';
+import { Progress } from './components/ui/progress.js';
 
 type Status = 'queued' | 'processing' | 'retry_wait' | 'cancel_requested' | 'cancelled' | 'paused' | 'partial' | 'ready' | 'failed';
 interface User { id: string; email: string }
@@ -343,6 +344,7 @@ function AddPage() {
 interface ImportSummary { id: string; status: string; source: string; file_count: number; parsed_count: number; new_count: number; duplicate_count: number; skipped_count: number; failed_count: number; cleanup_status: string; error_code: string | null; created_at: string }
 interface ImportEntry { id: string; item_id: string | null; source_platform: string; source_url: string | null; source_id: string | null; title: string; status: string; error_code: string | null }
 const activeImportStatuses = new Set(['uploading', 'staged', 'parsing', 'queued', 'processing']);
+interface ImportProgress { importId: string; status: string; total: number; settled: number; saved: number; paused: number; queued: number; processing: number; retryWaiting: number; failed: number; cancelled: number; parseFailed: number }
 function ImportStatusLabel({ status }: { status: string }) { return <span className={`status status-${status}`}>{status.replaceAll('_', ' ')}</span>; }
 
 function ImportsPage() {
@@ -356,15 +358,117 @@ function ImportsPage() {
 }
 
 function ImportDetailPage() {
-  const { importId = '' } = useParams(); const [result, setResult] = useState<{ import: ImportSummary & { total_bytes: number; request_id: string }; entries: ImportEntry[] } | null>(null); const [loading, setLoading] = useState(true); const [error, setError] = useState('');
-  const load = useCallback(async (quiet = false) => { if (!quiet) setLoading(true); try { setResult(await api<{ import: ImportSummary & { total_bytes: number; request_id: string }; entries: ImportEntry[] }>(`/api/imports/${encodeURIComponent(importId)}`)); setError(''); } catch (cause) { setError(messageOf(cause, 'Could not load this import.')); } finally { if (!quiet) setLoading(false); } }, [importId]);
+  const { importId = '' } = useParams();
+  const [result, setResult] = useState<{ import: ImportSummary & { total_bytes: number; request_id: string }; entries: ImportEntry[] } | null>(null);
+  const [progress, setProgress] = useState<ImportProgress | null>(null);
+  const [progressStale, setProgressStale] = useState(false);
+  const [progressAnnouncement, setProgressAnnouncement] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const load = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
+    try {
+      setResult(await api<{ import: ImportSummary & { total_bytes: number; request_id: string }; entries: ImportEntry[] }>(`/api/imports/${encodeURIComponent(importId)}`));
+      setError('');
+    } catch (cause) {
+      setError(messageOf(cause, 'Could not load this import.'));
+    } finally {
+      if (!quiet) setLoading(false);
+    }
+  }, [importId]);
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { if (!result || !activeImportStatuses.has(result.import.status)) return undefined; const timer = window.setInterval(() => { void load(true); }, 2000); return () => window.clearInterval(timer); }, [result, load]);
+  useEffect(() => {
+    if (!result) return undefined;
+    let alive = true;
+    let inFlight = false;
+    let pollWhenAvailable = false;
+    let timer: number | undefined;
+    let failures = 0;
+    let observedStatus = result.import.status;
+    const pageIsVisible = () => document.visibilityState !== 'hidden';
+    const poll = async () => {
+      if (!alive || !pageIsVisible()) return;
+      if (inFlight) {
+        pollWhenAvailable = true;
+        return;
+      }
+      inFlight = true;
+      pollWhenAvailable = false;
+      let nextDelay = 1000;
+      try {
+        const latest = (await api<{ progress: ImportProgress }>(`/api/imports/${encodeURIComponent(importId)}/progress`)).progress;
+        setProgress(latest);
+        setProgressStale(false);
+        failures = 0;
+        setResult((current) => current && (current.import.status !== latest.status || current.import.failed_count !== latest.parseFailed)
+          ? { ...current, import: { ...current.import, status: latest.status, failed_count: latest.parseFailed } }
+          : current);
+        const parsingFinished = ['uploading', 'staged', 'parsing'].includes(observedStatus)
+          && ['queued', 'processing', 'completed', 'partial', 'failed'].includes(latest.status);
+        const becameTerminal = activeImportStatuses.has(observedStatus) && !activeImportStatuses.has(latest.status);
+        if (becameTerminal) {
+          setProgressAnnouncement(`Import finished: ${latest.saved.toLocaleString()} saved, ${latest.failed.toLocaleString()} failed, ${latest.cancelled.toLocaleString()} canceled.`);
+        }
+        observedStatus = latest.status;
+        if (parsingFinished && result.entries.length === 0) await load(true);
+        if (!activeImportStatuses.has(latest.status)) return;
+      } catch {
+        setProgressStale(true);
+        failures += 1;
+        nextDelay = Math.min(10_000, 1000 * (2 ** Math.min(failures, 3)));
+      } finally {
+        inFlight = false;
+        if (alive && pageIsVisible() && activeImportStatuses.has(observedStatus)) {
+          timer = window.setTimeout(() => void poll(), pollWhenAvailable ? 0 : nextDelay);
+          pollWhenAvailable = false;
+        }
+      }
+    };
+    const onVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        if (timer !== undefined) window.clearTimeout(timer);
+        timer = undefined;
+      } else {
+        if (timer !== undefined) window.clearTimeout(timer);
+        timer = undefined;
+        void poll();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    if (pageIsVisible()) void poll();
+    return () => {
+      alive = false;
+      if (timer !== undefined) window.clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+    };
+  }, [importId, result?.import.status, load]);
   if (loading) return <div className="phase2-state" role="status">Loading import…</div>;
   if (error || !result) return <ErrorState message={error || 'This import was not found.'} />;
+  const needsProgress = activeImportStatuses.has(result.import.status);
+  const totalFailures = progress ? progress.failed + progress.parseFailed : result.import.failed_count;
   return <><div className="phase2-back"><Link to="/app/imports">← Back to imports</Link></div><PageHeader eyebrow={`${result.import.source} export`} title="Import details" description={`${result.import.file_count} files · ${(result.import.total_bytes / (1024 * 1024)).toFixed(1)} MiB`} actions={<ImportStatusLabel status={result.import.status} />} />
-    <section className="phase2-panel"><h2>Results</h2><div className="phase2-filter-summary"><p>{result.import.parsed_count} parsed · {result.import.new_count} queued · {result.import.duplicate_count} duplicates · {result.import.failed_count} failed</p><p>Raw file cleanup: {result.import.cleanup_status}</p>{result.import.error_code && <p className="notice error">{result.import.error_code.replaceAll('_', ' ')}</p>}</div></section>
-    <section className="phase2-panel"><h2>Imported links</h2>{result.entries.length ? <ul className="item-list">{result.entries.map((entry) => <li className="item-card" key={entry.id}><div className="item-main"><div className="item-info"><p className="item-domain">{entry.source_platform}{entry.source_id ? ` · ${entry.source_id}` : ''}</p>{entry.item_id ? <Link className="item-title" to={`/app/items/${encodeURIComponent(entry.item_id)}`}>{entry.title || entry.source_url}</Link> : <span className="item-title">{entry.title || entry.source_url || 'Unrecognized export row'}</span>}{entry.source_url && <p className="item-description">{entry.source_url}</p>}{entry.error_code && <p className="item-description">{entry.error_code.replaceAll('_', ' ')}</p>}</div><div className="item-actions"><ImportStatusLabel status={entry.status} /></div></div></li>)}</ul> : <div className="phase2-state">Parsing is underway. Results will appear here automatically.</div>}</section>
+    <section className="phase2-panel"><h2>Results</h2>
+      {progress && progress.total > 0 && !['uploading', 'staged', 'parsing'].includes(progress.status) ? <div className="import-progress">
+        <Progress value={progress.settled} max={progress.total} label={`${progress.settled.toLocaleString()} of ${progress.total.toLocaleString()} saves processed`} showValue />
+        <div className="import-progress-counts" aria-label="Import status counts">
+          <span><strong>{progress.saved.toLocaleString()}</strong> saved</span>
+          {progress.queued > 0 && <span><strong>{progress.queued.toLocaleString()}</strong> queued</span>}
+          {progress.processing > 0 && <span><strong>{progress.processing.toLocaleString()}</strong> processing</span>}
+          {progress.retryWaiting > 0 && <span><strong>{progress.retryWaiting.toLocaleString()}</strong> waiting to retry</span>}
+          {progress.paused > 0 && <span><strong>{progress.paused.toLocaleString()}</strong> paused</span>}
+          {progress.failed > 0 && <span><strong>{progress.failed.toLocaleString()}</strong> failed</span>}
+          {progress.cancelled > 0 && <span><strong>{progress.cancelled.toLocaleString()}</strong> canceled</span>}
+        </div>
+      </div> : <p className="phase2-helper" role="status">{needsProgress ? 'Preparing your import…' : 'No new saves to process.'}</p>}
+      <span className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">{progressAnnouncement}</span>
+      <div className="phase2-filter-summary import-progress-summary">
+        <p>{result.import.parsed_count.toLocaleString()} parsed · {result.import.duplicate_count.toLocaleString()} duplicates · {totalFailures.toLocaleString()} failed</p>
+        <p>Raw file cleanup: {result.import.cleanup_status}</p>
+        {progressStale && <p className="import-progress-stale" role="status">Live status is temporarily unavailable. Showing the last update.</p>}
+        {result.import.error_code && <p className="notice error">{result.import.error_code.replaceAll('_', ' ')}</p>}
+      </div>
+    </section>
+    <section className="phase2-panel"><h2>Imported links</h2>{result.entries.length ? <ul className="item-list">{result.entries.map((entry) => <li className="item-card" key={entry.id}><div className="item-main"><div className="item-info"><p className="item-domain">{entry.source_platform}{entry.source_id ? ` · ${entry.source_id}` : ''}</p>{entry.item_id ? <Link className="item-title" to={`/app/items/${encodeURIComponent(entry.item_id)}`}>{entry.title || entry.source_url}</Link> : <span className="item-title">{entry.title || entry.source_url || 'Unrecognized export row'}</span>}{entry.source_url && <p className="item-description">{entry.source_url}</p>}{entry.error_code && <p className="item-description">{entry.error_code.replaceAll('_', ' ')}</p>}</div><div className="item-actions"><ImportStatusLabel status={entry.status} /></div></div></li>)}</ul> : <div className="phase2-state">{activeImportStatuses.has(result.import.status) ? 'Parsing is underway. Results will appear here automatically.' : 'No imported links were created for this file.'}</div>}</section>
   </>;
 }
 

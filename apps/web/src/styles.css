@@ -136,21 +136,19 @@ h1, h2, h3, p { margin-top: 0; }
 .password-strength-field > label { margin-top: 4px; color: var(--text); font-size: 12px; font-weight: 750; }
 .password-strength-line { display: flex; align-items: center; gap: 10px; }
 .password-meter { display: grid; min-width: 0; flex: 1; grid-template-columns: repeat(4, 1fr); gap: 5px; }
-.password-meter span { height: 5px; border-radius: 99px; background: #e4e5e8; transition: background-color 180ms ease; }
-.password-meter.level-1 .filled { background: var(--danger); }
+.password-meter span { height: 5px; border-radius: 99px; background: #e4e5e8; transition: background-color 220ms ease; }
+.password-meter.level-0[data-has-value='true'] span:first-child, .password-meter.level-1 .filled { background: var(--danger); }
 .password-meter.level-2 .filled { background: var(--warning); }
 .password-meter.level-3 .filled { background: var(--primary); }
 .password-meter.level-4 .filled { background: var(--success); }
-.password-strength-label { min-width: 74px; color: var(--muted); font-size: 10px; font-weight: 750; text-align: right; }
-.password-strength-label.level-1 { color: var(--danger); }
+.password-strength-label { min-width: 88px; color: var(--muted); font-size: 10px; font-weight: 750; text-align: right; }
+.password-strength-label.level-0, .password-strength-label.level-1 { color: var(--danger); }
 .password-strength-label.level-2 { color: var(--warning); }
 .password-strength-label.level-3 { color: var(--primary); }
 .password-strength-label.level-4 { color: var(--success); }
-.password-rules { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 7px 12px; margin: 0; padding: 0; color: var(--muted); font-size: 10px; list-style: none; }
-.password-rules li { display: flex; align-items: start; gap: 6px; line-height: 1.4; }
-.password-rules li > span { flex: 0 0 auto; color: var(--muted); }
-.password-rules li.met, .password-rules li.met > span { color: var(--success); }
-.password-rules li.met > span { font-weight: 800; }
+.password-policy, .password-feedback { margin: -4px 0 0; color: var(--danger); font-size: 10px; line-height: 1.45; }
+.password-policy.met { color: var(--success); }
+.password-feedback { color: var(--muted); }
 .avatar-upload { display: grid; gap: 15px; padding: 22px; border: 1px solid var(--line); border-radius: 22px; background: var(--surface); color: var(--text); box-shadow: 0 8px 28px rgb(21 24 39 / 5%); transition: background-color 240ms ease, border-color 240ms ease, box-shadow 280ms ease; }
 .avatar-upload-heading h2 { margin: 0 0 3px; color: var(--text); font-family: var(--font-display); font-size: 16px; font-weight: 700; letter-spacing: -.02em; }
 .avatar-upload-heading p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.5; }
@@ -332,9 +330,7 @@ h1, h2, h3, p { margin-top: 0; }
   .stack-form { gap: 7px; }
   .stack-form .primary-button { min-height: 46px; }
   .password-strength-field { gap: 6px; }
-  .password-rules { gap: 4px 8px; font-size: 9px; }
   .privacy-note { font-size: 10px; }
-  .password-rules { grid-template-columns: 1fr; }
   .avatar-upload-main { align-items: flex-start; gap: 12px; }
   .avatar-preview { width: 72px; height: 72px; }
   .avatar-crop-body { grid-template-columns: minmax(0, 1fr); justify-items: center; gap: 15px; }
@@ -392,6 +388,10 @@ h1, h2, h3, p { margin-top: 0; }
 .phase2-filter-summary p { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
 .phase2-filter-summary strong { color: var(--text); font-weight: 700; }
 .phase2-filter-summary .phase2-text-button { flex: 0 0 auto; justify-self: auto; padding: 6px 0; }
+.import-progress { margin: 2px 0 16px; }
+.import-progress-counts { display: flex; flex-wrap: wrap; gap: 8px 18px; margin-top: 12px; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.import-progress-counts strong { color: var(--text); font-variant-numeric: tabular-nums; }
+.import-progress-stale { color: var(--warning) !important; }
 .phase2-retry-notice { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .phase2-retry-notice .quiet-button { flex: 0 0 auto; }
 .phase2-panel .item-list { margin-top: 16px; }

@@ -74,6 +74,24 @@ export function createImportRepository(database: DatabaseHandle) {
         FROM imports WHERE owner_id=? AND id=?`).get(ownerId, importId) as Record<string, unknown> | undefined;
     },
 
+    async progress(ownerId: string, importId: string) {
+      return await database.prepare(`SELECT i.id AS "importId",i.status,i.failed_count AS "parseFailed",
+          COUNT(j.id) AS total,
+          SUM(CASE WHEN j.status IN ('completed','partial','failed','cancelled') THEN 1 ELSE 0 END) AS settled,
+          SUM(CASE WHEN j.status IN ('completed','partial') THEN 1 ELSE 0 END) AS saved,
+          SUM(CASE WHEN p.job_id IS NOT NULL THEN 1 ELSE 0 END) AS paused,
+          SUM(CASE WHEN j.status='queued' AND p.job_id IS NULL THEN 1 ELSE 0 END) AS queued,
+          SUM(CASE WHEN j.status IN ('processing','cancel_requested') AND p.job_id IS NULL THEN 1 ELSE 0 END) AS processing,
+          SUM(CASE WHEN j.status='retry_wait' AND p.job_id IS NULL THEN 1 ELSE 0 END) AS "retryWaiting",
+          SUM(CASE WHEN j.status='failed' THEN 1 ELSE 0 END) AS failed,
+          SUM(CASE WHEN j.status='cancelled' THEN 1 ELSE 0 END) AS cancelled
+        FROM imports i
+        LEFT JOIN processing_jobs j ON j.owner_id=i.owner_id AND j.import_id=i.id
+        LEFT JOIN job_pause_states p ON p.owner_id=j.owner_id AND p.job_id=j.id
+        WHERE i.owner_id=? AND i.id=?
+        GROUP BY i.id,i.status,i.failed_count`).get(ownerId, importId) as Record<string, unknown> | undefined;
+    },
+
     async files(ownerId: string, importId: string) {
       return await database.prepare(`SELECT id,original_name,extension,declared_mime,expected_bytes,received_bytes,
           chunk_count,chunks_received,storage_key,state FROM import_upload_files

@@ -8,6 +8,21 @@ export class ImportServiceError extends Error {
   constructor(readonly code: string) { super(code); this.name = 'ImportServiceError'; }
 }
 
+export interface ImportProgress {
+  importId: string;
+  status: string;
+  total: number;
+  settled: number;
+  saved: number;
+  paused: number;
+  queued: number;
+  processing: number;
+  retryWaiting: number;
+  failed: number;
+  cancelled: number;
+  parseFailed: number;
+}
+
 export const IMPORT_FILE_LIMIT = 25 * 1024 * 1024;
 export const IMPORT_TOTAL_LIMIT = 100 * 1024 * 1024;
 
@@ -136,6 +151,25 @@ export function createImportService(database: DatabaseHandle, storage: ImportSto
     async get(ownerId: string, importId: string) {
       const data = await repository.owned(ownerId, importId);
       return data ? { import: data, entries: await repository.listEntries(ownerId, importId) } : null;
+    },
+
+    async progress(ownerId: string, importId: string): Promise<ImportProgress | null> {
+      const row = await repository.progress(ownerId, importId);
+      if (!row) return null;
+      return {
+        importId: String(row.importId),
+        status: String(row.status),
+        total: Number(row.total ?? 0),
+        settled: Number(row.settled ?? 0),
+        saved: Number(row.saved ?? 0),
+        paused: Number(row.paused ?? 0),
+        queued: Number(row.queued ?? 0),
+        processing: Number(row.processing ?? 0),
+        retryWaiting: Number(row.retryWaiting ?? 0),
+        failed: Number(row.failed ?? 0),
+        cancelled: Number(row.cancelled ?? 0),
+        parseFailed: Number(row.parseFailed ?? 0),
+      };
     },
 
     list(ownerId: string) { return repository.list(ownerId); },

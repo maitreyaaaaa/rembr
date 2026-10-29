@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
+import bcrypt from 'bcryptjs';
 import { once } from 'node:events';
 import type { AddressInfo } from 'node:net';
 import { test } from 'node:test';
@@ -90,6 +91,61 @@ test('session cookie is HttpOnly and a signed-out session is immediately revoked
     assert.equal(login.status, 200);
     assert.match(login.headers.get('set-cookie') ?? '', /HttpOnly/i);
     assert.match(login.headers.get('set-cookie') ?? '', /SameSite=Lax/i);
+  });
+});
+
+test('registration uses the 15-code-point policy, blocks common/contextual passwords, and preserves full Unicode input', async () => {
+  await withApi(async (baseUrl, database) => {
+    const registerRaw = (email: string, value: string) => fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST',
+      headers: { Origin: origin, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password: value }),
+    });
+
+    const short = await registerRaw('short@example.test', 'Cedar river!!!');
+    assert.equal(short.status, 400);
+    assert.equal((await short.json() as { error: { code: string } }).error.code, 'password_too_short');
+
+    const normalizedShort = await registerRaw('normalized-short@example.test', 'e\u0301'.repeat(8));
+    assert.equal(normalizedShort.status, 400);
+    assert.equal((await normalizedShort.json() as { error: { code: string } }).error.code, 'password_too_short');
+
+    const common = await registerRaw('common@example.test', 'passwordpassword');
+    assert.equal(common.status, 400);
+    assert.equal((await common.json() as { error: { code: string } }).error.code, 'password_blocklisted');
+
+    const contextual = await registerRaw('maitreya@example.test', 'maitreya1234567');
+    assert.equal(contextual.status, 400);
+    assert.equal((await contextual.json() as { error: { code: string } }).error.code, 'password_blocklisted');
+
+    const longUnicode = '界'.repeat(30);
+    assert.ok(Buffer.byteLength(longUnicode) > 72);
+    const created = await registerRaw('unicode@example.test', longUnicode);
+    assert.equal(created.status, 201);
+    const stored = await database.prepare('SELECT password_hash FROM users WHERE email=?').get('unicode@example.test') as { password_hash: string };
+    assert.match(stored.password_hash, /^\$argon2id\$/);
+
+    const login = (value: string) => fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { Origin: origin, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'unicode@example.test', password: value }),
+    });
+    assert.equal((await login(longUnicode)).status, 200);
+    assert.equal((await login(`${'界'.repeat(24)}different-suffix`)).status, 401);
+  });
+});
+
+test('legacy bcrypt password hashes remain verifiable during the new-hash rollout', async () => {
+  await withApi(async (baseUrl, database) => {
+    const legacyPassword = 'legacy-password-is-long-enough';
+    await database.prepare('INSERT INTO users (id,email,password_hash,created_at) VALUES (?,?,?,?)')
+      .run('legacy-user', 'legacy@example.test', await bcrypt.hash(legacyPassword, 12), new Date().toISOString());
+    const response = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { Origin: origin, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'legacy@example.test', password: legacyPassword }),
+    });
+    assert.equal(response.status, 200);
   });
 });
 

@@ -22,6 +22,10 @@ export function createImportRouter(database: DatabaseHandle, assetStorage: Asset
     const result = await imports.get(req.user!.id, param(req, 'id'));
     return result ? res.json(result) : fail(res, 404, 'not_found', 'Import not found.', req.requestId);
   });
+  router.get('/imports/:id/progress', signedIn, profile, async (req, res) => {
+    const progress = await imports.progress(req.user!.id, param(req, 'id'));
+    return progress ? res.json({ progress }) : fail(res, 404, 'not_found', 'Import not found.', req.requestId);
+  });
 
   router.post('/imports/:id/cancel', signedIn, profile, async (req, res) => {
     try {

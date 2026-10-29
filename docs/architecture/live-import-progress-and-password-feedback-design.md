@@ -1,6 +1,6 @@
 # Live Import Progress and Password Feedback
 
-**Status:** Proposed; awaiting product approval before implementation  
+**Status:** Approved for implementation
 **Date:** 2026-10-29  
 **Scope:** Import detail progress display and account-creation password guidance/policy
 
@@ -57,10 +57,10 @@ Parsing failures with no processing job remain represented by the import summary
 
 ### User-facing behavior and policy
 
-- On each input change, run a local zxcvbn-style guessability estimator and update the meter, label, and accessible value. Use the estimator's score as guidance (for example, very weak through strong), not as a security guarantee or a substitute for server rules.
+- On each input change, run the local zxcvbn-ts guessability estimator and update the meter, label, and accessible value. Use the estimator's score as guidance (for example, very weak through strong), not as a security guarantee or a substitute for server rules.
 - Show the selected account policy separately: minimum 15 Unicode code points. Remove the uppercase/lowercase/number/symbol requirements. Preserve show/hide, paste, password manager autofill, and a generous maximum of at least 64 characters; retain the existing 128-character UI/API cap unless implementation finds an encoding or hashing constraint that warrants a separate decision.
 - Do not send the password to an estimator service, Render API, analytics, telemetry, or logs. The password is sent only through the existing authenticated HTTPS registration request to the Rembr API, where registration validation, blocklist checks, and hashing occur.
-- The API requires at least 15 Unicode code points and compares the full, untruncated secret against a versioned server-side blocklist of common, expected, and compromised passwords, including Rembr-specific context such as the email local part and service name. Rejection returns a safe actionable validation message; do not return the matched blocklist entry. Rate limiting remains in force.
+- The API requires at least 15 Unicode code points and compares the full, untruncated secret against a versioned bundled common-password dictionary plus predictable derivatives of Rembr and the email local part. Rejection returns a safe actionable validation message; do not return the matched blocklist entry. Rate limiting remains in force. This local blocklist does not claim complete coverage of every password in every breach corpus.
 - The local estimator must not silently impose an additional score threshold that contradicts the published 15-character rule. It provides guidance; server policy and blocklist decide acceptance.
 
 ### Hashing and compatibility

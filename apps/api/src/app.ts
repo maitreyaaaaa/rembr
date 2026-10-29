@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import bcrypt from 'bcryptjs';
 import { rateLimit } from 'express-rate-limit';
 import express, { type ErrorRequestHandler, type RequestHandler } from 'express';
 import helmet from 'helmet';
@@ -19,10 +18,12 @@ import { LocalMediaStorage, type MediaStorage } from './media/storage.js';
 import type { DatabaseHandle } from './db/database.js';
 import { CaptureError, validatePublicUrl } from './items/safe-fetch.js';
 import { createLibraryService } from './library/service.js';
+import { countPasswordCodePoints, hashNewPassword, validateNewPassword, verifyPassword } from './auth/passwords.js';
 
 const emailSchema = z.string().trim().email().max(254).transform((email) => email.toLowerCase());
-const registerSchema = z.object({ email: emailSchema, password: z.string().min(12).max(128) }).strict();
-const loginSchema = z.object({ email: emailSchema, password: z.string().min(1).max(128) }).strict();
+const passwordSchema = z.string().refine((password) => countPasswordCodePoints(password) <= 128);
+const registerSchema = z.object({ email: emailSchema, password: passwordSchema }).strict();
+const loginSchema = z.object({ email: emailSchema, password: passwordSchema.refine((password) => countPasswordCodePoints(password) > 0) }).strict();
 const captureSchema = z.object({ url: z.string().trim().min(8).max(2048) }).strict();
 
 function errorResponse(code: string, message: string, requestId?: string) {
@@ -66,12 +67,22 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
   app.post('/api/auth/register', authLimiter, async (req, res, next) => {
     const parsed = registerSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json(errorResponse('invalid_input', 'Use a valid email and a password with at least 12 characters.', req.requestId));
+      res.status(400).json(errorResponse('invalid_input', 'Use a valid email and a password of up to 128 characters.', req.requestId));
+      return;
+    }
+    const passwordValidation = validateNewPassword(parsed.data.password, parsed.data.email);
+    if (!passwordValidation.ok) {
+      const messages = {
+        password_too_short: 'Use a passphrase with at least 15 characters.',
+        password_too_long: 'Use a password with no more than 128 characters.',
+        password_blocklisted: 'Choose a less common password that is not based on your email or Rembr.',
+      } as const;
+      res.status(400).json(errorResponse(passwordValidation.code, messages[passwordValidation.code], req.requestId));
       return;
     }
     try {
       const userId = randomUUID();
-      const passwordHash = await bcrypt.hash(parsed.data.password, 12);
+      const passwordHash = await hashNewPassword(parsed.data.password);
       await database.prepare('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)')
         .run(userId, parsed.data.email, passwordHash, new Date().toISOString());
       await createSession(database, userId, res);
@@ -94,7 +105,7 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
     try {
       const user = await database.prepare('SELECT id, email, password_hash, account_status FROM users WHERE email = ?')
         .get(parsed.data.email) as { id: string; email: string; password_hash: string; account_status: string } | undefined;
-      const matches = user ? await bcrypt.compare(parsed.data.password, user.password_hash) : false;
+      const matches = user ? (await verifyPassword(parsed.data.password, user.password_hash)).valid : false;
       if (!user || !matches) {
         res.status(401).json(errorResponse('invalid_credentials', 'Email or password is incorrect.', req.requestId));
         return;
