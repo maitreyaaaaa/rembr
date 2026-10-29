@@ -5,6 +5,7 @@ import { createProfileGate } from '../account/routes.js';
 import type { AssetStorage } from '../assets/storage.js';
 import { createLibraryCheckupRepository } from './checkup.js';
 import { createKnowledgeGraphRepository } from './graph.js';
+import { createObsidianExportRepository } from './obsidian-export.js';
 import { createLibraryService } from '../library/service.js';
 import { z } from 'zod';
 
@@ -13,11 +14,20 @@ export function createKnowledgeRouter(database: DatabaseHandle, storage: AssetSt
   const signedIn = requireUser(database);
   const profile = createProfileGate(database, storage);
   const graph = createKnowledgeGraphRepository(database);
+  const obsidianExport = createObsidianExportRepository(database);
   const checkup = createLibraryCheckupRepository(database);
   const library = createLibraryService(database, storage);
 
   router.get('/knowledge/graph', signedIn, profile, async (req, res) => {
     return res.json({ graph: await graph.get(req.user!.id) });
+  });
+
+  router.get('/knowledge/graph/export/obsidian', signedIn, profile, async (req, res) => {
+    const archive = await obsidianExport.zip(req.user!.id);
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="rembr-obsidian-graph.zip"');
+    return res.send(archive);
   });
 
   router.get('/knowledge/checkup', signedIn, profile, async (req, res) => {
