@@ -40,6 +40,10 @@ Phrase matches add the original field weights on top of per-term scores. The sep
 
 The API test creates these fixtures, submits `design system`, and checks the ordered IDs F1, F2, F3, F6, F5, F4. With relevance grades `[3,3,2,2,2,1]`, this fixture yields reciprocal rank 1.0 and nDCG 1.0. The cross-field F6 score (48) ranks above the note-body F5 score (40); the URL's hyphenated terms score 24 because the exact spaced phrase is absent. Phrase mode includes only rows whose one searchable field contains `design system`. Supplemental cases verify extracted-text-only matching, Hindi lexical search and grounded Q&A, page/note filtering, tag and collection filters, empty results, same-score/date ID ordering, exclusion of a foreign owner's matching save, and identical ordering on repeated searches after an effective-title edit. The fixture now tests whole-token matching (art matches art and smart-art, not cartography) and phrase boundaries. It does not test language-specific stop words, the full synonym map, broader multilingual normalization, or semantic search.
 
+## Broader synthetic API qrels
+
+`apps/api/test/retrieval-evaluation-synthetic-api.test.ts` creates an isolated test database with nine synthetic notes across four topics, writes four explicitly synthetic graded queries to a temporary dataset, and runs the evaluation CLI against the authenticated local API. The resulting macro and per-query MRR@10, nDCG@10, and recall@10 are all 1.0 for this deliberately separable fixture (two relevant matches per query, plus one judged non-match). The test also verifies that report output omits the query text, query IDs, and item IDs. This checks the CLI, API pagination path, and metric plumbing together; it is not representative relevance or semantic-search evidence.
+
 ## Feedback and data handling
 
 - A signed-in user can rate a result helpful or not helpful from the current search page.

@@ -49,3 +49,10 @@
 - Browser accessibility-tree inspection exposed named controls for note title/body/links/images and save actions, Imports navigation and empty state, tag creation, and profile username/avatar/preferences controls. On the note edit form, Tab traversal reached Cancel, title, body, links, image input, and Save; the focused Save button displayed a visible outline.
 - This was not a screen-reader session. The browser did not allow reduced-motion emulation during this pass, so reduced-motion behavior remains source-inspected only. Tag edit and import detail with actual records remain unreviewed.
 - The synthetic API process, account, note, and temporary script were removed/stopped after review; the user-owned Vite process on port 5173 was left running. No provider calls or hosted database access occurred.
+
+## Final live login accessibility spot check
+
+- The local Vite app responded at `127.0.0.1:5173`; requesting a protected Phase 4 route redirected to sign-in. The local API was not running on port 4000, so authenticated Phase 4 states could not be opened in this pass.
+- The browser accessibility tree exposed the Rembr home link, two headings, an “Account access” tab group, named Sign in/Create account tabs, labeled email/password fields, a named Show password checkbox, and the Sign in button. One Tab press focused the Rembr home link. This observation covers the sign-in page only; it does not replace the prior route-level keyboard review.
+- Source inspection found a global `prefers-reduced-motion: reduce` rule that disables animations, transitions, and smooth scrolling. Marketing GSAP effects are initialized only when the preference is `no-preference`.
+- No screen-reader session or runtime reduced-motion emulation was available in this pass. Both remain unverified.
