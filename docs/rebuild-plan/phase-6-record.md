@@ -9,8 +9,8 @@
 
 | Requirement | Status | Evidence and remaining gap |
 |---|---|---|
-| Owner-visible account data map | **Passed locally for current Postgres schema inventory** | `apps/api/src/account/data-map-service.ts` counts 41 owner-scoped tables using static SQL and parameterized owner values; labels file bytes and external provider copies as uncounted. `GET /api/account/data-map` requires a verified session and returns `Cache-Control: no-store`. Settings shows category counts and boundary notes. Tests cover empty/full categories, owner isolation, missing owner ID, auth requirement, and no-store response. Browser review and comparison against every newly added Phase 6 table remain open. |
-| Complete personal-data export | **Not implemented** | Needs versioned data map coverage, bounded private-file inclusion, owner-scoped request/status/download, expiry, and failure recovery. Existing Obsidian ZIP is library-only. |
+| Owner-visible account data map | **Implemented locally; hosted and browser evidence open** | `apps/api/src/account/data-map-service.ts` counts owner-scoped tables using static SQL and parameterized owner values; labels file bytes and external provider copies as uncounted. `GET /api/account/data-map` requires a verified session and returns `Cache-Control: no-store`. Settings shows category counts and boundary notes. API tests cover category counts, owner isolation, missing owner ID, auth requirement, and no-store response. |
+| Complete personal-data export | **Implemented locally; coverage and hosted gates remain open** | `apps/api/src/account/data-export-service.ts` exports data-map tables with owner predicates, excludes password hashes, token hashes, and worker/storage internals, and packages bounded private files in a versioned ZIP. Authenticated request/history/status/cancel/retry/download routes, lease-fenced worker processing, private storage, and seven-day expiry are integrated. Tests cover owner isolation, credential exclusion, private files, limits, retry, expiry, storage, and route caching. Remaining evidence: systematic field/table coverage review, authenticated browser review, and hosted migration/bucket/worker verification. |
 | Full account deletion | **Not implemented** | Needs owner request/cancel, approval, distributed execution claim, retry-safe cleanup across records/files/vectors/jobs, audit, and prevention of account/job recreation. |
 | Security activity and privacy controls | **Not implemented** | No complete security-event history or account retention control surface exists. Must avoid raw secrets/content in events and ensure controls match actual behavior. |
 | Admin/support | **Not implemented** | Requires explicit operator role, safe projections, denied-actor tests, confirmation, rate limiting, and durable audit. |
@@ -19,13 +19,12 @@
 
 ## Checks
 
-- `npm.cmd run check` passed locally on 2026-10-30: API/web typecheck, API/web lint, 129 API tests, and API/web production builds.
+- `npm.cmd run check` passed locally on 2026-10-30 at commit `7786214`: API/web typecheck, API/web lint, 136 API tests, and API/web production builds. A focused export-history route test also passed after that run.
 - Vite emitted the existing large JavaScript chunk warning (about 2.35 MB minified); build succeeded.
 - `git diff --check` passed. No hosted database or provider changes were made.
 
 ## Next steps
 
-1. Implement complete data export requests and expiring owner-only downloads.
-2. Add retry-safe staged account deletion and security activity with durable audit records.
-3. Implement admin/support policy and approved billing only after source contracts and Rembr authorization are reconciled.
-4. Reconcile all new Phase 6 data tables with export/deletion lifecycle and rerun the full acceptance gate.
+1. Add retry-safe staged account deletion and security activity with durable audit records.
+2. Implement admin/support policy and approved billing only after source contracts and Rembr authorization are reconciled.
+3. Reconcile all new Phase 6 data tables with export/deletion lifecycle and rerun the full acceptance gate.
