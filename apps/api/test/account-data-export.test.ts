@@ -196,3 +196,36 @@ test('atomic claims never hand the same queued export to concurrent workers and 
     await database.close();
   }
 });
+
+test('export claims skip disabled owners and remove an archive when freezing wins finalization', async () => {
+  const database = await createTestDatabase();
+  const storage = fakeStorage();
+  const files = fakeFileSource();
+  try {
+    await seedUser(database, 'owner-frozen', 'frozen@example.test');
+    const service = createAccountDataExportService(database, storage, files.source);
+    const requested = await service.request('owner-frozen', false, start);
+    await database.prepare("UPDATE users SET account_status='disabled' WHERE id='owner-frozen'").run();
+    assert.equal(await service.claimNext(start), null);
+
+    await database.prepare("UPDATE users SET account_status='active' WHERE id='owner-frozen'").run();
+    const claim = await service.claimNext(start);
+    assert.ok(claim);
+    const write = storage.write.bind(storage);
+    storage.write = async (ownerId, exportId, leaseToken, bytes) => {
+      const key = await write(ownerId, exportId, leaseToken, bytes);
+      await database.transaction(async () => {
+        await database.prepare("UPDATE users SET account_status='disabled' WHERE id=?").run(ownerId);
+        await database.prepare("UPDATE account_data_exports SET status='cancelled',lease_token=NULL,lease_expires_at=NULL WHERE id=?").run(exportId);
+      })();
+      return key;
+    };
+    const result = await service.processClaim(claim, start);
+    assert.equal(result?.status, 'cancelled');
+    assert.equal(storage.artifacts.size, 0);
+    assert.equal(storage.removals.length, 1);
+    assert.equal((await service.getStatus('owner-frozen', requested.id))?.status, 'cancelled');
+  } finally {
+    await database.close();
+  }
+});

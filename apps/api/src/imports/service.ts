@@ -91,7 +91,7 @@ export function createImportService(database: DatabaseHandle, storage: ImportSto
     } catch (cause) {
       const code = cause instanceof ImportRepositoryError ? cause.code : 'import_accept_failed';
       await repository.fail(ownerId, importId, code, leaseToken);
-      if (code === 'import_not_available') return false;
+      if (code === 'import_not_available' || code === 'account_inactive') return false;
     }
     await cleanup(ownerId, importId);
     return true;
@@ -143,9 +143,16 @@ export function createImportService(database: DatabaseHandle, storage: ImportSto
         throw new ImportServiceError(cause instanceof ImportRepositoryError ? cause.code : 'chunk_record_failed');
       }
       if (result.complete) {
-        await storage.assemble(result.storageKey, Number(file.chunk_count), Number(file.expected_bytes));
-        const allStaged = await repository.markFileStaged(ownerId, importId, fileId);
-        if (allStaged) return { status: 'staged', complete: true };
+        try {
+          await storage.assemble(result.storageKey, Number(file.chunk_count), Number(file.expected_bytes));
+          const allStaged = await repository.markFileStaged(ownerId, importId, fileId);
+          if (allStaged) return { status: 'staged', complete: true };
+        } catch (cause) {
+          if (cause instanceof ImportRepositoryError && cause.code === 'account_inactive') {
+            await storage.removeFile(result.storageKey).catch(() => undefined);
+          }
+          throw new ImportServiceError(cause instanceof ImportRepositoryError ? cause.code : 'file_assembly_failed');
+        }
       }
       return { status: 'uploading', complete: false };
     },

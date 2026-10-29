@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { lockActiveOwner } from '../account/owner-lifecycle.js';
 import type { DatabaseHandle } from '../db/database.js';
 
 export const IMPORT_AI_CAP_MICROUSD = 20_000_000;
@@ -54,6 +55,7 @@ export function createAiUsageRepository(database: DatabaseHandle) {
     reserveSearch(input: { ownerId: string; amountMicroUsd: number; now?: Date }): Promise<AiSearchUsageReservation> {
       return database.transaction(async () => {
         const { ownerId, amountMicroUsd } = input;
+        if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
         if (!Number.isSafeInteger(amountMicroUsd) || amountMicroUsd <= 0 || amountMicroUsd > MONTHLY_AI_CAP_MICROUSD) {
           throw new RangeError('Search reservation must be a positive amount within the shared monthly cap.');
         }
@@ -109,6 +111,7 @@ export function createAiUsageRepository(database: DatabaseHandle) {
     reserve(input: { ownerId: string; importId: string; jobId: string; attemptNumber: number; amountMicroUsd: number; now?: Date }) {
       return database.transaction(async () => {
         const { ownerId, importId, jobId, attemptNumber, amountMicroUsd } = input;
+        if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
         if (!Number.isSafeInteger(amountMicroUsd) || amountMicroUsd <= 0 || amountMicroUsd > IMPORT_AI_CAP_MICROUSD) {
           throw new RangeError('Reservation must be a positive amount within the per-import cap.');
         }

@@ -7,6 +7,12 @@
 
 ## Acceptance evidence
 
+### Account-freeze groundwork
+
+- A shared active-owner row lock now fences import creation/chunk recording/parsing/acceptance, AI usage reservations/results, and export request/claim/finalization against a concurrent account freeze. AI jobs also recheck owner status before media resolution and at provider-consent checkpoints.
+- Worker claim recovery is separated from owner-first claiming so a future freeze/deletion transaction does not encounter child-row-to-owner lock inversion. Export claims lock the owner before the export row and retain skip-locked concurrency behavior.
+- This is groundwork, not a completed deletion lifecycle. The complete writer-path inventory, in-flight provider dispatch protocol, deletion state machine, storage cleanup, and hosted/browser evidence remain open.
+
 | Requirement | Status | Evidence and remaining gap |
 |---|---|---|
 | Owner-visible account data map | **Implemented locally; hosted and browser evidence open** | `apps/api/src/account/data-map-service.ts` counts owner-scoped tables using static SQL and parameterized owner values; labels file bytes and external provider copies as uncounted. `GET /api/account/data-map` requires a verified session and returns `Cache-Control: no-store`. Settings shows category counts and boundary notes. API tests cover category counts, owner isolation, missing owner ID, auth requirement, and no-store response. |
@@ -19,7 +25,7 @@
 
 ## Checks
 
-- `npm.cmd run check` passed locally on 2026-10-30 at commit `7786214`: API/web typecheck, API/web lint, 136 API tests, and API/web production builds. A focused export-history route test also passed after that run.
+- `npm.cmd run check` passed locally on 2026-10-30 with the account-freeze groundwork in the working tree: API/web typecheck, API/web lint, 141 API tests, and API/web production builds. Focused export, AI budget, and import suites also passed after the changes.
 - Vite emitted the existing large JavaScript chunk warning (about 2.35 MB minified); build succeeded.
 - `git diff --check` passed. No hosted database or provider changes were made.
 

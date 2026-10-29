@@ -45,6 +45,26 @@ test('older media-analysis consent does not authorize entity extraction or queue
   } finally { await database.close(); }
 });
 
+test('AI worker and usage reservations skip a disabled owner', async () => {
+  const database = await createTestDatabase();
+  try {
+    const now = new Date('2026-10-29T10:00:00.000Z');
+    await seedImport(database, 'disabled-ai-import', 'disabled-ai-job', now.toISOString());
+    await database.prepare(`INSERT INTO ai_analysis_preferences (owner_id,enabled,consent_version,consented_at,updated_at)
+      VALUES ('budget-user',TRUE,?,?,?)`).run(AI_DISCLOSURE_VERSION, now.toISOString(), now.toISOString());
+    await database.prepare("UPDATE users SET account_status='disabled' WHERE id='budget-user'").run();
+    const unusedClient = new Proxy({}, { get() { throw new Error('provider_must_not_be_called'); } }) as never;
+    assert.equal(await processNextAiJob(database, unusedClient, async () => { throw new Error('resolver_must_not_be_called'); }, true, now), null);
+    const status = await database.prepare("SELECT status FROM ai_analysis_jobs WHERE id='disabled-ai-job'").get() as { status: string };
+    assert.equal(status.status, 'queued');
+    const usage = createAiUsageRepository(database);
+    await assert.rejects(usage.reserveSearch({ ownerId: 'budget-user', amountMicroUsd: 100, now }), /account_inactive/);
+    await assert.rejects(usage.reserve({ ownerId: 'budget-user', importId: 'disabled-ai-import', jobId: 'disabled-ai-job', attemptNumber: 1, amountMicroUsd: 100, now }), /account_inactive/);
+    assert.equal((await database.prepare('SELECT count(*) AS count FROM ai_usage_reservations').get() as { count: number }).count, 0);
+    assert.equal((await database.prepare('SELECT count(*) AS count FROM ai_search_usage_reservations').get() as { count: number }).count, 0);
+  } finally { await database.close(); }
+});
+
 test('an expired processing lease with an open reservation is paused for uncertain usage instead of retried', async () => {
   const database = await createTestDatabase();
   try {

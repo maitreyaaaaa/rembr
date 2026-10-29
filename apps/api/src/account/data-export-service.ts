@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import JSZip from 'jszip';
+import { lockActiveOwner } from './owner-lifecycle.js';
 import type { DatabaseHandle } from '../db/database.js';
 import { createAccountDataMapService } from './data-map-service.js';
 
@@ -283,8 +284,12 @@ export function createAccountDataExportService(
       if (typeof includeFiles !== 'boolean') throw new TypeError('The includeFiles option must be a boolean.');
       const id = randomUUID();
       const timestamp = now.toISOString();
-      await database.prepare(`INSERT INTO account_data_exports (id,owner_id,status,include_files,attempt_count,created_at,updated_at)
-        VALUES (?,?,'queued',?,0,?,?)`).run(id, ownerId, includeFiles, timestamp, timestamp);
+      const transaction = database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
+        await database.prepare(`INSERT INTO account_data_exports (id,owner_id,status,include_files,attempt_count,created_at,updated_at)
+          VALUES (?,?,'queued',?,0,?,?)`).run(id, ownerId, includeFiles, timestamp, timestamp);
+      });
+      await transaction();
       return (await getStatus(ownerId, id))!;
     },
 
@@ -328,29 +333,34 @@ export function createAccountDataExportService(
 
     async claimNext(now = new Date()): Promise<AccountDataExportClaim | null> {
       const timestamp = now.toISOString();
-      await database.prepare(`UPDATE account_data_exports SET status='failed',lease_token=NULL,lease_expires_at=NULL,
-        error_code='lease_exhausted',updated_at=? WHERE status='processing' AND lease_expires_at<=? AND attempt_count>=?`)
-        .run(timestamp, timestamp, limits.maxAttempts);
-      const leaseToken = randomUUID();
-      const leaseExpiresAt = new Date(now.getTime() + limits.leaseMs).toISOString();
-      const row = await database.prepare(`WITH candidate AS (
-        SELECT id FROM account_data_exports
-        WHERE status='queued' OR (status='processing' AND lease_expires_at<=? AND attempt_count<?)
-        ORDER BY created_at,id LIMIT 1 FOR UPDATE SKIP LOCKED
-      )
-      UPDATE account_data_exports AS export SET status='processing',attempt_count=export.attempt_count+1,
-        lease_token=?,lease_expires_at=?,updated_at=?,error_code=NULL
-      FROM candidate WHERE export.id=candidate.id
-      RETURNING export.id,export.owner_id,export.include_files,export.attempt_count,export.lease_token,export.lease_expires_at`)
-        .get(timestamp, limits.maxAttempts, leaseToken, leaseExpiresAt, timestamp) as ExportRow | undefined;
-      return row ? {
-        id: row.id,
-        ownerId: row.owner_id,
-        includeFiles: Boolean(row.include_files),
-        attemptCount: Number(row.attempt_count),
-        leaseToken: row.lease_token,
-        leaseExpiresAt: row.lease_expires_at,
-      } : null;
+      await database.transaction(async () => {
+        await database.prepare(`UPDATE account_data_exports SET status='failed',lease_token=NULL,lease_expires_at=NULL,
+          error_code='lease_exhausted',updated_at=? WHERE status='processing' AND lease_expires_at<=? AND attempt_count>=?`)
+          .run(timestamp, timestamp, limits.maxAttempts);
+      })();
+      return database.transaction(async () => {
+        const leaseToken = randomUUID();
+        const leaseExpiresAt = new Date(now.getTime() + limits.leaseMs).toISOString();
+        const row = await database.prepare(`WITH owner_candidate AS MATERIALIZED (
+          SELECT owner.id FROM account_data_exports export JOIN users owner ON owner.id=export.owner_id
+          WHERE owner.account_status='active' AND
+            (export.status='queued' OR (export.status='processing' AND export.lease_expires_at<=? AND export.attempt_count<?))
+          ORDER BY export.created_at,export.id LIMIT 1 FOR UPDATE OF owner SKIP LOCKED
+        ), export_candidate AS MATERIALIZED (
+          SELECT export.id FROM account_data_exports export JOIN owner_candidate owner ON owner.id=export.owner_id
+          WHERE export.status='queued' OR (export.status='processing' AND export.lease_expires_at<=? AND export.attempt_count<?)
+          ORDER BY export.created_at,export.id LIMIT 1 FOR UPDATE OF export SKIP LOCKED
+        )
+        UPDATE account_data_exports AS export SET status='processing',attempt_count=export.attempt_count+1,
+          lease_token=?,lease_expires_at=?,updated_at=?,error_code=NULL
+        FROM export_candidate candidate WHERE export.id=candidate.id
+        RETURNING export.id,export.owner_id,export.include_files,export.attempt_count,export.lease_token,export.lease_expires_at`)
+          .get(timestamp, limits.maxAttempts, timestamp, limits.maxAttempts, leaseToken, leaseExpiresAt, timestamp) as ExportRow | undefined;
+        return row ? {
+          id: row.id, ownerId: row.owner_id, includeFiles: Boolean(row.include_files), attemptCount: Number(row.attempt_count),
+          leaseToken: row.lease_token, leaseExpiresAt: row.lease_expires_at,
+        } : null;
+      })();
     },
 
     async processClaim(claim: AccountDataExportClaim, now = new Date()): Promise<AccountDataExportStatus | null> {
@@ -406,11 +416,21 @@ export function createAccountDataExportService(
         if (archive.length > limits.maxArchiveBytes) throw new AccountDataExportError('archive_size_limit_exceeded', 'The compressed archive exceeds the configured export size limit.');
         artifactKey = await artifactStorage.write(claim.ownerId, claim.id, claim.leaseToken, archive);
         const completedAt = now.toISOString();
-        const update = await database.prepare(`UPDATE account_data_exports SET status='ready',artifact_key=?,expires_at=?,
-          completed_at=?,updated_at=?,lease_token=NULL,lease_expires_at=NULL,error_code=NULL
-          WHERE owner_id=? AND id=? AND status='processing' AND lease_token=? AND lease_expires_at>?`)
-          .run(artifactKey, expiresAt, completedAt, completedAt, claim.ownerId, claim.id, claim.leaseToken, completedAt);
-        if (update.changes === 0) {
+        const finalized = await database.transaction(async () => {
+          if (!await lockActiveOwner(database, claim.ownerId)) {
+            await database.prepare(`UPDATE account_data_exports SET status='cancelled',artifact_key=NULL,lease_token=NULL,
+              lease_expires_at=NULL,updated_at=?,error_code='account_inactive'
+              WHERE owner_id=? AND id=? AND status='processing' AND lease_token=?`)
+              .run(completedAt, claim.ownerId, claim.id, claim.leaseToken);
+            return false;
+          }
+          const update = await database.prepare(`UPDATE account_data_exports SET status='ready',artifact_key=?,expires_at=?,
+            completed_at=?,updated_at=?,lease_token=NULL,lease_expires_at=NULL,error_code=NULL
+            WHERE owner_id=? AND id=? AND status='processing' AND lease_token=? AND lease_expires_at>?`)
+            .run(artifactKey, expiresAt, completedAt, completedAt, claim.ownerId, claim.id, claim.leaseToken, completedAt);
+          return update.changes === 1;
+        })();
+        if (!finalized) {
           await artifactStorage.remove(claim.ownerId, artifactKey);
           return getStatus(claim.ownerId, claim.id);
         }

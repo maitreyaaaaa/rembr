@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
+import { lockActiveOwner } from '../account/owner-lifecycle.js';
 import type { DatabaseHandle } from '../db/database.js';
 import { AI_DISCLOSURE_VERSION } from './preferences.js';
 import { AiBudgetExceededError, createAiUsageRepository, sparkCostMicroUsd, voiceCostMicroUsd, type AiUsageReservation } from './usage.js';
@@ -47,7 +48,7 @@ interface ClaimedAiJob extends Omit<AiJob, 'lease_token'> { lease_token: string 
 async function claimNextAiJob(database: DatabaseHandle, now: Date, apiKeyAvailable: boolean): Promise<ClaimedAiJob | undefined> {
   const timestamp = now.toISOString();
   const monthStart = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-01`;
-  return database.transaction(async () => {
+  await database.transaction(async () => {
     await database.prepare(`UPDATE ai_analysis_jobs SET status='paused',pause_reason='uncertain_usage',
       lease_token=NULL,lease_expires_at=NULL,error_code='uncertain_usage',updated_at=?
       WHERE status='processing' AND lease_expires_at<=? AND EXISTS (
@@ -75,15 +76,19 @@ async function claimNextAiJob(database: DatabaseHandle, now: Date, apiKeyAvailab
         WHERE status='paused' AND pause_reason='provider_unavailable' AND available_at<=?`)
         .run(timestamp, timestamp);
     }
+  })();
+  return database.transaction(async () => {
     const row = await database.prepare(`SELECT j.id,j.owner_id,j.import_id,j.item_id,j.generation,j.attempts,
         s.original_url,s.title,s.description,e.text_content
       FROM ai_analysis_jobs j
       JOIN saved_items s ON s.id=j.item_id AND s.owner_id=j.owner_id
+      JOIN users u ON u.id=j.owner_id
       LEFT JOIN extracted_artifacts e ON e.item_id=j.item_id AND e.owner_id=j.owner_id
       JOIN ai_analysis_preferences p ON p.owner_id=j.owner_id AND p.enabled=TRUE AND p.consent_version=?
-      WHERE j.attempts<j.max_attempts AND ((j.status='queued' AND j.available_at<=?) OR
+      WHERE u.account_status='active' AND j.attempts<j.max_attempts AND ((j.status='queued' AND j.available_at<=?) OR
         (j.status='processing' AND j.lease_expires_at<=?))
-      ORDER BY j.created_at ASC,j.import_id ASC,j.id ASC LIMIT 1`).get(AI_DISCLOSURE_VERSION, timestamp, timestamp) as Omit<ClaimedAiJob, 'lease_token'> | undefined;
+      ORDER BY j.created_at ASC,j.import_id ASC,j.id ASC LIMIT 1 FOR UPDATE OF u SKIP LOCKED`)
+      .get(AI_DISCLOSURE_VERSION, timestamp, timestamp) as Omit<ClaimedAiJob, 'lease_token'> | undefined;
     if (!row) return undefined;
     const leaseToken = randomUUID();
     const changed = await database.prepare(`UPDATE ai_analysis_jobs SET status='processing',attempts=attempts+1,
@@ -160,6 +165,7 @@ async function saveResult(database: DatabaseHandle, job: ClaimedAiJob, data: {
   videoCount: number; maxVideoBytes: number; audioSeconds: number; inputTokens: number; outputTokens: number; billedMicroUsd: number;
 }, now: string): Promise<boolean> {
   return database.transaction(async () => {
+    if (!await lockActiveOwner(database, job.owner_id)) return false;
     const active = await database.prepare(`SELECT id FROM ai_analysis_jobs WHERE id=? AND owner_id=? AND status='processing' AND lease_token=?`)
       .get(job.id, job.owner_id, job.lease_token);
     if (!active) return false;
@@ -204,10 +210,13 @@ export async function processNextAiJob(database: DatabaseHandle, client: AiModel
   let imageCount = 0; let imageBytes = 0; let videoCount = 0; let maxVideoBytes = 0; let audioSeconds = 0;
   let partial = false;
   const ensureConsent = async () => {
-    const preference = await database.prepare(`SELECT enabled FROM ai_analysis_preferences WHERE owner_id=?`).get(job.owner_id) as { enabled: boolean | number } | undefined;
-    if (!preference?.enabled) throw new AiConsentDisabledError();
+    const preference = await database.prepare(`SELECT preference.enabled,owner.account_status FROM ai_analysis_preferences preference
+      JOIN users owner ON owner.id=preference.owner_id WHERE preference.owner_id=?`).get(job.owner_id) as
+      { enabled: boolean | number; account_status: string } | undefined;
+    if (!preference?.enabled || preference.account_status !== 'active') throw new AiConsentDisabledError();
   };
   try {
+    await ensureConsent();
     if (!apiKeyAvailable) {
       await database.prepare(`UPDATE ai_analysis_jobs SET status='paused',pause_reason='provider_unavailable',lease_token=NULL,
         lease_expires_at=NULL,error_code='provider_unavailable',updated_at=? WHERE id=? AND owner_id=? AND lease_token=?`)

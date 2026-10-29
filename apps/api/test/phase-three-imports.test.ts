@@ -497,3 +497,25 @@ test('capture worker does not claim jobs for disabled accounts', async () => {
     assert.equal((await database.prepare('SELECT status FROM processing_jobs WHERE item_id=?').get(item.id) as { status: string }).status, 'queued');
   });
 });
+
+test('import parser claim and acceptance stop when the owner is disabled', async () => {
+  await withApi(async (baseUrl, database) => {
+    const owner = await register(baseUrl, 'disabled-import@example.test', 'disabled_import');
+    const bytes = Buffer.from('url,title\nhttps://www.pinterest.com/pin/1234567/,Pin\n');
+    const created = await fetch(`${baseUrl}/api/imports`, {
+      method: 'POST', headers: { Cookie: owner, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ files: [{ name: 'pins.csv', mime: 'text/csv', size: bytes.length, chunks: 1 }] }),
+    });
+    assert.equal(created.status, 201);
+    const manifest = await created.json() as { importId: string };
+    const row = await database.prepare('SELECT owner_id FROM imports WHERE id=?').get(manifest.importId) as { owner_id: string };
+    await database.prepare("UPDATE imports SET status='staged' WHERE id=?").run(manifest.importId);
+    await database.prepare("UPDATE users SET account_status='disabled' WHERE id=?").run(row.owner_id);
+
+    const repository = createImportRepository(database);
+    assert.equal(await repository.claimForParsing(row.owner_id, manifest.importId), null);
+    await database.prepare("UPDATE imports SET status='parsing',lease_token='stale-lease' WHERE id=?").run(manifest.importId);
+    await assert.rejects(repository.accept(row.owner_id, manifest.importId, 'stale-lease', [], []), /account_inactive/);
+    assert.equal((await database.prepare('SELECT count(*) AS count FROM import_entries WHERE import_id=?').get(manifest.importId) as { count: number }).count, 0);
+  });
+});

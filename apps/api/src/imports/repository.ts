@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { basename } from 'node:path';
+import { lockActiveOwner } from '../account/owner-lifecycle.js';
 import type { DatabaseHandle } from '../db/database.js';
 import type { ParsedImportItem } from './parser.js';
 
@@ -37,6 +38,7 @@ export function createImportRepository(database: DatabaseHandle) {
     async create(ownerId: string, requestId: string, idempotencyKey: string, files: ImportFileInput[]) {
       const id = randomUUID(); const now = new Date().toISOString();
       const transaction = database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) throw new ImportRepositoryError('account_inactive');
         const prior = await database.prepare('SELECT id,status FROM imports WHERE owner_id=? AND idempotency_key=?')
           .get(ownerId, idempotencyKey) as { id: string; status: string } | undefined;
         if (prior) {
@@ -218,6 +220,7 @@ export function createImportRepository(database: DatabaseHandle) {
 
     recordChunk(ownerId: string, importId: string, fileId: string, index: number, bytes: number, sha256: string, storageKey: string) {
       const transaction = database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) throw new ImportRepositoryError('account_inactive');
         const file = await this.file(ownerId, importId, fileId);
         if (!file || file.state !== 'uploading') throw new ImportRepositoryError('upload_not_available');
         const existing = await database.prepare(`SELECT sha256 FROM import_upload_chunks WHERE owner_id=? AND upload_file_id=? AND chunk_index=?`)
@@ -244,6 +247,7 @@ export function createImportRepository(database: DatabaseHandle) {
     markFileStaged(ownerId: string, importId: string, fileId: string) {
       const now = new Date().toISOString();
       const transaction = database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) throw new ImportRepositoryError('account_inactive');
         const changed = await database.prepare(`UPDATE import_upload_files SET state='staged',updated_at=?
           WHERE owner_id=? AND import_id=? AND id=? AND state='uploading' AND chunks_received=chunk_count AND received_bytes=expected_bytes`)
           .run(now, ownerId, importId, fileId);
@@ -259,6 +263,7 @@ export function createImportRepository(database: DatabaseHandle) {
     async claimForParsing(ownerId: string, importId: string): Promise<string | null> {
       const now = new Date(); const timestamp = now.toISOString(); const lease = randomUUID();
       const transaction = database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) return null;
         const result = await database.prepare(`UPDATE imports SET status='parsing',lease_token=?,lease_expires_at=?,updated_at=?
           WHERE owner_id=? AND id=? AND (status='staged' OR (status='parsing' AND lease_expires_at<=?))`)
           .run(lease, new Date(now.getTime() + 30 * 60_000).toISOString(), timestamp, ownerId, importId, timestamp);
@@ -272,6 +277,7 @@ export function createImportRepository(database: DatabaseHandle) {
     accept(ownerId: string, importId: string, leaseToken: string, files: Array<{ id: string; key: string; name: string }>, items: ParsedImportItem[], failures: Array<{ fileId: string; code: string }> = [], instagramSkippedCount = 0) {
       const now = new Date().toISOString();
       const transaction = database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) throw new ImportRepositoryError('account_inactive');
         const state = await database.prepare('SELECT status,lease_token,request_id FROM imports WHERE owner_id=? AND id=?').get(ownerId, importId) as { status: string; lease_token: string | null; request_id: string | null } | undefined;
         if (!state || state.status !== 'parsing' || state.lease_token !== leaseToken) throw new ImportRepositoryError('import_not_available');
         const instagramItems = items.filter((item) => item.platform === 'instagram');
