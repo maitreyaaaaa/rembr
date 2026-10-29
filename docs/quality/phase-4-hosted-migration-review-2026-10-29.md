@@ -77,3 +77,18 @@ npx --yes supabase@2.122.0 migration repair 20261029060507 20261029074000 202610
 ```
 
 After both commands, verify the remote ledger with the connected Supabase migration listing. Do not run `db push` or apply the three pending schema migrations during this repair.
+
+## Follow-up — 2026-10-30
+
+- The user ran the two history-only repair commands above in the Rembr Render Shell. A read-only Supabase listing confirmed all 11 existing migration entries now use the local filename versions.
+- The user had authorized the three pending schema migrations through the Supabase plugin. They were applied in order. Read-only verification confirmed all four entity-label columns, the Smart Collections `entity` source constraint, and the new `ai_visual_search_preferences` table with RLS enabled.
+- Before application, aggregate checks found zero analysis jobs matching the cancellation rule, zero analysis preferences matching the disable rule, and zero grounded-search preferences matching the disable rule. Post-application checks remained zero.
+- The Supabase plugin recorded generated versions `20261029192854` (`rembr_analysis_entity_labels`), `20261029192907` (`rembr_grounded_search_entity_disclosure`), and `20261029192911` (`rembr_visual_search_consent`). SQL is applied, but local CLI history would still see the local migration versions as pending. Run the following **history-only** repair to align those records; do not rerun the SQL:
+
+```bash
+npx --yes supabase@2.122.0 migration repair 20261029192854 20261029192907 20261029192911 --status reverted --db-url "$DATABASE_URL"
+
+npx --yes supabase@2.122.0 migration repair 20261029210000 20261029220000 20261029230000 --status applied --db-url "$DATABASE_URL"
+```
+
+- Afterward, verify the Supabase migration listing shows the three local versions and the expected 14 total entries. No `db push` is needed.
