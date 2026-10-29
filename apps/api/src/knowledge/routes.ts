@@ -27,7 +27,7 @@ export function createKnowledgeRouter(database: DatabaseHandle, storage: AssetSt
   router.post('/knowledge/answer', signedIn, profile, async (req, res) => {
     const parsed = z.object({ question: z.string().trim().min(1).max(120) }).strict().safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: { code: 'invalid_question', message: 'Enter a question up to 120 characters.', requestId: req.requestId } });
-    const result = await library.list(req.user!.id, { search: parsed.data.question, sort: 'relevance', limit: 8 });
+    const result = await library.list(req.user!.id, { search: parsed.data.question, sort: 'relevance', matchMode: 'phrase', limit: 8 });
     const citations = result.items.map((item) => ({
       id: item.id, title: item.title, snippet: item.textPreview || item.description || item.title,
     }));

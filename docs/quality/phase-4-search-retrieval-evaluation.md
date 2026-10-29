@@ -6,7 +6,7 @@ This is a small, deterministic sanity fixture for the current lexical scoring ru
 
 ## Current rule
 
-For a query that matches a saved item, the relevance score adds one point bucket per matching field:
+For normal library search, every meaningful query term must appear in at least one searchable field. Terms may be distributed across fields. Stop words are removed from the filter. The relevance score adds one point bucket per field match and per matching term:
 
 | Match | Points |
 |---|---:|
@@ -17,21 +17,26 @@ For a query that matches a saved item, the relevance score adds one point bucket
 | Extracted page text contains query | 20 |
 | Note body contains query | 20 |
 | Any existing AI summary, visual description, OCR, transcript, keyword, or tag contains query | 15 |
+| Per term: effective title | 30 |
+| Per term: description | 18 |
+| Per term: original URL | 12 |
+| Per term: extracted text or note body | 10 |
+| Per term: any existing analysis field | 8 |
 
-The query filter is case-insensitive substring matching. Results sort by score, creation time descending, then item ID descending. All search matches and metadata filters remain owner-scoped. Without a search string, the normal explicit sort applies.
+Phrase matches add the original field weights on top of per-term scores. The separate library evidence preview uses `matchMode=phrase`, so every citation contains the full requested phrase. Results sort by score, creation time descending, then item ID descending. All search matches and metadata filters remain owner-scoped. Without a search string, the normal explicit sort applies.
 
 ## Synthetic fixture: `design system`
 
 | ID | Kind | Title | Matching field(s) | Expected score | Relevance grade |
 |---|---|---|---|---:|---:|
-| F1 | Page | Design system | Exact title + title substring | 170 | 3 |
-| F2 | Page | Design system checklist | Title substring | 70 | 3 |
-| F3 | Page | UI guidance | Description contains phrase | 40 | 2 |
-| F4 | Page | Component library | URL contains phrase | 30 | 2 |
-| F5 | Note | Sprint notes | Note body contains phrase | 20 | 1 |
-| F6 | Page | UI patterns | Existing analysis summary contains phrase | 15 | 1 |
+| F1 | Page | Design system | Exact title + phrase + two title terms | 230 | 3 |
+| F2 | Page | Design system checklist | Phrase + two title terms | 130 | 3 |
+| F3 | Page | UI guidance | Description phrase + two description terms | 76 | 2 |
+| F4 | Page | Component library | URL phrase + two URL terms | 54 | 2 |
+| F5 | Note | Sprint notes | Note-body phrase + two note terms | 40 | 1 |
+| F6 | Page | UI patterns | Analysis phrase + two analysis terms | 31 | 1 |
 
-Expected ordering is F1, F2, F3, F4, F5, F6 before timestamp and ID tie-breakers. The fixture checks the intended priority ordering across fields. It does not test substring false positives, multilingual text, tokenization, synonyms, ranking stability under edits, or semantic search.
+Expected ordering is F1, F2, F3, F4, F5, F6 before timestamp and ID tie-breakers. The fixture checks the intended priority ordering across fields. The default mode requires both terms to appear somewhere; the phrase mode would include only rows whose one searchable field contains `design system`. It does not test substring false positives, multilingual stop words, tokenization, synonyms, ranking stability under edits, or semantic search.
 
 ## Feedback and data handling
 

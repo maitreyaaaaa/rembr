@@ -3,10 +3,25 @@ import type { DatabaseHandle } from '../db/database.js';
 
 export interface ItemListQuery {
   search: string; type?: 'page' | 'note'; status?: string; tagId?: string; collectionId?: string;
-  sort: 'relevance' | 'created_desc' | 'created_asc' | 'title_asc' | 'title_desc'; limit: number;
+  sort: 'relevance' | 'created_desc' | 'created_asc' | 'title_asc' | 'title_desc'; matchMode?: 'terms' | 'phrase'; limit: number;
 }
 export interface ItemCursorKey { key: string; id: string }
 type Row = Record<string, unknown>;
+const SEARCH_FIELDS = `lower(COALESCE(saved_items.title_override,saved_items.title)) LIKE lower(?) ESCAPE '!'
+  OR lower(COALESCE(saved_items.description_override,saved_items.description,'')) LIKE lower(?) ESCAPE '!'
+  OR lower(saved_items.original_url) LIKE lower(?) ESCAPE '!'
+  OR lower(COALESCE(extracted_artifacts.text_content,'')) LIKE lower(?) ESCAPE '!'
+  OR EXISTS (SELECT 1 FROM notes WHERE notes.owner_id=saved_items.owner_id AND notes.item_id=saved_items.id AND lower(notes.body) LIKE lower(?) ESCAPE '!')
+  OR EXISTS (SELECT 1 FROM ai_analysis_results analysis WHERE analysis.owner_id=saved_items.owner_id
+    AND analysis.item_id=saved_items.id AND (lower(analysis.summary) LIKE lower(?) ESCAPE '!' OR lower(analysis.visual_description) LIKE lower(?) ESCAPE '!'
+      OR lower(analysis.ocr_text) LIKE lower(?) ESCAPE '!' OR lower(analysis.transcript) LIKE lower(?) ESCAPE '!'
+      OR lower(analysis.keywords_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tags_json) LIKE lower(?) ESCAPE '!'))`;
+const SEARCH_STOP_WORDS = new Set(['a','an','and','are','as','at','be','by','did','do','does','for','from','how','i','in','is','it','me','my','of','on','or','that','the','this','to','was','what','when','where','which','who','why','with','you','your']);
+function queryTerms(value: string): string[] {
+  const tokens = [...new Set(value.toLowerCase().normalize('NFKC').match(/[a-z0-9]+/g) ?? [])];
+  const meaningful = tokens.filter((token) => !SEARCH_STOP_WORDS.has(token));
+  return meaningful.length ? meaningful : tokens.length ? tokens : [value.trim()];
+}
 
 function toItem(row: Row) {
   const jobStatus = String(row.job_status ?? '');
@@ -104,16 +119,16 @@ export function createLibraryRepository(database: DatabaseHandle) {
       }
       const safeSearch = `%${query.search.replace(/[!%_]/g, '!$&')}%`;
       if (query.search) {
-        clauses.push(`(lower(COALESCE(saved_items.title_override,saved_items.title)) LIKE lower(?) ESCAPE '!'
-          OR lower(COALESCE(saved_items.description_override,saved_items.description,'')) LIKE lower(?) ESCAPE '!'
-          OR lower(saved_items.original_url) LIKE lower(?) ESCAPE '!'
-          OR lower(COALESCE(extracted_artifacts.text_content,'')) LIKE lower(?) ESCAPE '!'
-          OR EXISTS (SELECT 1 FROM notes WHERE notes.owner_id=saved_items.owner_id AND notes.item_id=saved_items.id AND lower(notes.body) LIKE lower(?) ESCAPE '!')
-          OR EXISTS (SELECT 1 FROM ai_analysis_results analysis WHERE analysis.owner_id=saved_items.owner_id
-            AND analysis.item_id=saved_items.id AND (lower(analysis.summary) LIKE lower(?) ESCAPE '!' OR lower(analysis.visual_description) LIKE lower(?) ESCAPE '!'
-              OR lower(analysis.ocr_text) LIKE lower(?) ESCAPE '!' OR lower(analysis.transcript) LIKE lower(?) ESCAPE '!'
-              OR lower(analysis.keywords_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tags_json) LIKE lower(?) ESCAPE '!')))`);
-        params.push(...Array.from({ length: 11 }, () => safeSearch));
+        if (query.matchMode === 'phrase') {
+          clauses.push(`(${SEARCH_FIELDS})`);
+          params.push(...Array.from({ length: 11 }, () => safeSearch));
+        } else {
+          for (const term of queryTerms(query.search)) {
+            const pattern = `%${term.replace(/[!%_]/g, '!$&')}%`;
+            clauses.push(`(${SEARCH_FIELDS})`);
+            params.push(...Array.from({ length: 11 }, () => pattern));
+          }
+        }
       }
       if (query.tagId) { clauses.push('EXISTS (SELECT 1 FROM item_tags WHERE owner_id=saved_items.owner_id AND item_id=saved_items.id AND tag_id=?)'); params.push(query.tagId); }
       if (query.collectionId) { clauses.push('EXISTS (SELECT 1 FROM collection_items WHERE owner_id=saved_items.owner_id AND item_id=saved_items.id AND collection_id=?)'); params.push(query.collectionId); }
@@ -148,8 +163,18 @@ export function createLibraryRepository(database: DatabaseHandle) {
         + CASE WHEN EXISTS (SELECT 1 FROM ai_analysis_results analysis WHERE analysis.owner_id=saved_items.owner_id AND analysis.item_id=saved_items.id
             AND (lower(analysis.summary) LIKE lower(?) ESCAPE '!' OR lower(analysis.visual_description) LIKE lower(?) ESCAPE '!'
               OR lower(analysis.ocr_text) LIKE lower(?) ESCAPE '!' OR lower(analysis.transcript) LIKE lower(?) ESCAPE '!'
-              OR lower(analysis.keywords_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tags_json) LIKE lower(?) ESCAPE '!')) THEN 15 ELSE 0 END)` : 'NULL';
-      const scoreParams = query.sort === 'relevance' && query.search.trim() ? [query.search, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch] : [];
+              OR lower(analysis.keywords_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tags_json) LIKE lower(?) ESCAPE '!')) THEN 15 ELSE 0 END
+        ${query.matchMode === 'phrase' ? '' : queryTerms(query.search).map(() => `+ (CASE WHEN lower(COALESCE(saved_items.title_override,saved_items.title)) LIKE lower(?) ESCAPE '!' THEN 30 ELSE 0 END
+          + CASE WHEN lower(COALESCE(saved_items.description_override,saved_items.description,'')) LIKE lower(?) ESCAPE '!' THEN 18 ELSE 0 END
+          + CASE WHEN lower(saved_items.original_url) LIKE lower(?) ESCAPE '!' THEN 12 ELSE 0 END
+          + CASE WHEN lower(COALESCE(extracted_artifacts.text_content,'')) LIKE lower(?) ESCAPE '!' THEN 10 ELSE 0 END
+          + CASE WHEN EXISTS (SELECT 1 FROM notes WHERE notes.owner_id=saved_items.owner_id AND notes.item_id=saved_items.id AND lower(notes.body) LIKE lower(?) ESCAPE '!') THEN 10 ELSE 0 END
+          + CASE WHEN EXISTS (SELECT 1 FROM ai_analysis_results analysis WHERE analysis.owner_id=saved_items.owner_id AND analysis.item_id=saved_items.id
+              AND (lower(analysis.summary) LIKE lower(?) ESCAPE '!' OR lower(analysis.visual_description) LIKE lower(?) ESCAPE '!'
+                OR lower(analysis.ocr_text) LIKE lower(?) ESCAPE '!' OR lower(analysis.transcript) LIKE lower(?) ESCAPE '!'
+                OR lower(analysis.keywords_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tags_json) LIKE lower(?) ESCAPE '!')) THEN 8 ELSE 0 END)`).join(' ')}` : 'NULL';
+      const scoreParams = query.sort === 'relevance' && query.search.trim() ? [query.search, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch,
+        ...(query.matchMode === 'phrase' ? [] : queryTerms(query.search).flatMap((term) => Array.from({ length: 11 }, () => `%${term.replace(/[!%_]/g, '!$&')}%`)))] : [];
       const rows = await database.prepare(`WITH ranked_items AS (
           SELECT saved_items.*, COALESCE(saved_items.title_override,saved_items.title) AS effective_title,
             COALESCE(saved_items.description_override,saved_items.description) AS effective_description,

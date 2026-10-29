@@ -38,6 +38,7 @@ export function createLibraryRouter(database: DatabaseHandle, storage: AssetStor
       search: z.string().max(120).default(''), type: z.enum(['page', 'note']).optional(),
       status: z.enum(['queued', 'processing', 'retry_wait', 'cancel_requested', 'cancelled', 'paused', 'partial', 'ready', 'failed']).optional(), tagId: z.string().optional(),
       collectionId: z.string().optional(), sort: z.enum(['relevance', 'created_desc', 'created_asc', 'title_asc', 'title_desc']).default('created_desc'),
+      matchMode: z.enum(['terms','phrase']).default('terms'),
       limit: z.coerce.number().int().min(1).max(100).default(25), cursor: z.string().max(2048).optional(),
     }).safeParse(req.query);
     if (!parsed.success) return apiError(res, 400, 'invalid_query', 'One or more library filters are invalid.', req.requestId);

@@ -50,7 +50,7 @@ export function createLibraryService(database: DatabaseHandle, storage: AssetSto
       return { item, duplicate: false };
     },
     async list(ownerId: string, query: ItemListQuery, rawCursor?: string) {
-      const fingerprint = createHash('sha256').update(JSON.stringify([query.search, query.type ?? null, query.status ?? null, query.tagId ?? null, query.collectionId ?? null])).digest('hex');
+      const fingerprint = createHash('sha256').update(JSON.stringify([query.search, query.type ?? null, query.status ?? null, query.tagId ?? null, query.collectionId ?? null, query.matchMode ?? 'terms'])).digest('hex');
       const cursor = rawCursor ? cursorDecode(rawCursor, { owner: ownerId, fingerprint, sort: query.sort }) : null;
       if (rawCursor && !cursor) throw new LibraryServiceError('invalid_cursor', 'Restart the list after changing filters or sorting.');
       const page = await repository.list(ownerId, query, cursor ? { key: cursor.key, id: cursor.id } : undefined);
@@ -64,7 +64,7 @@ export function createLibraryService(database: DatabaseHandle, storage: AssetSto
         const id = randomUUID();
         const now = new Date().toISOString();
         const filters = JSON.stringify({ type: query.type ?? null, status: query.status ?? null, tagId: query.tagId ?? null,
-          collectionId: query.collectionId ?? null, sort: query.sort });
+          collectionId: query.collectionId ?? null, sort: query.sort, matchMode: query.matchMode ?? 'terms' });
         try {
           await database.transaction(async () => {
             const retentionCutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
