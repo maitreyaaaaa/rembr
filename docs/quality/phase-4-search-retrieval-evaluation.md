@@ -4,11 +4,11 @@
 
 This is a small, deterministic sanity fixture for the current lexical scoring rule. It is a hand-calculated specification, not an executed quality benchmark and not evidence of query latency. The fixture contains no customer data. A runnable test and a larger labeled query set remain future work.
 
-The API suite has now exercised a synthetic owner fixture for cross-field multi-term matching, exact-phrase exclusion, owner-bound feedback, and cited evidence retrieval. This verifies those specific paths, not ranking quality across a representative corpus.
+The API suite has now exercised a synthetic owner fixture for cross-field multi-term matching, one curated `security` to `audit/privacy` expansion, exact-phrase exclusion, owner-bound feedback, and cited evidence retrieval. This verifies those specific paths, not ranking quality across a representative corpus.
 
 ## Current rule
 
-For normal library search, every meaningful query term must appear in at least one searchable field. Terms may be distributed across fields. Stop words are removed from the filter. The relevance score adds one point bucket per field match and per matching term:
+For normal library search, every meaningful query term must appear in at least one searchable field. Terms may be distributed across fields. Stop words are removed from the filter; a small curated set expands to OR groups (for example, `security` can match `audit` or `privacy`) while original query groups remain ANDed. This is deterministic lexical expansion, not vector or model-based semantic search. The relevance score adds one point bucket per field match and per matching query group:
 
 | Match | Points |
 |---|---:|
@@ -19,11 +19,11 @@ For normal library search, every meaningful query term must appear in at least o
 | Extracted page text contains query | 20 |
 | Note body contains query | 20 |
 | Any existing AI summary, visual description, OCR, transcript, keyword, or tag contains query | 15 |
-| Per term: effective title | 30 |
-| Per term: description | 18 |
-| Per term: original URL | 12 |
-| Per term: extracted text or note body | 10 |
-| Per term: any existing analysis field | 8 |
+| Per query group: effective title | 30 |
+| Per query group: description | 18 |
+| Per query group: original URL | 12 |
+| Per query group: extracted text or note body | 10 |
+| Per query group: any existing analysis field | 8 |
 
 Phrase matches add the original field weights on top of per-term scores. The separate library evidence preview uses `matchMode=phrase`, so every citation contains the full requested phrase. Results sort by score, creation time descending, then item ID descending. All search matches and metadata filters remain owner-scoped. Without a search string, the normal explicit sort applies.
 
@@ -38,7 +38,7 @@ Phrase matches add the original field weights on top of per-term scores. The sep
 | F5 | Note | Sprint notes | Note-body phrase + two note terms | 40 | 1 |
 | F6 | Page | UI patterns | Analysis phrase + two analysis terms | 31 | 1 |
 
-Expected ordering is F1, F2, F3, F4, F5, F6 before timestamp and ID tie-breakers. The fixture checks the intended priority ordering across fields. The default mode requires both terms to appear somewhere; the phrase mode would include only rows whose one searchable field contains `design system`. It does not test substring false positives, multilingual stop words, tokenization, synonyms, ranking stability under edits, or semantic search.
+Expected ordering is F1, F2, F3, F4, F5, F6 before timestamp and ID tie-breakers. The fixture checks the intended priority ordering across fields. The default mode requires both query groups to appear somewhere; the phrase mode would include only rows whose one searchable field contains `design system`. It does not test substring false positives, multilingual stop words, the full synonym map, ranking stability under edits, or semantic search.
 
 ## Feedback and data handling
 

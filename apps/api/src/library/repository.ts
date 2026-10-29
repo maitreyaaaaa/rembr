@@ -17,10 +17,40 @@ const SEARCH_FIELDS = `lower(COALESCE(saved_items.title_override,saved_items.tit
       OR lower(analysis.ocr_text) LIKE lower(?) ESCAPE '!' OR lower(analysis.transcript) LIKE lower(?) ESCAPE '!'
       OR lower(analysis.keywords_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tags_json) LIKE lower(?) ESCAPE '!'))`;
 const SEARCH_STOP_WORDS = new Set(['a','an','and','are','as','at','be','by','did','do','does','for','from','how','i','in','is','it','me','my','of','on','or','that','the','this','to','was','what','when','where','which','who','why','with','you','your']);
-function queryTerms(value: string): string[] {
+const SEARCH_CONCEPTS: Record<string, string[]> = {
+  security: ['security','secure','soc','soc2','compliance','audit','privacy','control','controls','access','data','protection','certification','certifications'],
+  compliance: ['compliance','soc','soc2','audit','privacy','control','controls','policy','policies','certification','certifications'],
+  privacy: ['privacy','data','protection','security','compliance','policy','policies'],
+  marketing: ['marketing','promotion','promotional','brand','campaign','growth','traffic','conversion','content'],
+  design: ['design','branding','palette','layout','visual','creative','ui','ux'],
+  finance: ['finance','money','revenue','pricing','investment','investing','profit','sales'],
+  fitness: ['fitness','workout','training','health','exercise','gym','nutrition'],
+  repo: ['repo','repository','github'], github: ['repo','repository','github'],
+  skill: ['skills','skill','agent','mcp'], skills: ['skills','skill','agent','mcp'], agent: ['skills','skill','agent','mcp'],
+  memory: ['memory','openspace'],
+};
+function queryGroups(value: string): string[][] {
   const tokens = [...new Set(value.toLowerCase().normalize('NFKC').match(/[a-z0-9]+/g) ?? [])];
   const meaningful = tokens.filter((token) => !SEARCH_STOP_WORDS.has(token));
-  return meaningful.length ? meaningful : tokens.length ? tokens : [value.trim()];
+  const selected = meaningful.length ? meaningful : tokens.length ? tokens : [value.trim()];
+  return selected.map((token) => SEARCH_CONCEPTS[token] ?? [token]);
+}
+const TERM_SCORE_FIELDS: Array<{ points: number; placeholders: number; sql: (count: number) => string }> = [
+  { points: 30, placeholders: 1, sql: (count) => Array.from({ length: count }, () => `lower(COALESCE(saved_items.title_override,saved_items.title)) LIKE lower(?) ESCAPE '!'`).join(' OR ') },
+  { points: 18, placeholders: 1, sql: (count) => Array.from({ length: count }, () => `lower(COALESCE(saved_items.description_override,saved_items.description,'')) LIKE lower(?) ESCAPE '!'`).join(' OR ') },
+  { points: 12, placeholders: 1, sql: (count) => Array.from({ length: count }, () => `lower(saved_items.original_url) LIKE lower(?) ESCAPE '!'`).join(' OR ') },
+  { points: 10, placeholders: 1, sql: (count) => Array.from({ length: count }, () => `lower(COALESCE(extracted_artifacts.text_content,'')) LIKE lower(?) ESCAPE '!'`).join(' OR ') },
+  { points: 10, placeholders: 1, sql: (count) => Array.from({ length: count }, () => 'EXISTS (SELECT 1 FROM notes WHERE notes.owner_id=saved_items.owner_id AND notes.item_id=saved_items.id AND lower(notes.body) LIKE lower(?) ESCAPE \'!\')').join(' OR ') },
+  { points: 8, placeholders: 6, sql: (count) => Array.from({ length: count }, () => `EXISTS (SELECT 1 FROM ai_analysis_results analysis WHERE analysis.owner_id=saved_items.owner_id AND analysis.item_id=saved_items.id
+    AND (lower(analysis.summary) LIKE lower(?) ESCAPE '!' OR lower(analysis.visual_description) LIKE lower(?) ESCAPE '!'
+      OR lower(analysis.ocr_text) LIKE lower(?) ESCAPE '!' OR lower(analysis.transcript) LIKE lower(?) ESCAPE '!'
+      OR lower(analysis.keywords_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tags_json) LIKE lower(?) ESCAPE '!'))`).join(' OR ') },
+];
+function termScoreSql(group: string[]): string {
+  return `+ (${TERM_SCORE_FIELDS.map((field) => `CASE WHEN (${field.sql(group.length)}) THEN ${field.points} ELSE 0 END`).join(' + ')})`;
+}
+function termScoreParams(group: string[]): string[] {
+  return TERM_SCORE_FIELDS.flatMap((field) => group.flatMap((term) => Array.from({ length: field.placeholders }, () => `%${term.replace(/[!%_]/g, '!$&')}%`)));
 }
 
 function toItem(row: Row) {
@@ -123,10 +153,12 @@ export function createLibraryRepository(database: DatabaseHandle) {
           clauses.push(`(${SEARCH_FIELDS})`);
           params.push(...Array.from({ length: 11 }, () => safeSearch));
         } else {
-          for (const term of queryTerms(query.search)) {
-            const pattern = `%${term.replace(/[!%_]/g, '!$&')}%`;
-            clauses.push(`(${SEARCH_FIELDS})`);
-            params.push(...Array.from({ length: 11 }, () => pattern));
+          for (const group of queryGroups(query.search)) {
+            clauses.push(`(${group.map(() => `(${SEARCH_FIELDS})`).join(' OR ')})`);
+            for (const term of group) {
+              const pattern = `%${term.replace(/[!%_]/g, '!$&')}%`;
+              params.push(...Array.from({ length: 11 }, () => pattern));
+            }
           }
         }
       }
@@ -164,18 +196,10 @@ export function createLibraryRepository(database: DatabaseHandle) {
             AND (lower(analysis.summary) LIKE lower(?) ESCAPE '!' OR lower(analysis.visual_description) LIKE lower(?) ESCAPE '!'
               OR lower(analysis.ocr_text) LIKE lower(?) ESCAPE '!' OR lower(analysis.transcript) LIKE lower(?) ESCAPE '!'
               OR lower(analysis.keywords_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tags_json) LIKE lower(?) ESCAPE '!')) THEN 15 ELSE 0 END
-        ${query.matchMode === 'phrase' ? '' : queryTerms(query.search).map(() => `+ (CASE WHEN lower(COALESCE(saved_items.title_override,saved_items.title)) LIKE lower(?) ESCAPE '!' THEN 30 ELSE 0 END
-          + CASE WHEN lower(COALESCE(saved_items.description_override,saved_items.description,'')) LIKE lower(?) ESCAPE '!' THEN 18 ELSE 0 END
-          + CASE WHEN lower(saved_items.original_url) LIKE lower(?) ESCAPE '!' THEN 12 ELSE 0 END
-          + CASE WHEN lower(COALESCE(extracted_artifacts.text_content,'')) LIKE lower(?) ESCAPE '!' THEN 10 ELSE 0 END
-          + CASE WHEN EXISTS (SELECT 1 FROM notes WHERE notes.owner_id=saved_items.owner_id AND notes.item_id=saved_items.id AND lower(notes.body) LIKE lower(?) ESCAPE '!') THEN 10 ELSE 0 END
-          + CASE WHEN EXISTS (SELECT 1 FROM ai_analysis_results analysis WHERE analysis.owner_id=saved_items.owner_id AND analysis.item_id=saved_items.id
-              AND (lower(analysis.summary) LIKE lower(?) ESCAPE '!' OR lower(analysis.visual_description) LIKE lower(?) ESCAPE '!'
-                OR lower(analysis.ocr_text) LIKE lower(?) ESCAPE '!' OR lower(analysis.transcript) LIKE lower(?) ESCAPE '!'
-                OR lower(analysis.keywords_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tags_json) LIKE lower(?) ESCAPE '!')) THEN 8 ELSE 0 END)`).join(' ')}
+        ${query.matchMode === 'phrase' ? '' : queryGroups(query.search).map((group) => termScoreSql(group)).join(' ')}
         )` : 'NULL';
       const scoreParams = query.sort === 'relevance' && query.search.trim() ? [query.search, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch,
-        ...(query.matchMode === 'phrase' ? [] : queryTerms(query.search).flatMap((term) => Array.from({ length: 11 }, () => `%${term.replace(/[!%_]/g, '!$&')}%`)))] : [];
+        ...(query.matchMode === 'phrase' ? [] : queryGroups(query.search).flatMap((group) => termScoreParams(group)))] : [];
       const rows = await database.prepare(`WITH ranked_items AS (
           SELECT saved_items.*, COALESCE(saved_items.title_override,saved_items.title) AS effective_title,
             COALESCE(saved_items.description_override,saved_items.description) AS effective_description,

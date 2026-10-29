@@ -99,7 +99,8 @@ test('item list filters, keyset pagination, metadata overrides and organization 
     await profile(baseUrl, second.cookie, 'library_other');
     const firstCreate = await createPage(baseUrl, first.cookie, 'https://example.com/alpha');
     const firstItem = (await firstCreate.json() as { item: { id: string } }).item;
-    await createPage(baseUrl, first.cookie, 'https://example.com/beta');
+    const secondCreate = await createPage(baseUrl, first.cookie, 'https://example.com/beta');
+    const secondItem = (await secondCreate.json() as { item: { id: string } }).item;
     const list = await fetch(`${baseUrl}/api/items?search=example&sort=title_asc&limit=1`, { headers: { Cookie: first.cookie } });
     assert.equal(list.status, 200);
     const page = await list.json() as { items: Array<{ id: string }>; nextCursor: string; hasMore: boolean };
@@ -139,6 +140,9 @@ test('item list filters, keyset pagination, metadata overrides and organization 
     assert.equal(evidenceBody.mode, 'lexical-excerpts');
     assert.deepEqual(evidenceBody.resultIds, [firstItem.id]);
     assert.match(evidenceBody.citations[0]!.snippet, /reliable system/);
+    await fetch(`${baseUrl}/api/items/${secondItem.id}`, { method: 'PATCH', headers: { Cookie: first.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ descriptionOverride: 'Audit evidence for privacy controls' }) });
+    const conceptSearch = await fetch(`${baseUrl}/api/items?search=security&sort=relevance`, { headers: { Cookie: first.cookie } });
+    assert.deepEqual((await conceptSearch.json() as { items: Array<{ id: string }> }).items.map((item) => item.id), [secondItem.id]);
     const foreign = await fetch(`${baseUrl}/api/items/${firstItem.id}`, { headers: { Cookie: second.cookie } });
     assert.equal(foreign.status, 404);
     const foreignSearch = await fetch(`${baseUrl}/api/items?search=example.com`, { headers: { Cookie: second.cookie } });
