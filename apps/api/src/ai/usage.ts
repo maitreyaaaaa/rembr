@@ -26,6 +26,13 @@ export interface AiUsageReservation {
   reservedMicroUsd: number;
 }
 
+export interface AiSearchUsageReservation {
+  id: string;
+  ownerId: string;
+  monthStart: string;
+  reservedMicroUsd: number;
+}
+
 export function utcMonthStart(value = new Date()): string {
   return `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, '0')}-01`;
 }
@@ -44,6 +51,61 @@ export function voiceCostMicroUsd(audioSeconds: number): number {
 
 export function createAiUsageRepository(database: DatabaseHandle) {
   return {
+    reserveSearch(input: { ownerId: string; amountMicroUsd: number; now?: Date }): Promise<AiSearchUsageReservation> {
+      return database.transaction(async () => {
+        const { ownerId, amountMicroUsd } = input;
+        if (!Number.isSafeInteger(amountMicroUsd) || amountMicroUsd <= 0 || amountMicroUsd > MONTHLY_AI_CAP_MICROUSD) {
+          throw new RangeError('Search reservation must be a positive amount within the shared monthly cap.');
+        }
+        const now = (input.now ?? new Date()).toISOString();
+        const monthStart = utcMonthStart(input.now);
+        await database.prepare(`INSERT INTO ai_monthly_usage (month_start,created_at,updated_at)
+          VALUES (?,?,?) ON CONFLICT(month_start) DO NOTHING`).run(monthStart, now, now);
+        const budget = await database.prepare(`UPDATE ai_monthly_usage SET reserved_microusd=reserved_microusd+?,updated_at=?
+          WHERE month_start=? AND spent_microusd+reserved_microusd+?<=cap_microusd`)
+          .run(amountMicroUsd, now, monthStart, amountMicroUsd);
+        if (budget.changes !== 1) throw new AiBudgetExceededError('monthly_budget');
+        const id = randomUUID();
+        await database.prepare(`INSERT INTO ai_search_usage_reservations
+          (id,owner_id,month_start,reserved_microusd,status,created_at)
+          VALUES (?,?,?,?,'reserved',?)`).run(id, ownerId, monthStart, amountMicroUsd, now);
+        return { id, ownerId, monthStart, reservedMicroUsd: amountMicroUsd } satisfies AiSearchUsageReservation;
+      })();
+    },
+
+    settleSearch(reservation: AiSearchUsageReservation, actualMicroUsd: number, now = new Date().toISOString()) {
+      return database.transaction(async () => {
+        if (!Number.isSafeInteger(actualMicroUsd) || actualMicroUsd < 0) throw new RangeError('Actual usage must be non-negative.');
+        if (actualMicroUsd > reservation.reservedMicroUsd) {
+          await database.prepare(`UPDATE ai_search_usage_reservations SET status='held'
+            WHERE id=? AND owner_id=? AND status='reserved'`).run(reservation.id, reservation.ownerId);
+          return false;
+        }
+        const changed = await database.prepare(`UPDATE ai_search_usage_reservations SET status='settled',actual_microusd=?,settled_at=?
+          WHERE id=? AND owner_id=? AND status='reserved'`).run(actualMicroUsd, now, reservation.id, reservation.ownerId);
+        if (changed.changes !== 1) return false;
+        await database.prepare(`UPDATE ai_monthly_usage SET reserved_microusd=reserved_microusd-?,spent_microusd=spent_microusd+?,updated_at=?
+          WHERE month_start=?`).run(reservation.reservedMicroUsd, actualMicroUsd, now, reservation.monthStart);
+        return true;
+      })();
+    },
+
+    releaseSearch(reservation: AiSearchUsageReservation, now = new Date().toISOString()) {
+      return database.transaction(async () => {
+        const changed = await database.prepare(`UPDATE ai_search_usage_reservations SET status='released',settled_at=?
+          WHERE id=? AND owner_id=? AND status='reserved'`).run(now, reservation.id, reservation.ownerId);
+        if (changed.changes !== 1) return false;
+        await database.prepare(`UPDATE ai_monthly_usage SET reserved_microusd=reserved_microusd-?,updated_at=?
+          WHERE month_start=?`).run(reservation.reservedMicroUsd, now, reservation.monthStart);
+        return true;
+      })();
+    },
+
+    holdSearch(reservation: AiSearchUsageReservation) {
+      return database.prepare(`UPDATE ai_search_usage_reservations SET status='held'
+        WHERE id=? AND owner_id=? AND status='reserved'`).run(reservation.id, reservation.ownerId);
+    },
+
     reserve(input: { ownerId: string; importId: string; jobId: string; attemptNumber: number; amountMicroUsd: number; now?: Date }) {
       return database.transaction(async () => {
         const { ownerId, importId, jobId, attemptNumber, amountMicroUsd } = input;

@@ -174,8 +174,9 @@ test('item list filters, keyset pagination, metadata overrides and organization 
 
 test('Phase 4 grounded answers require separate consent and only retain citations to retrieved owner items', async () => {
   let modelCalls = 0;
+  let preflightCalls = 0;
   let modelPrompt = '';
-  await withApi(async (baseUrl) => {
+  await withApi(async (baseUrl, database) => {
     const owner = await register(baseUrl, 'grounded-answer@example.test');
     await profile(baseUrl, owner.cookie, 'grounded_answer');
     await fetch(`${baseUrl}/api/onboarding`, { method: 'PUT', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ skipped: true, contentTypes: [], referralSource: '' }) });
@@ -185,6 +186,7 @@ test('Phase 4 grounded answers require separate consent and only retain citation
     const noConsent = await fetch(`${baseUrl}/api/knowledge/answer`, { method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ question: 'What did I save about design systems?' }) });
     assert.equal((await noConsent.json() as { mode: string }).mode, 'lexical-excerpts');
     assert.equal(modelCalls, 0);
+    assert.equal(preflightCalls, 0);
     const missingDisclosure = await fetch(`${baseUrl}/api/knowledge/ai-preferences`, { method: 'PUT', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: true }) });
     assert.equal(missingDisclosure.status, 400);
     const consent = await fetch(`${baseUrl}/api/knowledge/ai-preferences`, { method: 'PUT', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: true, disclosureVersion: '2026-10-29-v1' }) });
@@ -196,13 +198,21 @@ test('Phase 4 grounded answers require separate consent and only retain citation
     assert.match(modelPrompt, /untrusted data/i);
     assert.deepEqual(body.claims, [{ text: 'The note is about accessible product teams.', citationIds: [item.id] }]);
     assert.deepEqual(body.citations.map((citation) => citation.id), [item.id]);
-  }, { providerAvailable: async () => true, answerModel: async (prompt) => {
-    modelCalls += 1; modelPrompt = prompt;
-    const foundId = /"id":"([^"]+)"/.exec(prompt)?.[1] ?? '';
-    return { text: JSON.stringify({ claims: [
-      { text: 'The note is about accessible product teams.', citationIds: [foundId] },
-      { text: 'Unsupported claim.', citationIds: ['not-a-retrieved-item'] },
-    ] }), inputTokens: 100, outputTokens: 40 };
+    const monthUsage = await database.prepare(`SELECT spent_microusd,reserved_microusd FROM ai_monthly_usage WHERE month_start='2026-10-01'`).get() as { spent_microusd: string; reserved_microusd: string };
+    assert.equal(Number(monthUsage.spent_microusd), 295);
+    assert.equal(Number(monthUsage.reserved_microusd), 0);
+    const ledger = await database.prepare('SELECT status,actual_microusd FROM ai_search_usage_reservations').get() as { status: string; actual_microusd: string };
+    assert.deepEqual({ status: ledger.status, actual: Number(ledger.actual_microusd) }, { status: 'settled', actual: 295 });
+  }, { providerAvailable: async () => true, answerModel: {
+    countTextInputTokens: async () => { preflightCalls += 1; return 100; },
+    analyzeText: async (prompt) => {
+      modelCalls += 1; modelPrompt = prompt;
+      const foundId = /"id":"([^"]+)"/.exec(prompt)?.[1] ?? '';
+      return { text: JSON.stringify({ claims: [
+        { text: 'The note is about accessible product teams.', citationIds: [foundId] },
+        { text: 'Unsupported claim.', citationIds: ['not-a-retrieved-item'] },
+      ] }), inputTokens: 100, outputTokens: 40 };
+    },
   } });
 });
 
@@ -426,10 +436,10 @@ test('Postgres schema starts with the complete empty Rembr model', async () => {
   try {
     const result = await database.prepare(`SELECT count(*) AS count FROM information_schema.tables
       WHERE table_schema='public' AND table_type='BASE TABLE'`).get() as { count: string };
-    assert.equal(Number(result.count), 39);
+    assert.equal(Number(result.count), 40);
     const rls = await database.prepare(`SELECT count(*) AS count FROM pg_class c
       JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='r' AND c.relrowsecurity`).get() as { count: string };
-    assert.equal(Number(rls.count), 39);
+    assert.equal(Number(rls.count), 40);
     const mediaAnalysisTables = await database.prepare(`SELECT count(*) AS count FROM information_schema.tables
       WHERE table_schema='public' AND table_name IN ('ai_analysis_preferences','ai_worker_status','ai_analysis_jobs','ai_analysis_results','ai_import_usage','ai_monthly_usage','ai_usage_reservations')`).get() as { count: string };
     assert.equal(Number(mediaAnalysisTables.count), 7);

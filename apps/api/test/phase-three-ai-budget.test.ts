@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { createTestDatabase } from '../src/db/database.js';
-import { AiBudgetExceededError, createAiUsageRepository, sparkCostMicroUsd, utcMonthStart, voiceCostMicroUsd } from '../src/ai/usage.js';
+import { AiBudgetExceededError, createAiUsageRepository, MONTHLY_AI_CAP_MICROUSD, sparkCostMicroUsd, utcMonthStart, voiceCostMicroUsd } from '../src/ai/usage.js';
 import { MetaApiError } from '../src/ai/meta-client.js';
 import { processNextAiJob, type AiModelClient } from '../src/ai/worker.js';
 
@@ -62,6 +62,26 @@ test('reservations atomically protect the import cap and settle actual spend', a
     assert.equal(Number(totals.reserved_microusd), 0);
     const reservations = await database.prepare(`SELECT status FROM ai_usage_reservations ORDER BY reserved_microusd`).all() as Array<{ status: string }>;
     assert.deepEqual(reservations.map((row) => row.status).sort(), ['released', 'settled']);
+  } finally { await database.close(); }
+});
+
+test('grounded-answer reservations share the monthly AI cap and retain uncertain or over-budget usage', async () => {
+  const database = await createTestDatabase();
+  try {
+    const now = new Date('2026-10-29T10:00:00.000Z');
+    await seedImport(database, 'search-budget-import', 'search-budget-job', now.toISOString());
+    const usage = createAiUsageRepository(database);
+    const searchReservation = await usage.reserveSearch({ ownerId: 'budget-user', amountMicroUsd: MONTHLY_AI_CAP_MICROUSD - 100, now });
+    await assert.rejects(usage.reserve({ ownerId: 'budget-user', importId: 'search-budget-import', jobId: 'search-budget-job', attemptNumber: 1, amountMicroUsd: 101, now }),
+      (error: unknown) => error instanceof AiBudgetExceededError && error.scope === 'monthly_budget');
+    assert.equal(await usage.settleSearch(searchReservation, 1_000, now.toISOString()), true);
+    const overage = await usage.reserveSearch({ ownerId: 'budget-user', amountMicroUsd: 5_000, now });
+    assert.equal(await usage.settleSearch(overage, 6_000, now.toISOString()), false);
+    const month = await database.prepare(`SELECT spent_microusd,reserved_microusd FROM ai_monthly_usage WHERE month_start=?`).get(utcMonthStart(now)) as { spent_microusd: string; reserved_microusd: string };
+    assert.equal(Number(month.spent_microusd), 1_000);
+    assert.equal(Number(month.reserved_microusd), 5_000);
+    const ledger = await database.prepare('SELECT status FROM ai_search_usage_reservations ORDER BY created_at,id').all() as Array<{ status: string }>;
+    assert.deepEqual(ledger.map((row) => row.status), ['settled', 'held']);
   } finally { await database.close(); }
 });
 
