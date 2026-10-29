@@ -97,3 +97,9 @@ npx --yes supabase@2.122.0 --workdir /tmp/rembr-phase4-repair migration repair 2
 ```
 
 - These downloads create CLI input files in `/tmp`; they do not execute the SQL or alter the deployed app checkout. After the final command, verify the Supabase migration listing shows the three local versions and the expected 14 total entries. No `db push` is needed.
+
+## Verification — 2026-10-30
+
+- The user completed the temporary-workdir history repair in Render Shell. Supabase MCP now lists all 14 migrations using the exact local file versions, including `20261029210000`, `20261029220000`, and `20261029230000`.
+- The three Phase 4 migrations remain applied. Schema checks confirm four entity-label columns, the Smart Collections entity source constraint, and the RLS-enabled visual-search consent table. Aggregate checks found no analysis jobs or preferences affected by the consent changes.
+- This confirms hosted schema and migration-history alignment. It does not verify Phase 4 application behavior on Render; the service still deploys `master`, not this feature branch.
