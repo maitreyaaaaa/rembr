@@ -56,6 +56,7 @@ The hosted advisor reported RLS enabled without policies on 41 public tables (IN
 
 - A fresh read-only Supabase migration listing still returns the same 11 hosted versions above. The Phase 4 branch now contains 14 local migrations; in addition to the two earlier pending migrations, `20261029230000_rembr_visual_search_consent.sql` is also absent from hosted history.
 - The user confirms `DATABASE_URL` is configured on the Render `Rembr` workspace and chose to run the history-only repair from the Dashboard Shell. No history repair, schema migration, or other hosted write has occurred in this follow-up.
+- Current Render read-only inspection shows `rembr-web` is configured to deploy `master`; its live deploy is `514056ab257b036bdf46f3ba93192d760105a0a7`. The health endpoint returned HTTP 200. Feature commit `deee640` is not deployed to this service.
 - Repair remains limited to replacing the nine alternate version IDs with the matching local IDs. Do not apply any pending schema migrations in this history-repair step.
 
 ## Local verification

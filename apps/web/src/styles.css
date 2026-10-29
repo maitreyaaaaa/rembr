@@ -530,6 +530,7 @@ h1, h2, h3, p { margin-top: 0; }
 .library-answer-result .phase2-preserve-text { margin: 8px 0 0; font-size: 12px; }
 .visual-search-panel .phase2-inline-form { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 14px 0 0; }
 .visual-search-panel .visual-search-choose { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; cursor: pointer; }
+.visual-search-panel .visual-search-input:focus-visible + .visual-search-choose { outline: 3px solid var(--focus); outline-offset: 4px; }
 .visual-search-file-name { min-width: 0; overflow-wrap: anywhere; }
 .visual-search-preview { display: flex; width: 100%; align-items: center; gap: 12px; margin-top: 2px; }
 .visual-search-preview img { width: 112px; height: 112px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); object-fit: contain; }

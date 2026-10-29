@@ -56,3 +56,8 @@
 - The browser accessibility tree exposed the Rembr home link, two headings, an “Account access” tab group, named Sign in/Create account tabs, labeled email/password fields, a named Show password checkbox, and the Sign in button. One Tab press focused the Rembr home link. This observation covers the sign-in page only; it does not replace the prior route-level keyboard review.
 - Source inspection found a global `prefers-reduced-motion: reduce` rule that disables animations, transitions, and smooth scrolling. Marketing GSAP effects are initialized only when the preference is `no-preference`.
 - No screen-reader session or runtime reduced-motion emulation was available in this pass. Both remain unverified.
+
+## Image-search browser QA follow-up
+
+- The existing local Vite server responded on `127.0.0.1:5173`; a temporary in-memory PGlite API was started with provider availability disabled. The computer-use browser refused localhost navigation with “Host access is restricted by policy,” so no rendered image-search, keyboard, or accessibility-tree result could be captured.
+- The temporary API was stopped, port 4000 was verified closed, and its temporary script was removed. No account, production data, provider call, or repository file was used for that temporary runtime. Source inspection only confirms the image-search heading, labeled file input, status/error announcements, result feedback controls, focus-visible styles, and reduced-motion rules; runtime evidence remains not run.
