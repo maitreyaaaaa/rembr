@@ -42,3 +42,10 @@
 
 - The first mobile Connections scan found axe rule `scrollable-region-focusable` on the graph map's horizontal scroller. The scroller now has `role="region"`, the accessible name “Scrollable graph map”, `tabIndex={0}`, and a visible `:focus-visible` outline. A focused rerun at both viewports found zero violations. Contrast nodes remain indeterminate on decorative arrows, pseudo-element button backgrounds, status markers, and SVG text; these are not reported as passes.
 - The temporary API, browser profile, screenshots, axe install, and review scripts were removed after inspection. The user-owned Vite server on port 5173 was left running.
+
+## Additional accessibility-tree and keyboard review
+
+- Follow-up used an isolated in-memory PGlite API with provider availability disabled and a synthetic account. Routes/states reviewed: new note, note detail/edit, empty Imports, empty Tags, and Profile settings.
+- Browser accessibility-tree inspection exposed named controls for note title/body/links/images and save actions, Imports navigation and empty state, tag creation, and profile username/avatar/preferences controls. On the note edit form, Tab traversal reached Cancel, title, body, links, image input, and Save; the focused Save button displayed a visible outline.
+- This was not a screen-reader session. The browser did not allow reduced-motion emulation during this pass, so reduced-motion behavior remains source-inspected only. Tag edit and import detail with actual records remain unreviewed.
+- The synthetic API process, account, note, and temporary script were removed/stopped after review; the user-owned Vite process on port 5173 was left running. No provider calls or hosted database access occurred.

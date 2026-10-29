@@ -9,8 +9,9 @@
     "start": "node dist/index.js",
     "start:worker": "node dist/worker/index.js",
     "typecheck": "tsc --noEmit",
-    "lint": "eslint src test",
+    "lint": "eslint src scripts test",
     "test": "node --import tsx --test --test-concurrency=1 test/*.test.ts",
+    "evaluate-search": "node --import tsx scripts/evaluate-search-relevance.ts",
     "build": "tsc"
   },
   "dependencies": {

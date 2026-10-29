@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -653,8 +654,27 @@ test('Library Checkup reminders are owner-scoped and move through pending, due, 
     const crossOwner = await fetch(`${baseUrl}/api/knowledge/reminders`, { method: 'POST', headers: { Cookie: other.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ itemId: item.id, preset: 'week' }) });
     assert.equal(crossOwner.status, 404);
 
+    const otherSaved = await createPage(baseUrl, other.cookie, 'https://reminder-fixture.test/other-owner');
+    const { item: otherItem } = await otherSaved.json() as { item: { id: string } };
+    const ownerImportId = randomUUID();
+    const otherImportId = randomUUID();
+    const importTime = new Date().toISOString();
+    for (const [importId, accountId, existingItemId, sourceTitle] of [
+      [ownerImportId, owner.user.user.id, item.id, 'Imported board again'],
+      [otherImportId, other.user.user.id, otherItem.id, 'Other owner duplicate'],
+    ]) {
+      await database.prepare(`INSERT INTO imports (id,owner_id,request_id,source,status,created_at,updated_at)
+        VALUES (?,?,?,'pinterest','completed',?,?)`).run(importId, accountId, importId, importTime, importTime);
+      await database.prepare(`INSERT INTO import_entries (id,owner_id,import_id,item_id,source_platform,source_url,title,status,created_at)
+        VALUES (?,?,?,?, 'pinterest',?,?, 'duplicate',?)`).run(randomUUID(), accountId, importId, existingItemId, `https://pinterest.test/${importId}`, sourceTitle, importTime);
+    }
+
     let checkup = await fetch(`${baseUrl}/api/knowledge/checkup`, { headers: { Cookie: owner.cookie } });
-    let body = (await checkup.json() as { checkup: { dueReminders: unknown[]; upcomingReminders: Array<{ id: string }> } }).checkup;
+    let body = (await checkup.json() as { checkup: { duplicateImports: { count: number; recent: Array<{ id: string; itemId: string; importedTitle: string; matchedItemTitle: string; sourcePlatform: string; importedAt: string }> }; dueReminders: unknown[]; upcomingReminders: Array<{ id: string }> } }).checkup;
+    assert.equal(body.duplicateImports.count, 1);
+    assert.deepEqual(body.duplicateImports.recent.map(({ itemId, importedTitle, matchedItemTitle, sourcePlatform }) => ({ itemId, importedTitle, matchedItemTitle, sourcePlatform })), [
+      { itemId: item.id, importedTitle: 'Imported board again', matchedItemTitle: item.title, sourcePlatform: 'pinterest' },
+    ]);
     assert.equal(body.dueReminders.length, 0);
     assert.deepEqual(body.upcomingReminders.map(({ id }) => id), [reminder.id]);
     await database.prepare('UPDATE library_reminders SET remind_at=? WHERE owner_id=? AND id=?').run(new Date(Date.now() - 60_000).toISOString(), owner.user.user.id, reminder.id);

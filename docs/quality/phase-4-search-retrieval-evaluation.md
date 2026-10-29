@@ -51,4 +51,4 @@ The API test creates these fixtures, submits `design system`, and checks the ord
 
 ## Next evaluation gate
 
-Build a larger human-reviewed query set with graded relevance before using MRR/nDCG to make retrieval-quality claims. Add tests for broader multilingual normalization and the full curated synonym map. Measure latency separately with documented hardware, database state, and fixture size. Do not use this six-item synthetic result to claim retrieval quality or performance.
+Build a larger human-reviewed query set with graded relevance before using MRR/nDCG to make retrieval-quality claims. The reusable local harness and dataset contract are documented in `phase-4-search-evaluation-harness.md`; no representative labels are included in the repository. Add tests for broader multilingual normalization and the full curated synonym map. Measure latency separately with documented hardware, database state, and fixture size. Do not use this six-item synthetic result to claim retrieval quality or performance.

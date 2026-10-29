@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseHandle } from '../db/database.js';
 import { tokenizeSearchTerms } from '../library/search-terms.js';
+import { matchingRuleTerms } from './matching.js';
 
 const ITEM_SCAN_LIMIT = 2_000;
 const MIN_MATCHES = 2;
@@ -76,7 +77,7 @@ function candidatesFrom(items: SmartItem[]): Candidate[] {
     if (['failed', 'paused', 'cancelled'].includes(item.status)) continue;
     const text = searchText(item);
     for (const rule of CATEGORY_RULES) {
-      const matches = rule.terms.filter((term) => text.includes(term));
+      const matches = matchingRuleTerms(text, rule.terms);
       if (matches.length) add(item, { slug: rule.slug, name: rule.name, description: rule.description, sourceType: 'rule', group: rule.group, signals: matches.slice(0, 4), confidence: Math.min(0.95, 0.58 + matches.length * 0.08), reason: `Matched ${matches.slice(0, 3).join(', ')}.` });
     }
     if (item.kind === 'note') add(item, { slug: 'capture-notes', name: 'Notes', description: 'Notes you created in your library.', sourceType: 'capture', group: 'Captures', signals: ['Notes'], confidence: 0.66, reason: 'Saved as a note.' });

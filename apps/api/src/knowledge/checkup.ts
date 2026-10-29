@@ -8,6 +8,7 @@ const DISPLAY_LIMIT = 8;
 
 type CareItem = { id: string; title: string; status: string; created_at: string };
 type ReminderRow = { id: string; item_id: string; remind_at: string; reason: string; note: string; completed_at: string | null; created_at: string; updated_at: string; title: string; item_status: string; item_created_at: string };
+type DuplicateImportRow = { id: string; item_id: string; imported_title: string; source_platform: string; imported_at: string; matched_item_title: string };
 
 function stableRank(seed: string, id: string): string {
   return createHash('sha256').update(`${seed}:${id}`).digest('hex');
@@ -22,7 +23,7 @@ export function createLibraryCheckupRepository(database: DatabaseHandle) {
     async get(ownerId: string, now = new Date()) {
       const nowIso = now.toISOString();
       const oldCutoff = new Date(now.getTime() - OLD_SAVE_DAYS * 24 * 60 * 60 * 1000).toISOString();
-      const [totalRow, unorganizedRow, attentionCountRow, attentionRow, oldCountRow, oldRows, recentRows] = await Promise.all([
+      const [totalRow, unorganizedRow, attentionCountRow, attentionRow, oldCountRow, oldRows, recentRows, duplicateImportCountRow, duplicateImportRows] = await Promise.all([
         database.prepare('SELECT count(*) AS count FROM saved_items WHERE owner_id=?').get(ownerId) as Promise<{ count: number }>,
         database.prepare(`SELECT count(*) AS count FROM saved_items
           WHERE owner_id=?
@@ -57,6 +58,14 @@ export function createLibraryCheckupRepository(database: DatabaseHandle) {
           WHERE owner_id=? AND created_at<=? ORDER BY created_at ASC, id ASC LIMIT ?`).all(ownerId, oldCutoff, DISPLAY_LIMIT) as Promise<CareItem[]>,
         database.prepare(`SELECT id, COALESCE(title_override,title) AS title, status, created_at FROM saved_items
           WHERE owner_id=? ORDER BY created_at DESC, id DESC LIMIT ?`).all(ownerId, ITEM_SAMPLE_LIMIT) as Promise<CareItem[]>,
+        database.prepare(`SELECT count(*) AS count FROM import_entries WHERE owner_id=? AND status='duplicate'`)
+          .get(ownerId) as Promise<{ count: number }>,
+        database.prepare(`SELECT entries.id,entries.item_id,entries.title AS imported_title,entries.source_platform,
+            entries.created_at AS imported_at,COALESCE(saved_items.title_override,saved_items.title) AS matched_item_title
+          FROM import_entries entries JOIN saved_items
+            ON saved_items.owner_id=entries.owner_id AND saved_items.id=entries.item_id
+          WHERE entries.owner_id=? AND entries.status='duplicate'
+          ORDER BY entries.created_at DESC,entries.id DESC LIMIT ?`).all(ownerId, DISPLAY_LIMIT) as Promise<DuplicateImportRow[]>,
       ]);
 
       const [dueReminderRows, upcomingReminderRows] = await Promise.all([
@@ -83,6 +92,17 @@ export function createLibraryCheckupRepository(database: DatabaseHandle) {
           unorganizedItems: Number(unorganizedRow?.count ?? 0),
           needsAttention: Number(attentionCountRow?.count ?? 0),
           olderSaves: Number(oldCountRow?.count ?? 0),
+        },
+        duplicateImports: {
+          count: Number(duplicateImportCountRow?.count ?? 0),
+          recent: duplicateImportRows.map((row) => ({
+            id: row.id,
+            itemId: row.item_id,
+            importedTitle: row.imported_title,
+            matchedItemTitle: row.matched_item_title,
+            sourcePlatform: row.source_platform,
+            importedAt: row.imported_at,
+          })),
         },
         needsAttention: attentionRow,
         olderSaves: oldRows,
