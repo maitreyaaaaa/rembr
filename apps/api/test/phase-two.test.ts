@@ -256,6 +256,37 @@ test('Smart Collections support owner-scoped renames and manual membership corre
   });
 });
 
+test('Smart Collections rules use existing summary, visual, OCR, and transcript artifacts', async () => {
+  await withApi(async (baseUrl, database) => {
+    const owner = await register(baseUrl, 'smart-analysis@example.test');
+    await profile(baseUrl, owner.cookie, 'smart_analysis');
+    const now = new Date().toISOString();
+    const analysisFields = ['summary', 'visual_description', 'ocr_text', 'transcript'] as const;
+
+    for (const [index, targetField] of analysisFields.entries()) {
+      const created = await createPage(baseUrl, owner.cookie, `https://analysis-fixture.test/${index}`);
+      const { item } = await created.json() as { item: { id: string } };
+      assert.equal((await fetch(`${baseUrl}/api/items/${item.id}`, { method: 'PATCH', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ titleOverride: `Saved reference ${index}`, descriptionOverride: `Unrelated description ${index}` }) })).status, 200);
+      const importId = `smart-analysis-import-${index}`;
+      const jobId = `smart-analysis-job-${index}`;
+      await database.prepare(`INSERT INTO imports (id,owner_id,request_id,source,status,created_at,updated_at) VALUES (?,?,?,'instagram','queued',?,?)`).run(importId, owner.user.user.id, importId, now, now);
+      await database.prepare(`INSERT INTO ai_analysis_jobs (id,owner_id,import_id,item_id,status,available_at,created_at,updated_at) VALUES (?,?,?,?,'queued',?,?,?)`).run(jobId, owner.user.user.id, importId, item.id, now, now, now);
+      const analysis: Record<typeof analysisFields[number], string> = { summary: '', visual_description: '', ocr_text: '', transcript: '' };
+      analysis[targetField] = 'Figma design system dashboard';
+      await database.prepare(`INSERT INTO ai_analysis_results
+        (id,owner_id,item_id,generation,status,model,summary,visual_description,ocr_text,transcript,keywords_json,tags_json,
+         image_count,image_bytes,video_count,max_video_bytes,audio_seconds,input_tokens,output_tokens,billed_microusd,created_at)
+        VALUES (?,?,?,1,'completed','fixture',?,?,?,?, '[]','[]',0,0,0,0,0,0,0,0,?)`)
+        .run(`smart-analysis-result-${index}`, owner.user.user.id, item.id, analysis.summary, analysis.visual_description, analysis.ocr_text, analysis.transcript, now);
+    }
+
+    const response = await fetch(`${baseUrl}/api/smart-collections`, { headers: { Cookie: owner.cookie } });
+    assert.equal(response.status, 200);
+    const collections = (await response.json() as { collections: Array<{ slug: string; itemCount: number }> }).collections;
+    assert.equal(collections.find(({ slug }) => slug === 'ui-inspiration')?.itemCount, analysisFields.length);
+  });
+});
+
 test('notes accept bounded image assets, enforce owner reads, and cascade with their item', async () => {
   await withApi(async (baseUrl, database) => {
     const owner = await register(baseUrl, 'note-owner@example.test');

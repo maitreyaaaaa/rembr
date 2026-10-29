@@ -17,7 +17,7 @@ const CATEGORY_RULES = [
 ] as const;
 
 type SourceType = 'rule' | 'capture' | 'topic' | 'collection' | 'platform';
-type SmartItem = { id: string; title: string; description: string; url: string; text: string; note: string; status: string; kind: string; platform: string; createdAt: string; tags: string[]; collections: string[]; analysisTags: string[]; keywords: string[] };
+type SmartItem = { id: string; title: string; description: string; url: string; text: string; note: string; analysisText: string; status: string; kind: string; platform: string; createdAt: string; tags: string[]; collections: string[]; analysisTags: string[]; keywords: string[] };
 type CandidateItem = { item: SmartItem; confidence: number; reason: string };
 type Candidate = { slug: string; name: string; description: string; sourceType: SourceType; folderGroup: string; matchSignals: Set<string>; items: Map<string, CandidateItem> };
 type CollectionRow = { id: string; owner_id: string; slug: string; name: string; description: string; source_type: SourceType; pinned: boolean | number; hidden: boolean | number; generation_metadata: string; created_at: string; updated_at: string };
@@ -37,7 +37,7 @@ function safeMetadata(value: string): Record<string, unknown> { try { const pars
 function toSmartItem(row: DbItemRow, tags: string[], collections: string[]): SmartItem {
   return {
     id: String(row.id), title: String(row.title ?? 'Untitled save'), description: String(row.description ?? ''), url: String(row.url ?? ''),
-    text: String(row.text_content ?? ''), note: String(row.note_body ?? ''), status: String(row.effective_status ?? row.status ?? ''),
+    text: String(row.text_content ?? ''), note: String(row.note_body ?? ''), analysisText: String(row.analysis_text ?? ''), status: String(row.effective_status ?? row.status ?? ''),
     kind: String(row.item_kind ?? 'page'), platform: String(row.source_platform ?? ''), createdAt: String(row.created_at),
     tags, collections, analysisTags: readStrings(row.analysis_tags_json), keywords: readStrings(row.keywords_json),
   };
@@ -46,7 +46,7 @@ function toSmartItem(row: DbItemRow, tags: string[], collections: string[]): Sma
 function searchText(item: SmartItem): string {
   let host = '';
   try { host = new URL(item.url).hostname; } catch { /* Invalid stored URLs do not contribute domain text. */ }
-  return [item.title, item.description, item.url, host, item.text, item.note, item.platform, ...item.tags, ...item.collections, ...item.analysisTags, ...item.keywords].join(' ').toLowerCase();
+  return [item.title, item.description, item.url, host, item.text, item.note, item.analysisText, item.platform, ...item.tags, ...item.collections, ...item.analysisTags, ...item.keywords].join(' ').toLowerCase();
 }
 
 function candidatesFrom(items: SmartItem[]): Candidate[] {
@@ -114,6 +114,10 @@ export function createSmartCollectionService(database: DatabaseHandle) {
         saved_items.original_url AS url, saved_items.status, saved_items.item_kind, saved_items.source_platform,
         saved_items.created_at, LEFT(COALESCE(extracted_artifacts.text_content,''),2000) AS text_content,
         LEFT(COALESCE(notes.body,''),2000) AS note_body,
+        (SELECT LEFT(COALESCE(analysis.summary,'') || ' ' || COALESCE(analysis.visual_description,'') || ' '
+            || COALESCE(analysis.ocr_text,'') || ' ' || COALESCE(analysis.transcript,''),2000)
+          FROM ai_analysis_results analysis WHERE analysis.owner_id=saved_items.owner_id AND analysis.item_id=saved_items.id
+          ORDER BY analysis.generation DESC LIMIT 1) AS analysis_text,
         (SELECT analysis.tags_json FROM ai_analysis_results analysis WHERE analysis.owner_id=saved_items.owner_id
           AND analysis.item_id=saved_items.id ORDER BY analysis.generation DESC LIMIT 1) AS analysis_tags_json,
         (SELECT analysis.keywords_json FROM ai_analysis_results analysis WHERE analysis.owner_id=saved_items.owner_id
