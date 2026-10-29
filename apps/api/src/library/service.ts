@@ -59,7 +59,40 @@ export function createLibraryService(database: DatabaseHandle, storage: AssetSto
       const nextCursor = page.hasMore && last ? cursorEncode({ version: 1, owner: ownerId, fingerprint, sort: query.sort,
         key: query.sort === 'relevance' ? JSON.stringify([Number(last.search_score ?? 0), String(last.created_at)])
           : query.sort.startsWith('title_') ? String(last.effective_title).toLowerCase() : String(last.created_at), id: String(last.id) }) : null;
-      return { items: page.items, nextCursor, hasMore: page.hasMore };
+      let searchEventId: string | null = null;
+      if (query.search.trim()) {
+        const id = randomUUID();
+        const now = new Date().toISOString();
+        const filters = JSON.stringify({ type: query.type ?? null, status: query.status ?? null, tagId: query.tagId ?? null,
+          collectionId: query.collectionId ?? null, sort: query.sort });
+        try {
+          await database.transaction(async () => {
+            const retentionCutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+            await database.prepare('DELETE FROM search_events WHERE owner_id=? AND created_at<?').run(ownerId, retentionCutoff);
+            await database.prepare(`INSERT INTO search_events (id,owner_id,query_hash,query_length,filters_json,result_count,created_at)
+              VALUES (?,?,?,?,?,?,?)`).run(id, ownerId, createHash('sha256').update(query.search.trim().toLowerCase()).digest('hex'),
+              query.search.trim().length, filters, page.items.length, now);
+            for (const [index, item] of page.items.entries()) {
+              await database.prepare(`INSERT INTO search_event_results (owner_id,event_id,item_id,result_rank,created_at)
+                VALUES (?,?,?,?,?)`).run(ownerId, id, item.id, index + 1, now);
+            }
+          })();
+          searchEventId = id;
+        } catch (error) {
+          // Search itself must remain available if feedback logging is temporarily unavailable.
+          console.warn('search_event_store_failed', { errorType: error instanceof Error ? error.name : 'unknown' });
+        }
+      }
+      return { items: page.items, nextCursor, hasMore: page.hasMore, searchEventId };
+    },
+    async recordSearchFeedback(ownerId: string, input: { searchEventId: string; itemId: string; rating: 'helpful' | 'not_helpful' }) {
+      const exists = await database.prepare(`SELECT 1 FROM search_event_results WHERE owner_id=? AND event_id=? AND item_id=?`).get(ownerId, input.searchEventId, input.itemId);
+      if (!exists) throw new LibraryServiceError('not_found', 'This item was not part of that search.');
+      const now = new Date().toISOString();
+      await database.prepare(`INSERT INTO search_result_feedback (owner_id,event_id,item_id,rating,created_at,updated_at)
+        VALUES (?,?,?,?,?,?) ON CONFLICT(owner_id,event_id,item_id) DO UPDATE SET rating=EXCLUDED.rating,updated_at=EXCLUDED.updated_at`)
+        .run(ownerId, input.searchEventId, input.itemId, input.rating, now, now);
+      return { searchEventId: input.searchEventId, itemId: input.itemId, rating: input.rating, updatedAt: now };
     },
     get(ownerId: string, itemId: string) { return repository.get(ownerId, itemId); },
     update(ownerId: string, itemId: string, changes: { titleOverride?: string | null; descriptionOverride?: string | null }) {

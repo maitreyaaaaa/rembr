@@ -10,6 +10,7 @@ import { createLibraryService, LibraryServiceError } from './service.js';
 
 const noteUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 5, fields: 3, fieldSize: 50_000 } });
 const updateItemSchema = z.object({ titleOverride: z.string().trim().max(240).nullable().optional(), descriptionOverride: z.string().trim().max(2000).nullable().optional() }).strict();
+const searchFeedbackSchema = z.object({ searchEventId: z.string().uuid(), itemId: z.string().uuid(), rating: z.enum(['helpful','not_helpful']) }).strict();
 
 function param(req: express.Request, key: string): string { const value = req.params[key]; return Array.isArray(value) ? value[0] ?? '' : value ?? ''; }
 function apiError(res: express.Response, status: number, code: string, message: string, requestId?: string) {
@@ -44,6 +45,16 @@ export function createLibraryRouter(database: DatabaseHandle, storage: AssetStor
       const { cursor, ...query } = parsed.data;
       return res.json(await library.list(req.user!.id, query, cursor));
     } catch (cause) {
+      if (serviceError(res, cause, req.requestId)) return;
+      throw cause;
+    }
+  });
+
+  router.post('/search/feedback', signedIn, profile, async (req, res) => {
+    const parsed = searchFeedbackSchema.safeParse(req.body);
+    if (!parsed.success) return apiError(res, 400, 'invalid_search_feedback', 'Choose a valid search result and helpfulness rating.', req.requestId);
+    try { return res.status(201).json({ feedback: await library.recordSearchFeedback(req.user!.id, parsed.data) }); }
+    catch (cause) {
       if (serviceError(res, cause, req.requestId)) return;
       throw cause;
     }

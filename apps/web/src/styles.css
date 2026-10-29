@@ -511,6 +511,8 @@ h1, h2, h3, p { margin-top: 0; }
 .smart-collection-preview { display: grid; gap: 7px; margin: 14px 0; padding-left: 18px; color: var(--primary); font-size: 11px; }
 .smart-collection-preview li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .smart-collection-groups .phase2-card-actions { justify-content: flex-start; flex-wrap: wrap; }
+.search-result-feedback { display: flex; align-items: center; flex-wrap: wrap; gap: 7px; margin-top: 13px; color: var(--muted); font-size: 11px; }
+.search-result-feedback .quiet-button[aria-pressed='true'] { border-color: var(--primary); color: var(--primary); }
 @media (max-width: 760px) {
   .phase2-topbar { grid-template-columns: auto 1fr; gap: 8px 14px; padding: 13px 0; }
   .phase2-nav { grid-column: 1 / -1; grid-row: 2; justify-content: start; flex-wrap: wrap; overflow: visible; }

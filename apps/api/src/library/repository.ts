@@ -138,7 +138,7 @@ export function createLibraryRepository(database: DatabaseHandle) {
         const direction = query.sort.endsWith('asc') ? '>' : '<';
         clauses.push(`(${expression} ${direction} ? OR (${expression}=? AND saved_items.id ${direction} ?))`); params.push(cursor.key, cursor.key, cursor.id);
       }
-      const scoreExpression = query.sort === 'relevance' ? `
+      const scoreExpression = query.sort === 'relevance' && query.search.trim() ? `
         (CASE WHEN lower(COALESCE(saved_items.title_override,saved_items.title))=lower(?) THEN 100 ELSE 0 END
         + CASE WHEN lower(COALESCE(saved_items.title_override,saved_items.title)) LIKE lower(?) ESCAPE '!' THEN 70 ELSE 0 END
         + CASE WHEN lower(COALESCE(saved_items.description_override,saved_items.description,'')) LIKE lower(?) ESCAPE '!' THEN 40 ELSE 0 END
@@ -149,7 +149,7 @@ export function createLibraryRepository(database: DatabaseHandle) {
             AND (lower(analysis.summary) LIKE lower(?) ESCAPE '!' OR lower(analysis.visual_description) LIKE lower(?) ESCAPE '!'
               OR lower(analysis.ocr_text) LIKE lower(?) ESCAPE '!' OR lower(analysis.transcript) LIKE lower(?) ESCAPE '!'
               OR lower(analysis.keywords_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tags_json) LIKE lower(?) ESCAPE '!')) THEN 15 ELSE 0 END)` : 'NULL';
-      const scoreParams = query.sort === 'relevance' ? [query.search, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch] : [];
+      const scoreParams = query.sort === 'relevance' && query.search.trim() ? [query.search, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch] : [];
       const rows = await database.prepare(`WITH ranked_items AS (
           SELECT saved_items.*, COALESCE(saved_items.title_override,saved_items.title) AS effective_title,
             COALESCE(saved_items.description_override,saved_items.description) AS effective_description,
