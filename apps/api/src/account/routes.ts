@@ -6,6 +6,7 @@ import { requireUser } from '../auth/sessions.js';
 import { detectImageMime, imageExtensionMatches, type AssetStorage } from '../assets/storage.js';
 import { AccountServiceError, createAccountService } from './service.js';
 import type { ProfileRow } from './repository.js';
+import { createAccountDataMapService } from './data-map-service.js';
 
 const contentTypes = ['instagram', 'pinterest', 'web_pages_links', 'screenshots', 'documents_pdfs', 'voice_notes', 'notes', 'inspiration_ideas', 'videos_social_posts'] as const;
 const referralSources = ['whatsapp_friend', 'instagram', 'youtube', 'tiktok', 'x_twitter', 'reddit', 'linkedin', 'google_search', 'product_hunt', 'school_college', 'other'] as const;
@@ -37,6 +38,7 @@ export function createAccountRouter(database: DatabaseHandle, storage: AssetStor
   const router = express.Router();
   const signedIn = requireUser(database);
   const account = createAccountService(database, storage);
+  const dataMap = createAccountDataMapService(database);
   const avatarUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 250 * 1024, files: 1, fields: 2, fieldSize: 4000 } }).single('avatar');
 
   router.get('/auth/session', signedIn, async (req, res) => {
@@ -50,6 +52,11 @@ export function createAccountRouter(database: DatabaseHandle, storage: AssetStor
   router.get('/profile', signedIn, async (req, res) => {
     const row = await account.getProfile(req.user!.id);
     res.json({ profile: publicProfile(req.user!.id, row), required: !row });
+  });
+
+  router.get('/account/data-map', signedIn, async (req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ dataMap: await dataMap.getForOwner(req.user!.id) });
   });
 
   router.patch('/profile', signedIn, avatarUpload, async (req, res) => {

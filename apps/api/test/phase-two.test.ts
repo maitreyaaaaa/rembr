@@ -77,6 +77,31 @@ test('profile usernames are unique after normalization and owner scoped', async 
   });
 });
 
+test('account data map requires a session and returns only the signed-in owner counts', async () => {
+  await withApi(async (baseUrl) => {
+    const first = await register(baseUrl, 'data-map-owner@example.test');
+    const second = await register(baseUrl, 'data-map-other@example.test');
+    await profile(baseUrl, first.cookie, 'data_map_owner');
+    await profile(baseUrl, second.cookie, 'data_map_other');
+    await createPage(baseUrl, first.cookie, 'https://example.com/owned-data-map');
+
+    const unauthenticated = await fetch(`${baseUrl}/api/account/data-map`);
+    assert.equal(unauthenticated.status, 401);
+
+    const response = await fetch(`${baseUrl}/api/account/data-map`, { headers: { Cookie: first.cookie, Origin: origin } });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'no-store');
+    const body = await response.json() as { dataMap: { categories: Array<{ id: string; rowCount: number; records: Array<{ table: string; rowCount: number }> }>; externalProviderCopies: { counted: boolean }; privateFileBytes: { counted: boolean } } };
+    const records = body.dataMap.categories.flatMap((category) => category.records);
+    const savedItems = records.find((record) => record.table === 'saved_items');
+    const profiles = records.find((record) => record.table === 'profiles');
+    assert.equal(savedItems?.rowCount, 1);
+    assert.equal(profiles?.rowCount, 1);
+    assert.equal(body.dataMap.externalProviderCopies.counted, false);
+    assert.equal(body.dataMap.privateFileBytes.counted, false);
+  });
+});
+
 test('profile avatar upload is private, extension checked, and explicitly clearable', async () => {
   await withApi(async (baseUrl, database) => {
     const account = await register(baseUrl, 'avatar-owner@example.test');
