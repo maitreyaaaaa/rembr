@@ -44,7 +44,8 @@ export function createAiRouter(database: DatabaseHandle) {
       FROM ai_analysis_jobs WHERE owner_id=? AND item_id=? ORDER BY generation DESC LIMIT 1`)
       .get(req.user!.id, itemId) as { status: string; pause_reason: string | null; error_code: string | null; updated_at: string } | undefined;
     const result = await database.prepare(`SELECT status,model,summary,visual_description,ocr_text,transcript,
-        keywords_json,tags_json,image_count,image_bytes,video_count,max_video_bytes AS video_bytes,created_at
+        keywords_json,tags_json,brands_json,tools_json,people_json,repositories_json,
+        image_count,image_bytes,video_count,max_video_bytes AS video_bytes,created_at
       FROM ai_analysis_results WHERE owner_id=? AND item_id=? ORDER BY generation DESC LIMIT 1`)
       .get(req.user!.id, itemId) as Record<string, unknown> | undefined;
     return res.json({
@@ -54,6 +55,8 @@ export function createAiRouter(database: DatabaseHandle) {
         status: result.status, model: result.model, summary: result.summary,
         visualDescription: result.visual_description, ocrText: result.ocr_text, transcript: result.transcript,
         keywords: safeJsonArray(result.keywords_json), tags: safeJsonArray(result.tags_json),
+        brands: safeJsonArray(result.brands_json), tools: safeJsonArray(result.tools_json),
+        people: safeJsonArray(result.people_json), repositories: safeJsonArray(result.repositories_json),
         imageCount: result.image_count, imageBytes: result.image_bytes,
         videoCount: result.video_count, videoBytes: result.video_bytes, createdAt: result.created_at,
       } : null,

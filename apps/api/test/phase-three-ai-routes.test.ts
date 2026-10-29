@@ -4,9 +4,10 @@ import { once } from 'node:events';
 import { test } from 'node:test';
 import { createApp } from '../src/app.js';
 import { createTestDatabase } from '../src/db/database.js';
+import { AI_DISCLOSURE_VERSION } from '../src/ai/preferences.js';
 
 const password = 'correct-horse-battery-staple';
-const disclosureVersion = '2026-10-29-v1';
+const disclosureVersion = AI_DISCLOSURE_VERSION;
 
 test('AI media preference is off by default and enabling requires the current public-media disclosure', async () => {
   const database = await createTestDatabase();

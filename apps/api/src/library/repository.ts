@@ -16,7 +16,9 @@ const SEARCH_FIELDS = `lower(COALESCE(saved_items.title_override,saved_items.tit
   OR EXISTS (SELECT 1 FROM ai_analysis_results analysis WHERE analysis.owner_id=saved_items.owner_id
     AND analysis.item_id=saved_items.id AND (lower(analysis.summary) LIKE lower(?) ESCAPE '!' OR lower(analysis.visual_description) LIKE lower(?) ESCAPE '!'
       OR lower(analysis.ocr_text) LIKE lower(?) ESCAPE '!' OR lower(analysis.transcript) LIKE lower(?) ESCAPE '!'
-      OR lower(analysis.keywords_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tags_json) LIKE lower(?) ESCAPE '!'))`;
+      OR lower(analysis.keywords_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tags_json) LIKE lower(?) ESCAPE '!'
+      OR lower(analysis.brands_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tools_json) LIKE lower(?) ESCAPE '!'
+      OR lower(analysis.people_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.repositories_json) LIKE lower(?) ESCAPE '!'))`;
 const SEARCH_CONCEPTS: Record<string, string[]> = {
   security: ['security','secure','soc','soc2','compliance','audit','privacy','control','controls','access','data','protection','certification','certifications'],
   compliance: ['compliance','soc','soc2','audit','privacy','control','controls','policy','policies','certification','certifications'],
@@ -38,10 +40,12 @@ const TERM_SCORE_FIELDS: Array<{ points: number; placeholders: number; sql: (cou
   { points: 12, placeholders: 1, sql: (count) => Array.from({ length: count }, () => `lower(saved_items.original_url) LIKE lower(?) ESCAPE '!'`).join(' OR ') },
   { points: 10, placeholders: 1, sql: (count) => Array.from({ length: count }, () => `lower(COALESCE(extracted_artifacts.text_content,'')) LIKE lower(?) ESCAPE '!'`).join(' OR ') },
   { points: 10, placeholders: 1, sql: (count) => Array.from({ length: count }, () => 'EXISTS (SELECT 1 FROM notes WHERE notes.owner_id=saved_items.owner_id AND notes.item_id=saved_items.id AND lower(notes.body) LIKE lower(?) ESCAPE \'!\')').join(' OR ') },
-  { points: 8, placeholders: 6, sql: (count) => Array.from({ length: count }, () => `EXISTS (SELECT 1 FROM ai_analysis_results analysis WHERE analysis.owner_id=saved_items.owner_id AND analysis.item_id=saved_items.id
+  { points: 8, placeholders: 10, sql: (count) => Array.from({ length: count }, () => `EXISTS (SELECT 1 FROM ai_analysis_results analysis WHERE analysis.owner_id=saved_items.owner_id AND analysis.item_id=saved_items.id
     AND (lower(analysis.summary) LIKE lower(?) ESCAPE '!' OR lower(analysis.visual_description) LIKE lower(?) ESCAPE '!'
       OR lower(analysis.ocr_text) LIKE lower(?) ESCAPE '!' OR lower(analysis.transcript) LIKE lower(?) ESCAPE '!'
-      OR lower(analysis.keywords_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tags_json) LIKE lower(?) ESCAPE '!'))`).join(' OR ') },
+      OR lower(analysis.keywords_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tags_json) LIKE lower(?) ESCAPE '!'
+      OR lower(analysis.brands_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tools_json) LIKE lower(?) ESCAPE '!'
+      OR lower(analysis.people_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.repositories_json) LIKE lower(?) ESCAPE '!'))`).join(' OR ') },
 ];
 function termScoreSql(group: string[]): string {
   return `+ (${TERM_SCORE_FIELDS.map((field) => `CASE WHEN (${field.sql(group.length)}) THEN ${field.points} ELSE 0 END`).join(' + ')})`;
@@ -148,13 +152,13 @@ export function createLibraryRepository(database: DatabaseHandle) {
       if (query.search) {
         if (query.matchMode === 'phrase') {
           clauses.push(`(${SEARCH_FIELDS})`);
-          params.push(...Array.from({ length: 11 }, () => safeSearch));
+          params.push(...Array.from({ length: 15 }, () => safeSearch));
         } else {
           for (const group of queryGroups(query.search)) {
             clauses.push(`(${group.map(() => `(${SEARCH_FIELDS})`).join(' OR ')})`);
             for (const term of group) {
               const pattern = `%${term.replace(/[!%_]/g, '!$&')}%`;
-              params.push(...Array.from({ length: 11 }, () => pattern));
+              params.push(...Array.from({ length: 15 }, () => pattern));
             }
           }
         }
@@ -192,10 +196,12 @@ export function createLibraryRepository(database: DatabaseHandle) {
         + CASE WHEN EXISTS (SELECT 1 FROM ai_analysis_results analysis WHERE analysis.owner_id=saved_items.owner_id AND analysis.item_id=saved_items.id
             AND (lower(analysis.summary) LIKE lower(?) ESCAPE '!' OR lower(analysis.visual_description) LIKE lower(?) ESCAPE '!'
               OR lower(analysis.ocr_text) LIKE lower(?) ESCAPE '!' OR lower(analysis.transcript) LIKE lower(?) ESCAPE '!'
-              OR lower(analysis.keywords_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tags_json) LIKE lower(?) ESCAPE '!')) THEN 15 ELSE 0 END
+            OR lower(analysis.keywords_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tags_json) LIKE lower(?) ESCAPE '!'
+            OR lower(analysis.brands_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tools_json) LIKE lower(?) ESCAPE '!'
+            OR lower(analysis.people_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.repositories_json) LIKE lower(?) ESCAPE '!')) THEN 15 ELSE 0 END
         ${query.matchMode === 'phrase' ? '' : queryGroups(query.search).map((group) => termScoreSql(group)).join(' ')}
         )` : 'NULL';
-      const scoreParams = query.sort === 'relevance' && query.search.trim() ? [query.search, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch,
+      const scoreParams = query.sort === 'relevance' && query.search.trim() ? [query.search, ...Array.from({ length: 15 }, () => safeSearch),
         ...(query.matchMode === 'phrase' ? [] : queryGroups(query.search).flatMap((group) => termScoreParams(group)))] : [];
       const rows = await database.prepare(`WITH ranked_items AS (
           SELECT saved_items.*, COALESCE(saved_items.title_override,saved_items.title) AS effective_title,

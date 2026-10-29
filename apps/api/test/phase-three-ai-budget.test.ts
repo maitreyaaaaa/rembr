@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { createTestDatabase } from '../src/db/database.js';
 import { AiBudgetExceededError, createAiUsageRepository, MONTHLY_AI_CAP_MICROUSD, sparkCostMicroUsd, utcMonthStart, voiceCostMicroUsd } from '../src/ai/usage.js';
+import { AI_DISCLOSURE_VERSION, createAiPreferenceRepository } from '../src/ai/preferences.js';
 import { MetaApiError } from '../src/ai/meta-client.js';
 import { processNextAiJob, type AiModelClient } from '../src/ai/worker.js';
 
@@ -24,13 +25,33 @@ test('AI usage prices Spark tokens and Voice seconds in integer microdollars', (
   assert.equal(utcMonthStart(new Date('2026-12-31T23:59:59.000Z')), '2026-12-01');
 });
 
+test('older media-analysis consent does not authorize entity extraction or queued jobs', async () => {
+  const database = await createTestDatabase();
+  try {
+    const now = new Date('2026-10-29T10:00:00.000Z');
+    await seedImport(database, 'old-consent-import', 'old-consent-job', now.toISOString());
+    await database.prepare(`INSERT INTO ai_analysis_preferences (owner_id,enabled,consent_version,consented_at,updated_at)
+      VALUES ('budget-user',TRUE,'2026-10-29-v1',?,?)`).run(now.toISOString(), now.toISOString());
+    const preference = await createAiPreferenceRepository(database).get('budget-user', true);
+    assert.equal(preference.enabled, false);
+    const unusedClient = new Proxy({}, { get() { throw new Error('stale_consent_must_not_call_provider'); } }) as never;
+    assert.equal(await processNextAiJob(database, unusedClient, async () => ({ files: [], cleanup: async () => undefined }), true, now), null);
+    const job = await database.prepare("SELECT status FROM ai_analysis_jobs WHERE id='old-consent-job'").get() as { status: string };
+    assert.equal(job.status, 'queued');
+    await createAiPreferenceRepository(database).set('budget-user', true);
+    const refreshed = await createAiPreferenceRepository(database).get('budget-user', true);
+    assert.equal(refreshed.enabled, true);
+    assert.equal(refreshed.consentVersion, AI_DISCLOSURE_VERSION);
+  } finally { await database.close(); }
+});
+
 test('an expired processing lease with an open reservation is paused for uncertain usage instead of retried', async () => {
   const database = await createTestDatabase();
   try {
     const now = new Date('2026-10-29T10:00:00.000Z');
     await seedImport(database, 'crash-import', 'crash-job', now.toISOString());
     await database.prepare(`INSERT INTO ai_analysis_preferences (owner_id,enabled,consent_version,consented_at,updated_at)
-      VALUES ('budget-user',TRUE,'2026-10-29-v1',?,?)`).run(now.toISOString(), now.toISOString());
+      VALUES ('budget-user',TRUE,?,?,?)`).run(AI_DISCLOSURE_VERSION, now.toISOString(), now.toISOString());
     await database.prepare(`UPDATE ai_analysis_jobs SET status='processing',attempts=1,lease_token='expired-token',lease_expires_at=? WHERE id='crash-job'`)
       .run('2026-10-29T09:00:00.000Z');
     const usage = createAiUsageRepository(database);
@@ -113,7 +134,7 @@ test('AI worker writes a partial result when public media is unavailable and alw
     const now = new Date('2026-10-29T10:00:00.000Z');
     await seedImport(database, 'partial-import', 'partial-job', now.toISOString());
     await database.prepare(`INSERT INTO ai_analysis_preferences (owner_id,enabled,consent_version,consented_at,updated_at)
-      VALUES ('budget-user',TRUE,'test','2026-10-29T00:00:00.000Z',?)`).run(now.toISOString());
+      VALUES ('budget-user',TRUE,?,'2026-10-29T00:00:00.000Z',?)`).run(AI_DISCLOSURE_VERSION, now.toISOString());
     await database.prepare(`UPDATE ai_analysis_jobs SET status='paused',pause_reason='provider_unavailable' WHERE id='partial-job'`).run();
     let cleaned = false;
     const unusedClient = new Proxy({}, { get: () => async () => { throw new Error('provider must not be called'); } }) as AiModelClient;
@@ -135,16 +156,16 @@ test('AI worker reserves before analysis, settles actual usage, and persists str
     const now = new Date('2026-10-29T10:00:00.000Z');
     await seedImport(database, 'media-import', 'media-job', now.toISOString());
     await database.prepare(`INSERT INTO ai_analysis_preferences (owner_id,enabled,consent_version,consented_at,updated_at)
-      VALUES ('budget-user',TRUE,'test','2026-10-29T00:00:00.000Z',?)`).run(now.toISOString());
+      VALUES ('budget-user',TRUE,?,'2026-10-29T00:00:00.000Z',?)`).run(AI_DISCLOSURE_VERSION, now.toISOString());
     const path = join(root, 'photo.jpg');
     await writeFile(path, Buffer.from([0xff, 0xd8, 0xff]));
     const calls: string[] = [];
     const client: AiModelClient = {
       countTextInputTokens: async () => 12,
-      analyzeText: async () => ({ text: '{"summary":"A sunset.","visual_description":"Orange sky over water.","keywords":["sunset"],"tags":["travel"]}', inputTokens: 12, outputTokens: 20 }),
+      analyzeText: async () => ({ text: '{"summary":"A sunset.","visual_description":"Orange sky over water.","keywords":["sunset"],"tags":["travel"],"brands":["Acme"],"tools":["Figma"],"people":["Ada Lovelace"],"repositories":["rembr/core"]}', inputTokens: 12, outputTokens: 20 }),
       countImageInputTokens: async () => [100],
       countVideoInputTokens: async () => 100,
-      analyzeImages: async () => { calls.push('images'); return [{ text: '{"summary":"A sunset.","visual_description":"Orange sky over water.","ocr_text":"","keywords":["sunset","orange sky"],"tags":["travel"]}', inputTokens: 100, outputTokens: 20 }]; },
+      analyzeImages: async () => { calls.push('images'); return [{ text: '{"summary":"A sunset.","visual_description":"Orange sky over water.","ocr_text":"","keywords":["sunset","orange sky"],"tags":["travel"],"brands":["Acme","Acme Labs"],"tools":["Figma"],"people":["ADA LOVELACE"],"repositories":["rembr/core"]}', inputTokens: 100, outputTokens: 20 }]; },
       analyzeVideo: async () => ({ text: '', inputTokens: 0, outputTokens: 0 }),
       transcribeWav: async () => ({ transcript: '', audioDurationMs: 0, sessionId: 'x' }),
     };
@@ -153,13 +174,17 @@ test('AI worker reserves before analysis, settles actual usage, and persists str
     }), true, now);
     assert.equal(jobId, 'media-job');
     assert.deepEqual(calls, ['images', 'cleanup']);
-    const result = await database.prepare(`SELECT summary,visual_description,keywords_json,tags_json,billed_microusd,status FROM ai_analysis_results WHERE item_id='item-media-import'`).get() as {
-      summary: string; visual_description: string; keywords_json: string; tags_json: string; billed_microusd: string; status: string;
+    const result = await database.prepare(`SELECT summary,visual_description,keywords_json,tags_json,brands_json,tools_json,people_json,repositories_json,billed_microusd,status FROM ai_analysis_results WHERE item_id='item-media-import'`).get() as {
+      summary: string; visual_description: string; keywords_json: string; tags_json: string; brands_json: string; tools_json: string; people_json: string; repositories_json: string; billed_microusd: string; status: string;
     };
     assert.equal(result.summary, 'A sunset.');
     assert.equal(result.visual_description, 'Orange sky over water.');
     assert.deepEqual(JSON.parse(result.keywords_json), ['sunset', 'orange sky']);
     assert.deepEqual(JSON.parse(result.tags_json), ['travel']);
+    assert.deepEqual(JSON.parse(result.brands_json), ['Acme', 'Acme Labs']);
+    assert.deepEqual(JSON.parse(result.tools_json), ['Figma']);
+    assert.deepEqual(JSON.parse(result.people_json).map((label: string) => label.toLowerCase()), ['ada lovelace']);
+    assert.deepEqual(JSON.parse(result.repositories_json), ['rembr/core']);
     assert.equal(Number(result.billed_microusd), 210);
     assert.equal(result.status, 'completed');
     const usage = await database.prepare(`SELECT spent_microusd,reserved_microusd FROM ai_import_usage WHERE import_id='media-import'`).get() as { spent_microusd: string; reserved_microusd: string };
@@ -174,7 +199,7 @@ test('known Meta rate limits are queued for a bounded retry without double spend
     const now = new Date('2026-10-29T10:00:00.000Z');
     await seedImport(database, 'retry-import', 'retry-job', now.toISOString());
     await database.prepare(`INSERT INTO ai_analysis_preferences (owner_id,enabled,consent_version,consented_at,updated_at)
-      VALUES ('budget-user',TRUE,'test',?,?)`).run(now.toISOString(), now.toISOString());
+      VALUES ('budget-user',TRUE,?,?,?)`).run(AI_DISCLOSURE_VERSION, now.toISOString(), now.toISOString());
     const client = {
       countTextInputTokens: async () => { throw new MetaApiError('rate_limited', 'rate limit', { status: 429, retryable: true, outcomeUnknown: false }); },
     } as AiModelClient;

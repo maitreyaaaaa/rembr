@@ -556,10 +556,12 @@ test('Smart Collections rules use existing summary, visual, OCR, and transcript 
     await profile(baseUrl, owner.cookie, 'smart_analysis');
     const now = new Date().toISOString();
     const analysisFields = ['summary', 'visual_description', 'ocr_text', 'transcript'] as const;
+    const ids: string[] = [];
 
     for (const [index, targetField] of analysisFields.entries()) {
       const created = await createPage(baseUrl, owner.cookie, `https://analysis-fixture.test/${index}`);
       const { item } = await created.json() as { item: { id: string } };
+      ids.push(item.id);
       assert.equal((await fetch(`${baseUrl}/api/items/${item.id}`, { method: 'PATCH', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ titleOverride: `Saved reference ${index}`, descriptionOverride: `Unrelated description ${index}` }) })).status, 200);
       const importId = `smart-analysis-import-${index}`;
       const jobId = `smart-analysis-job-${index}`;
@@ -572,12 +574,29 @@ test('Smart Collections rules use existing summary, visual, OCR, and transcript 
          image_count,image_bytes,video_count,max_video_bytes,audio_seconds,input_tokens,output_tokens,billed_microusd,created_at)
         VALUES (?,?,?,1,'completed','fixture',?,?,?,?, '[]','[]',0,0,0,0,0,0,0,0,?)`)
         .run(`smart-analysis-result-${index}`, owner.user.user.id, item.id, analysis.summary, analysis.visual_description, analysis.ocr_text, analysis.transcript, now);
+      if (index < 2) {
+        await database.prepare(`UPDATE ai_analysis_results SET brands_json=?,tools_json=?,people_json=?,repositories_json=?
+          WHERE owner_id=? AND item_id=? AND generation=1`)
+          .run(JSON.stringify(['Acme']), JSON.stringify(['Figma']), JSON.stringify(['Ada Lovelace']), JSON.stringify(['rembr/core']), owner.user.user.id, item.id);
+      }
     }
 
     const response = await fetch(`${baseUrl}/api/smart-collections`, { headers: { Cookie: owner.cookie } });
     assert.equal(response.status, 200);
-    const collections = (await response.json() as { collections: Array<{ slug: string; itemCount: number }> }).collections;
+    const collections = (await response.json() as { collections: Array<{ slug: string; itemCount: number; folderGroup: string }> }).collections;
     assert.equal(collections.find(({ slug }) => slug === 'ui-inspiration')?.itemCount, analysisFields.length);
+    for (const [slug, group] of [['brand-acme', 'Brands'], ['tool-figma', 'Tools'], ['person-ada-lovelace', 'People'], ['repository-rembr-core', 'Repositories']]) {
+      const entityCollection = collections.find((collection) => collection.slug === slug);
+      assert.equal(entityCollection?.itemCount, 2);
+      assert.equal(entityCollection?.folderGroup, group);
+    }
+    const entitySearch = await fetch(`${baseUrl}/api/items?search=Acme`, { headers: { Cookie: owner.cookie } });
+    assert.deepEqual((await entitySearch.json() as { items: Array<{ id: string }> }).items.map(({ id }) => id).sort(), ids.slice(0, 2).sort());
+    const detail = await fetch(`${baseUrl}/api/ai/items/${encodeURIComponent(ids[0]!)}`, { headers: { Cookie: owner.cookie } });
+    const analysisDetail = (await detail.json() as { result: { brands: string[]; tools: string[]; people: string[]; repositories: string[] } }).result;
+    assert.deepEqual({ brands: analysisDetail.brands, tools: analysisDetail.tools, people: analysisDetail.people, repositories: analysisDetail.repositories }, {
+      brands: ['Acme'], tools: ['Figma'], people: ['Ada Lovelace'], repositories: ['rembr/core'],
+    });
   });
 });
 

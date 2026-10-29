@@ -1,13 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import type { DatabaseHandle } from '../db/database.js';
+import { AI_DISCLOSURE_VERSION } from './preferences.js';
 import { AiBudgetExceededError, createAiUsageRepository, sparkCostMicroUsd, voiceCostMicroUsd, type AiUsageReservation } from './usage.js';
 import { MetaApiError, groupImageInputs, MAX_AUDIO_BODY_BYTES, MAX_AUDIO_SECONDS, MAX_IMAGE_BYTES, MAX_INLINE_IMAGE_GROUP_BYTES, MAX_VIDEO_BYTES, MUSE_SPARK_MODEL, MUSE_VOICE_MODEL, type ImageInput, type ModelTextResult, type TranscriptionResult } from './meta-client.js';
 
 const LEASE_MS = 2 * 60 * 60_000;
 const MAX_OUTPUT_TOKENS = 700;
 const retryDelayMs = (attempt: number) => Math.min(60_000, 2_000 * (2 ** Math.max(0, attempt - 1)));
-const ANALYSIS_PROMPT = `Analyze this public Instagram post media. Return only JSON with keys summary (concise factual summary), visual_description (specific visible details), ocr_text (only readable text), keywords (up to 5 specific keywords), and tags (up to 3 grounded topical tags). Do not infer identities, locations, or facts that are not visible. Use empty strings or arrays when uncertain.`;
+const ANALYSIS_PROMPT = `Analyze this public Instagram post media and its supplied post text. Return only JSON with keys summary (concise factual summary), visual_description (specific visible details), ocr_text (only readable text), keywords (up to 5 specific keywords), tags (up to 3 grounded topical tags), brands (up to 5 brand names directly supported by readable text or an unambiguous visible logo), tools (up to 5 software or service names directly supported by readable text or an unambiguous visible logo), people (up to 5 names explicitly written in the post text or OCR), and repositories (up to 5 repository names explicitly written in the post text or OCR). Never identify a person from a face, infer identities, locations, or facts, or guess an entity from context. Return only directly supported labels; use empty arrays when uncertain.`;
 class AiConsentDisabledError extends Error {}
 
 export interface AiJob {
@@ -79,10 +80,10 @@ async function claimNextAiJob(database: DatabaseHandle, now: Date, apiKeyAvailab
       FROM ai_analysis_jobs j
       JOIN saved_items s ON s.id=j.item_id AND s.owner_id=j.owner_id
       LEFT JOIN extracted_artifacts e ON e.item_id=j.item_id AND e.owner_id=j.owner_id
-      JOIN ai_analysis_preferences p ON p.owner_id=j.owner_id AND p.enabled=TRUE
+      JOIN ai_analysis_preferences p ON p.owner_id=j.owner_id AND p.enabled=TRUE AND p.consent_version=?
       WHERE j.attempts<j.max_attempts AND ((j.status='queued' AND j.available_at<=?) OR
         (j.status='processing' AND j.lease_expires_at<=?))
-      ORDER BY j.created_at ASC,j.import_id ASC,j.id ASC LIMIT 1`).get(timestamp, timestamp) as Omit<ClaimedAiJob, 'lease_token'> | undefined;
+      ORDER BY j.created_at ASC,j.import_id ASC,j.id ASC LIMIT 1`).get(AI_DISCLOSURE_VERSION, timestamp, timestamp) as Omit<ClaimedAiJob, 'lease_token'> | undefined;
     if (!row) return undefined;
     const leaseToken = randomUUID();
     const changed = await database.prepare(`UPDATE ai_analysis_jobs SET status='processing',attempts=attempts+1,
@@ -93,7 +94,7 @@ async function claimNextAiJob(database: DatabaseHandle, now: Date, apiKeyAvailab
   })();
 }
 
-function parseModelJson(text: string): { summary: string; visualDescription: string; ocrText: string; keywords: string[]; tags: string[] } {
+function parseModelJson(text: string): { summary: string; visualDescription: string; ocrText: string; keywords: string[]; tags: string[]; brands: string[]; tools: string[]; people: string[]; repositories: string[] } {
   let value: Record<string, unknown> = {};
   try {
     const parsed = JSON.parse(text) as unknown;
@@ -102,6 +103,18 @@ function parseModelJson(text: string): { summary: string; visualDescription: str
   const strings = (valueOf: unknown, max: number) => Array.isArray(valueOf)
     ? valueOf.filter((entry): entry is string => typeof entry === 'string').map((entry) => entry.trim()).filter(Boolean).slice(0, max)
     : [];
+  const labels = (valueOf: unknown) => {
+    if (!Array.isArray(valueOf)) return [];
+    const seen = new Set<string>();
+    return valueOf.filter((entry): entry is string => typeof entry === 'string')
+      .map((entry) => entry.trim().replace(/\s+/g, ' ').slice(0, 80))
+      .filter((entry) => {
+        const key = entry.toLocaleLowerCase();
+        if (!entry || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }).slice(0, 5);
+  };
   const visualDescription = typeof value.visual_description === 'string' ? value.visual_description.slice(0, 8_000) : text.slice(0, 8_000);
   return {
     summary: (typeof value.summary === 'string' ? value.summary : visualDescription).slice(0, 2_400),
@@ -109,7 +122,23 @@ function parseModelJson(text: string): { summary: string; visualDescription: str
     ocrText: typeof value.ocr_text === 'string' ? value.ocr_text.slice(0, 30_000) : '',
     keywords: strings(value.keywords, 5),
     tags: strings(value.tags, 3),
+    brands: labels(value.brands),
+    tools: labels(value.tools),
+    people: labels(value.people),
+    repositories: labels(value.repositories),
   };
+}
+
+function mergeEntityLabels(values: string[][]): string[] {
+  const labels: string[] = [];
+  const seen = new Set<string>();
+  for (const label of values.flat()) {
+    const key = label.toLocaleLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    labels.push(label);
+  }
+  return labels.slice(0, 5);
 }
 
 function modelLabel(sparkUsed: boolean, voiceUsed: boolean): string {
@@ -126,7 +155,8 @@ function validateMedia(file: AiTempMedia): boolean {
 
 async function saveResult(database: DatabaseHandle, job: ClaimedAiJob, data: {
   status: 'completed' | 'partial'; summary: string; visualDescription: string; ocrText: string; transcript: string;
-  keywords: string[]; tags: string[]; model: string; imageCount: number; imageBytes: number;
+  keywords: string[]; tags: string[]; brands: string[]; tools: string[]; people: string[]; repositories: string[];
+  model: string; imageCount: number; imageBytes: number;
   videoCount: number; maxVideoBytes: number; audioSeconds: number; inputTokens: number; outputTokens: number; billedMicroUsd: number;
 }, now: string): Promise<boolean> {
   return database.transaction(async () => {
@@ -135,15 +165,19 @@ async function saveResult(database: DatabaseHandle, job: ClaimedAiJob, data: {
     if (!active) return false;
     await database.prepare(`INSERT INTO ai_analysis_results
       (id,owner_id,item_id,generation,status,model,summary,visual_description,ocr_text,transcript,keywords_json,tags_json,
+       brands_json,tools_json,people_json,repositories_json,
        image_count,image_bytes,video_count,max_video_bytes,audio_seconds,input_tokens,output_tokens,billed_microusd,created_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       ON CONFLICT(owner_id,item_id,generation) DO UPDATE SET status=excluded.status,model=excluded.model,summary=excluded.summary,
         visual_description=excluded.visual_description,ocr_text=excluded.ocr_text,transcript=excluded.transcript,
-        keywords_json=excluded.keywords_json,tags_json=excluded.tags_json,image_count=excluded.image_count,image_bytes=excluded.image_bytes,
+        keywords_json=excluded.keywords_json,tags_json=excluded.tags_json,brands_json=excluded.brands_json,
+        tools_json=excluded.tools_json,people_json=excluded.people_json,repositories_json=excluded.repositories_json,
+        image_count=excluded.image_count,image_bytes=excluded.image_bytes,
         video_count=excluded.video_count,max_video_bytes=excluded.max_video_bytes,audio_seconds=excluded.audio_seconds,
         input_tokens=excluded.input_tokens,output_tokens=excluded.output_tokens,billed_microusd=excluded.billed_microusd,created_at=excluded.created_at`)
       .run(randomUUID(), job.owner_id, job.item_id, job.generation, data.status, data.model, data.summary, data.visualDescription,
-        data.ocrText, data.transcript, JSON.stringify(data.keywords), JSON.stringify(data.tags), data.imageCount, data.imageBytes,
+        data.ocrText, data.transcript, JSON.stringify(data.keywords), JSON.stringify(data.tags), JSON.stringify(data.brands),
+        JSON.stringify(data.tools), JSON.stringify(data.people), JSON.stringify(data.repositories), data.imageCount, data.imageBytes,
         data.videoCount, data.maxVideoBytes, data.audioSeconds, data.inputTokens, data.outputTokens, data.billedMicroUsd, now);
     await database.prepare(`UPDATE ai_analysis_jobs SET status=?,lease_token=NULL,lease_expires_at=NULL,error_code=?,
       updated_at=?,completed_at=? WHERE id=? AND owner_id=? AND lease_token=?`)
@@ -294,10 +328,14 @@ export async function processNextAiJob(database: DatabaseHandle, client: AiModel
     const ocrText = parsed.map((part) => part.ocrText).filter(Boolean).join('\n').slice(0, 30_000);
     const keywords = [...new Set(parsed.flatMap((part) => part.keywords))].slice(0, 5);
     const tags = [...new Set(parsed.flatMap((part) => part.tags))].slice(0, 3);
+    const brands = mergeEntityLabels(parsed.map((part) => part.brands));
+    const tools = mergeEntityLabels(parsed.map((part) => part.tools));
+    const people = mergeEntityLabels(parsed.map((part) => part.people));
+    const repositories = mergeEntityLabels(parsed.map((part) => part.repositories));
     await ensureConsent();
     await saveResult(database, job, {
       status: partial ? 'partial' : 'completed', summary, visualDescription, ocrText, transcript: transcripts.join('\n').slice(0, 60_000),
-      keywords, tags, model: modelLabel(accumulated.length > 0, transcripts.length > 0),
+      keywords, tags, brands, tools, people, repositories, model: modelLabel(accumulated.length > 0, transcripts.length > 0),
       imageCount, imageBytes, videoCount, maxVideoBytes, audioSeconds,
       inputTokens: accumulated.reduce((sum, result) => sum + result.inputTokens, 0),
       outputTokens: accumulated.reduce((sum, result) => sum + result.outputTokens, 0),
@@ -351,6 +389,10 @@ export async function processNextAiJob(database: DatabaseHandle, client: AiModel
       visualDescription: parsed.map((part) => part.visualDescription).filter(Boolean).join('\n').slice(0, 8_000),
       ocrText: parsed.map((part) => part.ocrText).filter(Boolean).join('\n').slice(0, 30_000), transcript: transcripts.join('\n').slice(0, 60_000),
       keywords: [...new Set(parsed.flatMap((part) => part.keywords))].slice(0, 5), tags: [...new Set(parsed.flatMap((part) => part.tags))].slice(0, 3),
+      brands: mergeEntityLabels(parsed.map((part) => part.brands)),
+      tools: mergeEntityLabels(parsed.map((part) => part.tools)),
+      people: mergeEntityLabels(parsed.map((part) => part.people)),
+      repositories: mergeEntityLabels(parsed.map((part) => part.repositories)),
       model: modelLabel(accumulated.length > 0, transcripts.length > 0), imageCount, imageBytes,
       videoCount, maxVideoBytes, audioSeconds,
       inputTokens: accumulated.reduce((sum, row) => sum + row.inputTokens, 0), outputTokens: accumulated.reduce((sum, row) => sum + row.outputTokens, 0),

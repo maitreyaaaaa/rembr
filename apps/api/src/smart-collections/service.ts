@@ -17,8 +17,8 @@ const CATEGORY_RULES = [
   { slug: 'research-notes', name: 'Research notes', description: 'Articles, notes, studies, guides, and references.', terms: ['research','article','reference','notes','paper','study','guide','tutorial','documentation'], group: 'Topics' },
 ] as const;
 
-type SourceType = 'rule' | 'capture' | 'topic' | 'collection' | 'platform';
-type SmartItem = { id: string; title: string; description: string; url: string; text: string; note: string; analysisText: string; status: string; kind: string; platform: string; createdAt: string; tags: string[]; collections: string[]; analysisTags: string[]; keywords: string[] };
+type SourceType = 'rule' | 'capture' | 'topic' | 'entity' | 'collection' | 'platform';
+type SmartItem = { id: string; title: string; description: string; url: string; text: string; note: string; analysisText: string; status: string; kind: string; platform: string; createdAt: string; tags: string[]; collections: string[]; analysisTags: string[]; keywords: string[]; brands: string[]; tools: string[]; people: string[]; repositories: string[] };
 type CandidateItem = { item: SmartItem; confidence: number; reason: string; overrideAction?: 'include' | 'exclude' };
 type Candidate = { slug: string; name: string; description: string; sourceType: SourceType; folderGroup: string; matchSignals: Set<string>; items: Map<string, CandidateItem> };
 type CollectionRow = { id: string; owner_id: string; slug: string; name: string; description: string; source_type: SourceType; pinned: boolean | number; hidden: boolean | number; generation_metadata: string; created_at: string; updated_at: string };
@@ -41,13 +41,15 @@ function toSmartItem(row: DbItemRow, tags: string[], collections: string[]): Sma
     text: String(row.text_content ?? ''), note: String(row.note_body ?? ''), analysisText: String(row.analysis_text ?? ''), status: String(row.effective_status ?? row.status ?? ''),
     kind: String(row.item_kind ?? 'page'), platform: String(row.source_platform ?? ''), createdAt: String(row.created_at),
     tags, collections, analysisTags: readStrings(row.analysis_tags_json), keywords: readStrings(row.keywords_json),
+    brands: readStrings(row.brands_json), tools: readStrings(row.tools_json),
+    people: readStrings(row.people_json), repositories: readStrings(row.repositories_json),
   };
 }
 
 function searchText(item: SmartItem): string {
   let host = '';
   try { host = new URL(item.url).hostname; } catch { /* Invalid stored URLs do not contribute domain text. */ }
-  return [item.title, item.description, item.url, host, item.text, item.note, item.analysisText, item.platform, ...item.tags, ...item.collections, ...item.analysisTags, ...item.keywords].join(' ').toLowerCase();
+  return [item.title, item.description, item.url, host, item.text, item.note, item.analysisText, item.platform, ...item.tags, ...item.collections, ...item.analysisTags, ...item.keywords, ...item.brands, ...item.tools, ...item.people, ...item.repositories].join(' ').toLowerCase();
 }
 function matchesSearch(item: SmartItem, query: string): boolean {
   const terms = tokenizeSearchTerms(query);
@@ -82,6 +84,19 @@ function candidatesFrom(items: SmartItem[]): Candidate[] {
     for (const label of unique([...item.analysisTags, ...item.keywords], 12)) {
       const slug = slugify(label);
       if (slug) add(item, { slug: `topic-${slug}`, name: label, description: `Saves related to ${label}.`, sourceType: 'topic', group: 'Topics', signals: [label], confidence: 0.74, reason: `Existing analysis identified ${label}.` });
+    }
+    for (const [kind, group, labels] of [
+      ['brand', 'Brands', item.brands], ['tool', 'Tools', item.tools],
+      ['person', 'People', item.people], ['repository', 'Repositories', item.repositories],
+    ] as const) {
+      for (const label of unique(labels, 5)) {
+        const slug = slugify(label);
+        if (slug) add(item, {
+          slug: `${kind}-${slug}`, name: label, description: `Saved items linked to the ${kind} label ${label}.`,
+          sourceType: 'entity', group, signals: [label], confidence: 0.86,
+          reason: `Existing media analysis labeled ${label} as a ${kind}.`,
+        });
+      }
     }
     for (const label of unique(item.collections, 5)) {
       if (/^(unsorted|notes)$/i.test(label)) continue;
@@ -127,6 +142,14 @@ export function createSmartCollectionService(database: DatabaseHandle) {
           AND analysis.item_id=saved_items.id ORDER BY analysis.generation DESC LIMIT 1) AS analysis_tags_json,
         (SELECT analysis.keywords_json FROM ai_analysis_results analysis WHERE analysis.owner_id=saved_items.owner_id
           AND analysis.item_id=saved_items.id ORDER BY analysis.generation DESC LIMIT 1) AS keywords_json,
+        (SELECT analysis.brands_json FROM ai_analysis_results analysis WHERE analysis.owner_id=saved_items.owner_id
+          AND analysis.item_id=saved_items.id ORDER BY analysis.generation DESC LIMIT 1) AS brands_json,
+        (SELECT analysis.tools_json FROM ai_analysis_results analysis WHERE analysis.owner_id=saved_items.owner_id
+          AND analysis.item_id=saved_items.id ORDER BY analysis.generation DESC LIMIT 1) AS tools_json,
+        (SELECT analysis.people_json FROM ai_analysis_results analysis WHERE analysis.owner_id=saved_items.owner_id
+          AND analysis.item_id=saved_items.id ORDER BY analysis.generation DESC LIMIT 1) AS people_json,
+        (SELECT analysis.repositories_json FROM ai_analysis_results analysis WHERE analysis.owner_id=saved_items.owner_id
+          AND analysis.item_id=saved_items.id ORDER BY analysis.generation DESC LIMIT 1) AS repositories_json,
         COALESCE((SELECT CASE WHEN pause.pause_cause IS NOT NULL THEN 'paused'
             WHEN job.status IN ('partial','failed','retry_wait','cancel_requested','cancelled') THEN job.status
             WHEN job.status='completed' THEN 'ready' ELSE saved_items.status END
