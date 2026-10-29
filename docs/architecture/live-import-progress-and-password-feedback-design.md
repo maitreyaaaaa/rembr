@@ -1,6 +1,6 @@
 # Live Import Progress and Password Feedback
 
-**Status:** Approved for implementation
+**Status:** Implemented; authenticated progress UI verification pending
 **Date:** 2026-10-29  
 **Scope:** Import detail progress display and account-creation password guidance/policy
 

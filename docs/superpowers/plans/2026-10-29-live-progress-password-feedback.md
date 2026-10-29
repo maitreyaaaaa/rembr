@@ -93,4 +93,4 @@
 
 - [ ] Review implementation against every acceptance criterion in the design; authenticated progress behavior still needs browser verification.
 - [x] Run equivalent typecheck, lint, sequential full API tests, and build commands; review `git diff --check` and the final scoped diff.
-- [ ] Commit only the implementation files on `feat/live-import-progress-password-feedback`, push the branch, and report commit/push/check status.
+- [x] Commit only the implementation files on `feat/live-import-progress-password-feedback` and push the branch (implementation: `5c64773`).
