@@ -28,7 +28,9 @@ interface AiPreference { enabled: boolean; consentVersion: string | null; consen
 interface AiAnalysisView { status: string; pauseReason: string | null; errorCode: string | null; updatedAt: string | null; result: null | { status: string; model: string; summary: string; visualDescription: string; ocrText: string; transcript: string; keywords: string[]; tags: string[]; imageCount: number; imageBytes: number; videoCount: number; videoBytes: number; createdAt: string } }
 interface KnowledgeGraphItem { id: string; title: string; status: string; createdAt: string }
 interface KnowledgeGraphGroup { id: string; type: string; label: string; itemCount: number; items: KnowledgeGraphItem[] }
-interface KnowledgeGraph { groups: KnowledgeGraphGroup[]; stats: { indexedItems: number; conceptNodes: number; links: number }; truncated: boolean }
+interface KnowledgeGraphNode { id: string; type: string; label: string; itemId?: string; itemCount?: number }
+interface KnowledgeGraphLink { id: string; source: string; target: string; type: string }
+interface KnowledgeGraph { nodes: KnowledgeGraphNode[]; links: KnowledgeGraphLink[]; groups: KnowledgeGraphGroup[]; stats: { indexedItems: number; conceptNodes: number; links: number }; truncated: boolean }
 interface CheckupItem { id: string; title: string; status: string; created_at: string }
 interface CheckupReminder { id: string; itemId: string; remindAt: string; status: 'pending'; reason: string; note: string; item: CheckupItem }
 interface LibraryCheckup { generatedAt: string; summary: { savedItems: number; unorganizedItems: number; needsAttention: number; olderSaves: number }; needsAttention: CheckupItem[]; olderSaves: CheckupItem[]; dueReminders: CheckupReminder[]; upcomingReminders: CheckupReminder[]; weeklyRediscovery: CheckupItem[]; dailyPick: CheckupItem | null; readOnly: true }
@@ -321,6 +323,7 @@ function KnowledgeGraphPage() {
   const [filter, setFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [exported, setExported] = useState(false);
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try { setGraph((await api<{ graph: KnowledgeGraph }>('/api/knowledge/graph')).graph); }
@@ -344,11 +347,37 @@ function KnowledgeGraphPage() {
     const edges = concepts.flatMap((concept) => concept.items.slice(0, 2).filter((item) => itemPositions.has(item.id)).map((item) => ({ conceptId: concept.id, itemId: item.id })));
     return { concepts, items, height, conceptPositions, itemPositions, edges };
   }, [groups]);
+  function exportGraph() {
+    if (!graph) return;
+    const payload = {
+      formatVersion: 1,
+      product: 'Rembr',
+      exportedAt: new Date().toISOString(),
+      coverage: {
+        indexedItems: graph.stats.indexedItems,
+        conceptNodes: graph.stats.conceptNodes,
+        links: graph.stats.links,
+        complete: !graph.truncated,
+        truncated: graph.truncated,
+      },
+      graph: { nodes: graph.nodes, links: graph.links, groups: graph.groups },
+    };
+    const blobUrl = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
+    const anchor = document.createElement('a');
+    anchor.href = blobUrl;
+    anchor.download = `rembr-knowledge-graph-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+    setExported(true);
+    window.setTimeout(() => setExported(false), 1800);
+  }
 
-  return <><PageHeader eyebrow="Knowledge" title="Your library, connected." description="Explore the topics, collections, tags, and domains that link your saved pages and notes." />
+  return <><PageHeader eyebrow="Knowledge" title="Your library, connected." description="Explore the topics, collections, tags, and domains that link your saved pages and notes." actions={<button className="quiet-button" type="button" disabled={loading || !graph} onClick={exportGraph}>{exported ? 'Graph downloaded' : 'Download graph JSON'}</button>} />
     {error && <div className="notice error phase2-retry-notice" role="alert"><span>{error}</span><button className="quiet-button" type="button" onClick={() => void load()}>Try again</button></div>}
     {loading ? <div className="phase2-state" role="status">Building your knowledge graph…</div> : graph && <>
-      <section className="phase2-panel" aria-label="Knowledge graph summary"><div className="phase2-filter-grid"><div><p className="eyebrow">Saved items</p><strong>{graph.stats.indexedItems}</strong></div><div><p className="eyebrow">Connected concepts</p><strong>{graph.stats.conceptNodes}</strong></div><div><p className="eyebrow">Relationships</p><strong>{graph.stats.links}</strong></div></div><p className="phase2-helper">The graph uses your saved-item domains, tags, and collections. Opt-in media-analysis topics are included when available; the graph works without AI.</p>{graph.truncated && <p className="phase2-helper" role="status">Showing the most-connected concepts across the latest saved items. Narrow this view to explore a specific topic.</p>}</section>
+      <section className="phase2-panel" aria-label="Knowledge graph summary"><div className="phase2-filter-grid"><div><p className="eyebrow">Saved items</p><strong>{graph.stats.indexedItems}</strong></div><div><p className="eyebrow">Connected concepts</p><strong>{graph.stats.conceptNodes}</strong></div><div><p className="eyebrow">Relationships</p><strong>{graph.stats.links}</strong></div></div><p className="phase2-helper">The graph uses your saved-item domains, tags, and collections. Opt-in media-analysis topics are included when available; the graph works without AI. Downloaded JSON includes the counts and whether this bounded graph is truncated.</p>{graph.truncated && <p className="phase2-helper" role="status">Showing the most-connected concepts across the latest saved items. Narrow this view to explore a specific topic.</p>}</section>
       {visualGraph.concepts.length > 0 && <section className="phase2-panel" aria-label="Knowledge graph map"><h2>Graph map</h2><p className="phase2-helper">A sample of the strongest links in your library. Use the connected-concepts list for the complete accessible view.</p><div style={{ overflowX: 'auto' }}><svg aria-hidden="true" viewBox={`0 0 800 ${visualGraph.height}`} style={{ display: 'block', width: '100%', minWidth: 640, maxHeight: 560 }}>{visualGraph.edges.map((edge) => { const source = visualGraph.conceptPositions.get(edge.conceptId); const target = visualGraph.itemPositions.get(edge.itemId); return source && target ? <line key={`${edge.conceptId}:${edge.itemId}`} x1={source.x} y1={source.y} x2={target.x} y2={target.y} stroke="#c7d1e8" strokeWidth="1.5" /> : null; })}{visualGraph.concepts.map((concept) => { const position = visualGraph.conceptPositions.get(concept.id)!; return <g key={concept.id}><circle cx={position.x} cy={position.y} r="8" fill="#16a08d" /><text x={position.x + 16} y={position.y + 4} fill="#253046" fontSize="12">{concept.label.slice(0, 28)}</text></g>; })}{visualGraph.items.map((item) => { const position = visualGraph.itemPositions.get(item.id)!; return <g key={item.id}><circle cx={position.x} cy={position.y} r="6" fill="#315cff" /><text x={position.x + 14} y={position.y + 4} fill="#253046" fontSize="12">{item.title.slice(0, 24)}</text></g>; })}</svg></div></section>}
       <section className="phase2-panel" aria-labelledby="graph-concepts-title"><div className="phase2-page-heading"><div><h2 id="graph-concepts-title">Connected concepts</h2><p>Each concept links to the saved items that share it.</p></div><label>Filter concepts<input type="search" maxLength={80} value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Topic, tag, collection, or page" /></label></div>
         {groups.length ? <ul className="phase2-manage-list">{groups.map((group) => <li key={group.id}><div><strong>{group.label}</strong><span className="phase2-pill soft">{group.type}</span><p className="phase2-helper">{group.itemCount} linked {group.itemCount === 1 ? 'item' : 'items'}</p><ul className="phase2-manage-list">{group.items.map((item) => <li key={item.id}><Link to={`/app/items/${encodeURIComponent(item.id)}`}>{item.title}</Link><span className={`status status-${item.status}`}>{readableStatus(item.status as Status)}</span></li>)}</ul>{group.itemCount > group.items.length && <p className="phase2-helper">Showing {group.items.length} of {group.itemCount} linked items.</p>}</div></li>)}</ul> : <div className="empty-state"><h2>{filter ? 'No concepts match that filter.' : 'Your graph is ready to grow.'}</h2><p>{filter ? 'Try a broader topic or clear the filter.' : 'Save pages, add tags or collections, or enable optional media analysis to connect your library.'}</p>{filter && <button className="quiet-button" type="button" onClick={() => setFilter('')}>Clear filter</button>}</div>}
