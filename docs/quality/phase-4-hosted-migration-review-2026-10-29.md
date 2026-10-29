@@ -65,3 +65,15 @@ The hosted advisor reported RLS enabled without policies on 41 public tables (IN
 - The web bundle still emits the existing large-chunk warning.
 - Supabase migration reference: [Database Migrations](https://supabase.com/docs/guides/deployment/database-migrations).
 
+
+## Dashboard Shell repair commands
+
+Supabase CLI `2.122.0` help was verified locally. `migration repair` accepts multiple versions, `--status applied|reverted`, and `--db-url`; it reports no Supabase permission requirement when `--db-url` is used. Run the following in the Render `Rembr` Dashboard Shell to reconcile history only:
+
+```bash
+npx --yes supabase@2.122.0 migration repair 20261029065358 20261029071417 20261029123532 20261029123534 20261029123536 20261029123538 20261029123540 20261029123543 20261029123545 --status reverted --db-url "$DATABASE_URL"
+
+npx --yes supabase@2.122.0 migration repair 20261029060507 20261029074000 20261029150000 20261029153000 20261029160000 20261029170000 20261029180000 20261029190000 20261029200000 --status applied --db-url "$DATABASE_URL"
+```
+
+After both commands, verify the remote ledger with the connected Supabase migration listing. Do not run `db push` or apply the three pending schema migrations during this repair.
