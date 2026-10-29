@@ -25,6 +25,11 @@ interface SavedItem {
 interface Onboarding { contentTypes: string[]; referralSource: string; completedAt: string | null; skippedAt: string | null }
 interface AiPreference { enabled: boolean; consentVersion: string | null; consentedAt: string | null; disabledAt: string | null; updatedAt: string | null; providerAvailable: boolean }
 interface AiAnalysisView { status: string; pauseReason: string | null; errorCode: string | null; updatedAt: string | null; result: null | { status: string; model: string; summary: string; visualDescription: string; ocrText: string; transcript: string; keywords: string[]; tags: string[]; imageCount: number; imageBytes: number; videoCount: number; videoBytes: number; createdAt: string } }
+interface KnowledgeGraphItem { id: string; title: string; status: string; createdAt: string }
+interface KnowledgeGraphGroup { id: string; type: string; label: string; itemCount: number; items: KnowledgeGraphItem[] }
+interface KnowledgeGraph { groups: KnowledgeGraphGroup[]; stats: { indexedItems: number; conceptNodes: number; links: number }; truncated: boolean }
+interface CheckupItem { id: string; title: string; status: string; created_at: string }
+interface LibraryCheckup { generatedAt: string; summary: { savedItems: number; unorganizedItems: number; needsAttention: number; olderSaves: number }; needsAttention: CheckupItem[]; olderSaves: CheckupItem[]; weeklyRediscovery: CheckupItem[]; dailyPick: CheckupItem | null; readOnly: true }
 const AI_DISCLOSURE_VERSION = '2026-10-29-v1';
 interface Session { user: User; profile: Profile | null; profileComplete: boolean; accountStatus: 'active' | 'disabled' }
 interface ApiError extends Error { status: number; code: string }
@@ -129,6 +134,8 @@ function AppRoutes() {
       <Route path="collections" element={<CollectionsPage />} />
       <Route path="collections/:collectionId" element={<CollectionDetailPage />} />
       <Route path="tags" element={<TagsPage />} />
+      <Route path="graph" element={<KnowledgeGraphPage />} />
+      <Route path="checkup" element={<LibraryCheckupPage />} />
       <Route path="settings/profile" element={<SettingsPage />} />
       <Route path="settings/preferences" element={<SettingsPage />} />
     </Route>
@@ -215,7 +222,7 @@ function ProtectedShell() {
 
 function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promise<void> }) {
   const [logoutBusy, setLogoutBusy] = useState(false);
-  return <header className="phase2-topbar"><Link className="wordmark" to="/app">rembr<span>.</span></Link><nav aria-label="Workspace navigation" className="phase2-nav"><NavLink to="/app" label="Library" /><NavLink to="/app/imports" label="Imports" /><NavLink to="/app/collections" label="Collections" /><NavLink to="/app/tags" label="Tags" /><NavLink to="/app/settings/profile" label="Settings" /></nav><div className="phase2-account"><span>{session.profile?.username ? `@${session.profile.username}` : session.user.email}</span><button type="button" className="quiet-button" disabled={logoutBusy} onClick={() => { setLogoutBusy(true); void onLogout().finally(() => setLogoutBusy(false)); }}>Sign out</button></div></header>;
+  return <header className="phase2-topbar"><Link className="wordmark" to="/app">rembr<span>.</span></Link><nav aria-label="Workspace navigation" className="phase2-nav"><NavLink to="/app" label="Library" /><NavLink to="/app/imports" label="Imports" /><NavLink to="/app/collections" label="Collections" /><NavLink to="/app/tags" label="Tags" /><NavLink to="/app/graph" label="Knowledge graph" /><NavLink to="/app/checkup" label="Library Checkup" /><NavLink to="/app/settings/profile" label="Settings" /></nav><div className="phase2-account"><span>{session.profile?.username ? `@${session.profile.username}` : session.user.email}</span><button type="button" className="quiet-button" disabled={logoutBusy} onClick={() => { setLogoutBusy(true); void onLogout().finally(() => setLogoutBusy(false)); }}>Sign out</button></div></header>;
 }
 function NavLink({ to, label }: { to: string; label: string }) {
   const location = useLocation(); const active = to === '/app' ? location.pathname === '/app' : location.pathname.startsWith(to);
@@ -299,6 +306,77 @@ function LibraryPage() {
   </>;
 }
 function safeHost(value: string) { try { return new URL(value).hostname; } catch { return 'SAVED PAGE'; } }
+
+function KnowledgeGraphPage() {
+  const [graph, setGraph] = useState<KnowledgeGraph | null>(null);
+  const [filter, setFilter] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const load = useCallback(async () => {
+    setLoading(true); setError('');
+    try { setGraph((await api<{ graph: KnowledgeGraph }>('/api/knowledge/graph')).graph); }
+    catch (cause) { setError(messageOf(cause, 'Could not load your knowledge graph.')); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+  const groups = useMemo(() => {
+    const query = filter.trim().toLowerCase();
+    if (!query) return graph?.groups ?? [];
+    return (graph?.groups ?? []).filter((group) => group.label.toLowerCase().includes(query) || group.items.some((item) => item.title.toLowerCase().includes(query)));
+  }, [filter, graph]);
+  const visualGraph = useMemo(() => {
+    const concepts = groups.slice(0, 8);
+    const relatedItems = new Map<string, KnowledgeGraphItem>();
+    for (const concept of concepts) for (const item of concept.items.slice(0, 2)) relatedItems.set(item.id, item);
+    const items = [...relatedItems.values()].slice(0, 16);
+    const height = Math.max(250, items.length * 52 + 56, concepts.length * 68 + 56);
+    const conceptPositions = new Map(concepts.map((concept, index) => [concept.id, { x: 170, y: 28 + (index + 0.5) * (height - 56) / Math.max(concepts.length, 1) }]));
+    const itemPositions = new Map(items.map((item, index) => [item.id, { x: 625, y: 28 + (index + 0.5) * (height - 56) / Math.max(items.length, 1) }]));
+    const edges = concepts.flatMap((concept) => concept.items.slice(0, 2).filter((item) => itemPositions.has(item.id)).map((item) => ({ conceptId: concept.id, itemId: item.id })));
+    return { concepts, items, height, conceptPositions, itemPositions, edges };
+  }, [groups]);
+
+  return <><PageHeader eyebrow="Knowledge" title="Your library, connected." description="Explore the topics, collections, tags, and domains that link your saved pages and notes." />
+    {error && <div className="notice error phase2-retry-notice" role="alert"><span>{error}</span><button className="quiet-button" type="button" onClick={() => void load()}>Try again</button></div>}
+    {loading ? <div className="phase2-state" role="status">Building your knowledge graph…</div> : graph && <>
+      <section className="phase2-panel" aria-label="Knowledge graph summary"><div className="phase2-filter-grid"><div><p className="eyebrow">Saved items</p><strong>{graph.stats.indexedItems}</strong></div><div><p className="eyebrow">Connected concepts</p><strong>{graph.stats.conceptNodes}</strong></div><div><p className="eyebrow">Relationships</p><strong>{graph.stats.links}</strong></div></div><p className="phase2-helper">The graph uses your saved-item domains, tags, and collections. Opt-in media-analysis topics are included when available; the graph works without AI.</p>{graph.truncated && <p className="phase2-helper" role="status">Showing the most-connected concepts across the latest saved items. Narrow this view to explore a specific topic.</p>}</section>
+      {visualGraph.concepts.length > 0 && <section className="phase2-panel" aria-label="Knowledge graph map"><h2>Graph map</h2><p className="phase2-helper">A sample of the strongest links in your library. Use the connected-concepts list for the complete accessible view.</p><div style={{ overflowX: 'auto' }}><svg aria-hidden="true" viewBox={`0 0 800 ${visualGraph.height}`} style={{ display: 'block', width: '100%', minWidth: 640, maxHeight: 560 }}>{visualGraph.edges.map((edge) => { const source = visualGraph.conceptPositions.get(edge.conceptId); const target = visualGraph.itemPositions.get(edge.itemId); return source && target ? <line key={`${edge.conceptId}:${edge.itemId}`} x1={source.x} y1={source.y} x2={target.x} y2={target.y} stroke="#c7d1e8" strokeWidth="1.5" /> : null; })}{visualGraph.concepts.map((concept) => { const position = visualGraph.conceptPositions.get(concept.id)!; return <g key={concept.id}><circle cx={position.x} cy={position.y} r="8" fill="#16a08d" /><text x={position.x + 16} y={position.y + 4} fill="#253046" fontSize="12">{concept.label.slice(0, 28)}</text></g>; })}{visualGraph.items.map((item) => { const position = visualGraph.itemPositions.get(item.id)!; return <g key={item.id}><circle cx={position.x} cy={position.y} r="6" fill="#315cff" /><text x={position.x + 14} y={position.y + 4} fill="#253046" fontSize="12">{item.title.slice(0, 24)}</text></g>; })}</svg></div></section>}
+      <section className="phase2-panel" aria-labelledby="graph-concepts-title"><div className="phase2-page-heading"><div><h2 id="graph-concepts-title">Connected concepts</h2><p>Each concept links to the saved items that share it.</p></div><label>Filter concepts<input type="search" maxLength={80} value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Topic, tag, collection, or page" /></label></div>
+        {groups.length ? <ul className="phase2-manage-list">{groups.map((group) => <li key={group.id}><div><strong>{group.label}</strong><span className="phase2-pill soft">{group.type}</span><p className="phase2-helper">{group.itemCount} linked {group.itemCount === 1 ? 'item' : 'items'}</p><ul className="phase2-manage-list">{group.items.map((item) => <li key={item.id}><Link to={`/app/items/${encodeURIComponent(item.id)}`}>{item.title}</Link><span className={`status status-${item.status}`}>{readableStatus(item.status as Status)}</span></li>)}</ul>{group.itemCount > group.items.length && <p className="phase2-helper">Showing {group.items.length} of {group.itemCount} linked items.</p>}</div></li>)}</ul> : <div className="empty-state"><h2>{filter ? 'No concepts match that filter.' : 'Your graph is ready to grow.'}</h2><p>{filter ? 'Try a broader topic or clear the filter.' : 'Save pages, add tags or collections, or enable optional media analysis to connect your library.'}</p>{filter && <button className="quiet-button" type="button" onClick={() => setFilter('')}>Clear filter</button>}</div>}
+      </section>
+    </>}
+  </>;
+}
+
+function LibraryCheckupPage() {
+  const [checkup, setCheckup] = useState<LibraryCheckup | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const load = useCallback(async () => {
+    setLoading(true); setError('');
+    try { setCheckup((await api<{ checkup: LibraryCheckup }>('/api/knowledge/checkup')).checkup); }
+    catch (cause) { setError(messageOf(cause, 'Could not review your library.')); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+  const sections: Array<{ title: string; description: string; items: CheckupItem[] }> = checkup ? [
+    { title: 'Needs a look', description: 'Paused, failed, partial, or retrying saves.', items: checkup.needsAttention },
+    { title: 'Saved 3+ months ago', description: 'Older items you may want to revisit.', items: checkup.olderSaves },
+    { title: 'A few from your library', description: 'A stable weekly selection to make rediscovery easier.', items: checkup.weeklyRediscovery },
+  ] : [];
+  return <><PageHeader eyebrow="Library care" title="A quick check-in." description="Find saves that may need attention and rediscover things you kept." actions={<button className="quiet-button" type="button" disabled={loading} onClick={() => void load()}>{loading ? 'Refreshing…' : 'Refresh checkup'}</button>} />
+    {error && <div className="notice error phase2-retry-notice" role="alert"><span>{error}</span><button className="quiet-button" type="button" onClick={() => void load()}>Try again</button></div>}
+    {loading && !checkup ? <div className="phase2-state" role="status">Reviewing your library…</div> : checkup && <>
+      <section className="phase2-panel" aria-label="Library checkup summary"><div className="phase2-filter-grid"><div><p className="eyebrow">Saved items</p><strong>{checkup.summary.savedItems}</strong></div><div><p className="eyebrow">Needs a look</p><strong>{checkup.summary.needsAttention}</strong></div><div><p className="eyebrow">Not organized</p><strong>{checkup.summary.unorganizedItems}</strong></div><div><p className="eyebrow">Older than 90 days</p><strong>{checkup.summary.olderSaves}</strong></div></div><p className="phase2-helper">This review is read-only. Rembr does not change or delete anything automatically, and these checks work with AI providers disabled.</p></section>
+      {checkup.dailyPick && <section className="phase2-panel"><h2>Picked for today</h2><p className="phase2-helper">A consistent daily pick from your recent library.</p><CheckupItems items={[checkup.dailyPick]} /></section>}
+      {sections.map((section) => <section className="phase2-panel" key={section.title}><h2>{section.title}</h2><p className="phase2-helper">{section.description}</p>{section.items.length ? <CheckupItems items={section.items} /> : <p className="phase2-state">Nothing to show here right now.</p>}</section>)}
+    </>}
+  </>;
+}
+
+function CheckupItems({ items }: { items: CheckupItem[] }) {
+  return <ul className="phase2-manage-list">{items.map((item) => <li key={item.id}><Link to={`/app/items/${encodeURIComponent(item.id)}`}>{item.title}</Link><span className={`status status-${item.status}`}>{readableStatus(item.status as Status)}</span><time dateTime={item.created_at}>{date(item.created_at)}</time></li>)}</ul>;
+}
 
 function AddPage() {
   const [url, setUrl] = useState(''); const [files, setFiles] = useState<File[]>([]); const [busy, setBusy] = useState(false); const [progress, setProgress] = useState(0); const [error, setError] = useState(''); const [activeImportId, setActiveImportId] = useState(''); const navigate = useNavigate();

@@ -29,9 +29,16 @@ The Phase 4 capability rows are library search and retrieval, OCR/ASR/visual int
 
 Implemented locally on this branch: deterministically rank library search results by matches across effective title, description, URL, extracted text, note bodies, and existing AI analysis. Search remains tenant-scoped and provider-independent; relevance pagination carries score/date ordering in its owner-bound cursor. No production database mutation or provider call was part of this slice. Typecheck, lint, production build, and `git diff --check` passed; automated tests and browser review have not been run.
 
+## Additional provider-free slices
+
+- Knowledge Graph API and screen: derive bounded item/concept relationships from the signed-in user's domains, tags, collections, and any existing opt-in analysis topics. The SVG is a compact sample; the grouped concept/item list is the complete accessible interaction surface. No new persistence or provider call is required.
+- Library Checkup API and screen: report owner-scoped processing states, unorganized saves, older saves, and stable daily/weekly rediscovery picks. The first version is read-only and does not make outbound link checks or mutate records.
+- Typecheck, lint, production build, and `git diff --check` pass for these slices. Automated tests and browser review remain unrun.
+
 ## Open evidence and gate
 
 - Confirm current reference behavior and exact required graph, checkup, collection-rule, chat, and summary parity while implementing those slices.
+- The current graph/checkup slices are deliberately bounded: link health, reminders, duplicate cleanup, and full graph export remain open parts of source parity.
 - OCR/ASR media-source coverage depends on closing the Phase 3 audio/video media parity gap; unsupported or unavailable sources must remain explicitly partial.
 - Meta API access and real model behavior are not verified here.
 - Phase 4 is not complete until all agreed capabilities and failure/security/UX acceptance criteria have recorded evidence.
