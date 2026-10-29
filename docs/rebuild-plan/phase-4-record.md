@@ -26,7 +26,7 @@
 
 - `npx.cmd --yes --package=node@22.22.0 --call "npm.cmd run check"` passed: API/web typecheck, API/web lint, all 125 API tests, and API/web production builds. Vite reports the existing large-bundle warning.
 - The new visual-search integration tests passed 4/4, including owner-scoped feedback assertions. `git diff --check` passed. The first full run exposed the expected schema table-count fixture mismatch (41 to 42); the fixture and RLS count were updated, and the full rerun passed.
-- No production provider call, hosted migration write, or performance benchmark was performed.
+- A synthetic production OpenRouter call and hosted Supabase migration were performed and verified. No real library text was sent, no user consent/preferences or embedding rows were created, and no production-scale performance benchmark was performed.
 
 ## Defects, risks, and next steps
 
