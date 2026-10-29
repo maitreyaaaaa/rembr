@@ -11,6 +11,12 @@ export interface ParsedImportItem {
   description: string;
   collection: string | null;
   metadata: Record<string, string | string[]>;
+  /** Zero-based order among selected Instagram entries, after saved-date sorting. */
+  sourceOrder?: number;
+}
+export interface ParsedImportResult {
+  items: ParsedImportItem[];
+  instagramSkippedCount: number;
 }
 export class ImportParseError extends Error {
   constructor(readonly code: string, message: string) { super(message); this.name = 'ImportParseError'; }
@@ -19,6 +25,7 @@ export class ImportParseError extends Error {
 const MAX_ARCHIVE_BYTES = 100 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES = 5_000;
 const MAX_IMPORT_ITEMS = 5_000;
+const MAX_INSTAGRAM_IMPORT_ITEMS = 300;
 const URL_PATTERN = /https?:\\?\/\\?\/(?:www\.|m\.|mobile\.|basic\.)?(?:instagram\.com|(?:[a-z0-9-]+\.)*pinterest\.com|pin\.it|x\.com|twitter\.com)\/[^\s"'<>\\]+/gi;
 
 function safeHttpsUrl(raw: string): URL | null {
@@ -365,7 +372,7 @@ function recordsFromText(platform: ImportPlatform, name: string, bytes: Buffer, 
   return output;
 }
 
-export function parsePlatformExports(files: ImportFile[]): ParsedImportItem[] {
+function parsePlatformExportsRaw(files: ImportFile[]): ParsedImportItem[] {
   if (files.length < 1 || files.length > 20) throw new ImportParseError('invalid_file_count', 'Upload between 1 and 20 export files.');
   let totalBytes = 0;
   for (const file of files) {
@@ -392,12 +399,66 @@ export function parsePlatformExports(files: ImportFile[]): ParsedImportItem[] {
     }
   }
   if (recognizedFiles === 0) throw new ImportParseError('unsupported_export_file', 'No supported Instagram, Pinterest, or X export file was found.');
+  if (found.length > MAX_IMPORT_ITEMS) throw new ImportParseError('item_count_limit', 'An export cannot contain more than 5,000 saved links.');
+  return found;
+}
+
+export function selectParsedImportItems(found: ParsedImportItem[]): ParsedImportResult {
+  if (found.length > MAX_IMPORT_ITEMS) throw new ImportParseError('item_count_limit', 'An export cannot contain more than 5,000 saved links.');
   const unique = new Map<string, ParsedImportItem>();
   for (const item of found) {
     const previous = unique.get(item.url);
     if (!previous) unique.set(item.url, item);
-    else unique.set(item.url, { ...previous, title: previous.title.length > 0 ? previous.title : item.title, collection: previous.collection ?? item.collection });
+    else {
+      const previousSavedAt = typeof previous.metadata.savedAt === 'string' ? Date.parse(previous.metadata.savedAt) : Number.NaN;
+      const duplicateSavedAt = typeof item.metadata.savedAt === 'string' ? Date.parse(item.metadata.savedAt) : Number.NaN;
+      const metadata = Number.isFinite(duplicateSavedAt) && (!Number.isFinite(previousSavedAt) || duplicateSavedAt > previousSavedAt)
+        ? { ...previous.metadata, savedAt: item.metadata.savedAt! }
+        : previous.metadata;
+      unique.set(item.url, { ...previous, metadata, title: previous.title.length > 0 ? previous.title : item.title, collection: previous.collection ?? item.collection });
+    }
   }
   if (unique.size === 0) throw new ImportParseError('empty_export', 'The export contained no supported saved links.');
-  return [...unique.values()];
+  const deduplicated = [...unique.values()];
+  const instagramInExport = deduplicated.filter((item) => item.platform === 'instagram');
+  const dateRankedInstagram = instagramInExport
+    .map((item, exportOrder) => {
+      const rawSavedAt = item.metadata.savedAt;
+      const savedAtMillis = typeof rawSavedAt === 'string' && rawSavedAt.trim() ? Date.parse(rawSavedAt) : Number.NaN;
+      return { item, exportOrder, savedAtMillis: Number.isFinite(savedAtMillis) ? savedAtMillis : null };
+    })
+    .sort((left, right) => {
+      if (left.savedAtMillis !== null && right.savedAtMillis !== null) {
+        return right.savedAtMillis - left.savedAtMillis || left.exportOrder - right.exportOrder;
+      }
+      if (left.savedAtMillis !== null) return -1;
+      if (right.savedAtMillis !== null) return 1;
+      return left.exportOrder - right.exportOrder;
+    })
+    .slice(0, MAX_INSTAGRAM_IMPORT_ITEMS)
+    .map(({ item }, sourceOrder) => ({ ...item, sourceOrder }));
+
+  // Put selected Instagram entries first in the exact order used by worker jobs.
+  // Non-Instagram entries keep their relative export order and are not capped.
+  const items = [...dateRankedInstagram, ...deduplicated.filter((item) => item.platform !== 'instagram')];
+
+  return {
+    items,
+    instagramSkippedCount: Math.max(0, instagramInExport.length - dateRankedInstagram.length),
+  };
+}
+
+export function parsePlatformExportFile(file: ImportFile): ParsedImportItem[] {
+  const items = parsePlatformExportsRaw([file]);
+  if (!items.length) throw new ImportParseError('empty_export', 'The export contained no supported saved links.');
+  return items;
+}
+
+export function parsePlatformExportsDetailed(files: ImportFile[]): ParsedImportResult {
+  return selectParsedImportItems(parsePlatformExportsRaw(files));
+}
+
+/** Compatibility helper for callers that only need the selected items. */
+export function parsePlatformExports(files: ImportFile[]): ParsedImportItem[] {
+  return parsePlatformExportsDetailed(files).items;
 }

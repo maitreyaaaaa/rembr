@@ -103,8 +103,12 @@ export function createLibraryRepository(database: DatabaseHandle) {
         params.push(query.status);
       }
       if (query.search) {
-        clauses.push(`(COALESCE(saved_items.title_override,saved_items.title) LIKE ? ESCAPE '!' OR saved_items.original_url LIKE ? ESCAPE '!')`);
-        const safe = `%${query.search.replace(/[!%_]/g, '!$&')}%`; params.push(safe, safe);
+        clauses.push(`(COALESCE(saved_items.title_override,saved_items.title) LIKE ? ESCAPE '!' OR saved_items.original_url LIKE ? ESCAPE '!'
+          OR EXISTS (SELECT 1 FROM ai_analysis_results analysis WHERE analysis.owner_id=saved_items.owner_id
+            AND analysis.item_id=saved_items.id AND (analysis.summary LIKE ? ESCAPE '!' OR analysis.visual_description LIKE ? ESCAPE '!'
+              OR analysis.ocr_text LIKE ? ESCAPE '!' OR analysis.transcript LIKE ? ESCAPE '!'
+              OR analysis.keywords_json LIKE ? ESCAPE '!' OR analysis.tags_json LIKE ? ESCAPE '!')))`);
+        const safe = `%${query.search.replace(/[!%_]/g, '!$&')}%`; params.push(safe, safe, safe, safe, safe, safe, safe, safe);
       }
       if (query.tagId) { clauses.push('EXISTS (SELECT 1 FROM item_tags WHERE owner_id=saved_items.owner_id AND item_id=saved_items.id AND tag_id=?)'); params.push(query.tagId); }
       if (query.collectionId) { clauses.push('EXISTS (SELECT 1 FROM collection_items WHERE owner_id=saved_items.owner_id AND item_id=saved_items.id AND collection_id=?)'); params.push(query.collectionId); }

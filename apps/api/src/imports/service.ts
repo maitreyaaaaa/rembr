@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { DatabaseHandle } from '../db/database.js';
-import { ImportParseError, parsePlatformExports } from './parser.js';
+import { ImportParseError, parsePlatformExportFile, selectParsedImportItems } from './parser.js';
 import { createImportRepository, ImportRepositoryError, type ImportFileInput } from './repository.js';
 import type { ImportStorage } from './storage.js';
 
@@ -74,19 +74,20 @@ export function createImportService(database: DatabaseHandle, storage: ImportSto
     if (!leaseToken) return false;
     const rows = await repository.files(ownerId, importId);
     const files = rows.map((row) => ({ id: String(row.id), key: String(row.storage_key), name: String(row.original_name), extension: String(row.extension) }));
-    const parsed = []; const failures: Array<{ fileId: string; code: string }> = [];
+    const parsedCandidates = []; const failures: Array<{ fileId: string; code: string }> = [];
     for (const file of files) {
       try {
         const bytes = await storage.readFile(file.key);
         if (bytes.length < 1 || bytes.length > IMPORT_FILE_LIMIT || !validSignature(file.extension, bytes)) throw new ImportServiceError('file_signature_mismatch');
-        parsed.push(...parsePlatformExports([{ name: file.name, bytes }]));
+        parsedCandidates.push(...parsePlatformExportFile({ name: file.name, bytes }));
       } catch (cause) {
         failures.push({ fileId: file.id, code: cause instanceof ImportParseError || cause instanceof ImportServiceError ? cause.code : 'file_read_failed' });
       }
     }
     try {
+      const { items: parsed, instagramSkippedCount } = selectParsedImportItems(parsedCandidates);
       if (!parsed.length && !failures.length) failures.push({ fileId: files[0]!.id, code: 'no_supported_items' });
-      await repository.accept(ownerId, importId, leaseToken, files, parsed, failures);
+      await repository.accept(ownerId, importId, leaseToken, files, parsed, failures, instagramSkippedCount);
     } catch (cause) {
       const code = cause instanceof ImportRepositoryError ? cause.code : 'import_accept_failed';
       await repository.fail(ownerId, importId, code, leaseToken);
@@ -107,6 +108,21 @@ export function createImportService(database: DatabaseHandle, storage: ImportSto
       const cleaned = await cleanup(ownerId, importId);
       await storage.removeUnknown(await repository.storageKeys());
       return { cancelled: true, cleanupComplete: cleaned };
+    },
+
+    async cancelQueuedWork(ownerId: string, importId: string) {
+      return repository.cancelQueuedWork(ownerId, importId);
+    },
+
+    async discardCreatedItems(ownerId: string, importId: string, deleteItem: (ownerId: string, itemId: string) => Promise<boolean>) {
+      const imported = await repository.owned(ownerId, importId);
+      if (!imported) return { found: false, deleted: 0, active: 0 };
+      const active = await repository.activeWork(ownerId, importId);
+      if (active > 0) return { found: true, deleted: 0, active };
+      const rows = await repository.createdItems(ownerId, importId);
+      let deleted = 0;
+      for (const row of rows) if (await deleteItem(ownerId, row.item_id)) deleted += 1;
+      return { found: true, deleted, active: 0 };
     },
 
     async uploadChunk(ownerId: string, importId: string, fileId: string, index: number, bytes: Buffer) {

@@ -158,6 +158,56 @@ export function createImportRepository(database: DatabaseHandle) {
       return transaction();
     },
 
+    async cancelQueuedWork(ownerId: string, importId: string) {
+      const now = new Date().toISOString();
+      const transaction = database.transaction(async () => {
+        const imported = await database.prepare('SELECT status FROM imports WHERE owner_id=? AND id=?')
+          .get(ownerId, importId) as { status: string } | undefined;
+        if (!imported) return { found: false, cancelled: 0, active: 0 };
+        const changed = await database.prepare(`UPDATE processing_jobs SET status='cancelled',error_code='cancelled',
+            lease_token=NULL,lease_expires_at=NULL,updated_at=?
+          WHERE owner_id=? AND import_id=? AND status IN ('queued','retry_wait')`).run(now, ownerId, importId);
+        await database.prepare(`UPDATE saved_items SET status='failed',error_code='cancelled',updated_at=?
+          WHERE owner_id=? AND id IN (SELECT item_id FROM processing_jobs WHERE owner_id=? AND import_id=? AND status='cancelled' AND error_code='cancelled')`)
+          .run(now, ownerId, ownerId, importId);
+        await database.prepare(`UPDATE processing_jobs SET status='cancel_requested',updated_at=?
+          WHERE owner_id=? AND import_id=? AND status='processing'`).run(now, ownerId, importId);
+        await database.prepare(`DELETE FROM job_pause_states WHERE owner_id=? AND job_id IN
+          (SELECT id FROM processing_jobs WHERE owner_id=? AND import_id=? AND status='cancelled')`).run(ownerId, ownerId, importId);
+        const aiActive = await database.prepare(`SELECT id,status FROM ai_analysis_jobs WHERE owner_id=? AND import_id=?
+          AND status IN ('queued','processing','paused')`).all(ownerId, importId) as Array<{ id: string; status: string }>;
+        if (aiActive.length) {
+          await database.prepare(`UPDATE ai_usage_reservations SET status='held'
+            WHERE owner_id=? AND import_id=? AND status='reserved'
+              AND job_id IN (SELECT id FROM ai_analysis_jobs WHERE owner_id=? AND import_id=? AND status='processing')`)
+            .run(ownerId, importId, ownerId, importId);
+          await database.prepare(`UPDATE ai_analysis_jobs SET status='cancelled',pause_reason='consent_disabled',
+              lease_token=NULL,lease_expires_at=NULL,error_code='import_cancelled',updated_at=?,completed_at=?
+            WHERE owner_id=? AND import_id=? AND status IN ('queued','processing','paused')`).run(now, now, ownerId, importId);
+        }
+        const active = await database.prepare(`SELECT count(*) AS count FROM processing_jobs WHERE owner_id=? AND import_id=?
+          AND status IN ('queued','processing','retry_wait','cancel_requested')`).get(ownerId, importId) as { count: number };
+        if (Number(active.count) === 0 && ['queued','processing'].includes(imported.status)) {
+          await database.prepare(`UPDATE imports SET status='partial',updated_at=?,completed_at=? WHERE owner_id=? AND id=?`)
+            .run(now, now, ownerId, importId);
+        }
+        return { found: true, cancelled: changed.changes, active: Number(active.count) };
+      });
+      return await transaction();
+    },
+
+    async createdItems(ownerId: string, importId: string) {
+      return await database.prepare(`SELECT DISTINCT item_id FROM import_entries
+        WHERE owner_id=? AND import_id=? AND job_id IS NOT NULL AND item_id IS NOT NULL ORDER BY item_id`)
+        .all(ownerId, importId) as Array<{ item_id: string }>;
+    },
+
+    async activeWork(ownerId: string, importId: string) {
+      const row = await database.prepare(`SELECT count(*) AS count FROM processing_jobs WHERE owner_id=? AND import_id=?
+        AND status IN ('queued','processing','retry_wait','cancel_requested')`).get(ownerId, importId) as { count: number } | undefined;
+      return Number(row?.count ?? 0);
+    },
+
     recordChunk(ownerId: string, importId: string, fileId: string, index: number, bytes: number, sha256: string, storageKey: string) {
       const transaction = database.transaction(async () => {
         const file = await this.file(ownerId, importId, fileId);
@@ -211,11 +261,21 @@ export function createImportRepository(database: DatabaseHandle) {
       return transaction();
     },
 
-    accept(ownerId: string, importId: string, leaseToken: string, files: Array<{ id: string; key: string; name: string }>, items: ParsedImportItem[], failures: Array<{ fileId: string; code: string }> = []) {
+    accept(ownerId: string, importId: string, leaseToken: string, files: Array<{ id: string; key: string; name: string }>, items: ParsedImportItem[], failures: Array<{ fileId: string; code: string }> = [], instagramSkippedCount = 0) {
       const now = new Date().toISOString();
       const transaction = database.transaction(async () => {
         const state = await database.prepare('SELECT status,lease_token,request_id FROM imports WHERE owner_id=? AND id=?').get(ownerId, importId) as { status: string; lease_token: string | null; request_id: string | null } | undefined;
         if (!state || state.status !== 'parsing' || state.lease_token !== leaseToken) throw new ImportRepositoryError('import_not_available');
+        const instagramItems = items.filter((item) => item.platform === 'instagram');
+        if (instagramItems.length > 300) throw new ImportRepositoryError('instagram_item_limit');
+        const instagramOrderByItem = new Map<ParsedImportItem, number>();
+        const seenInstagramOrders = new Set<number>();
+        instagramItems.forEach((item, index) => {
+          const order = Number.isInteger(item.sourceOrder) ? item.sourceOrder! : index;
+          if (order < 0 || order >= 300 || seenInstagramOrders.has(order)) throw new ImportRepositoryError('instagram_source_order_invalid');
+          seenInstagramOrders.add(order);
+          instagramOrderByItem.set(item, order);
+        });
         const sourcePlatforms = [...new Set(items.map((item) => item.platform))];
         const source = sourcePlatforms.length === 1 ? sourcePlatforms[0]! : sourcePlatforms.length ? 'mixed' : 'unknown';
         let newCount = 0; let duplicateCount = 0;
@@ -224,6 +284,7 @@ export function createImportRepository(database: DatabaseHandle) {
         const entryRows: SqlRow[] = [];
         const savedItemRows: SqlRow[] = [];
         const jobRows: SqlRow[] = [];
+        const aiJobRows: SqlRow[] = [];
         const tagNames = new Map<string, string>();
         const collectionNames = new Map<string, string>();
         const tagLinks: Array<{ itemId: string; normalized: string }> = [];
@@ -240,20 +301,24 @@ export function createImportRepository(database: DatabaseHandle) {
 
         for (const failure of failures) {
           if (!fileIds.has(failure.fileId)) throw new ImportRepositoryError('upload_file_not_found');
-          entryRows.push([randomUUID(), ownerId, importId, failure.fileId, null, null, 'unknown', null, null, '', '{}', 'failed', failure.code, now]);
+          entryRows.push([randomUUID(), ownerId, importId, failure.fileId, null, null, 'unknown', null, null, '', '{}', 'failed', failure.code, null, now]);
         }
+        const preference = await database.prepare('SELECT enabled FROM ai_analysis_preferences WHERE owner_id=?').get(ownerId) as { enabled: boolean | number } | undefined;
+        const aiEnabled = Boolean(preference?.enabled);
         for (const entry of items) {
           const uploadFileId = fileIdsByName.get(String(entry.metadata.sourceFile ?? '')) ?? null;
+          const sourceOrder = entry.platform === 'instagram' ? instagramOrderByItem.get(entry) ?? null : null;
           const existingItemId = itemIdsByUrl.get(entry.url);
           if (existingItemId) {
-            entryRows.push([randomUUID(), ownerId, importId, uploadFileId, existingItemId, null, entry.platform, entry.url, entry.sourceId, entry.title, JSON.stringify(entry.metadata), 'duplicate', null, now]);
+            entryRows.push([randomUUID(), ownerId, importId, uploadFileId, existingItemId, null, entry.platform, entry.url, entry.sourceId, entry.title, JSON.stringify(entry.metadata), 'duplicate', null, sourceOrder, now]);
             duplicateCount += 1; continue;
           }
           const itemId = randomUUID(); const jobId = randomUUID(); const correlationId = String(state.request_id ?? importId);
           const hashtags = Array.isArray(entry.metadata.hashtags) ? entry.metadata.hashtags : [];
           savedItemRows.push([itemId, ownerId, entry.url, entry.url, entry.title, entry.description, now, now, entry.platform, entry.sourceId, JSON.stringify(entry.metadata)]);
-          jobRows.push([jobId, ownerId, itemId, importId, correlationId, now, now, now]);
-          entryRows.push([randomUUID(), ownerId, importId, uploadFileId, itemId, jobId, entry.platform, entry.url, entry.sourceId, entry.title, JSON.stringify(entry.metadata), 'queued', null, now]);
+          jobRows.push([jobId, ownerId, itemId, importId, correlationId, sourceOrder, now, now, now]);
+          entryRows.push([randomUUID(), ownerId, importId, uploadFileId, itemId, jobId, entry.platform, entry.url, entry.sourceId, entry.title, JSON.stringify(entry.metadata), 'queued', null, sourceOrder, now]);
+          if (aiEnabled && entry.platform === 'instagram') aiJobRows.push([randomUUID(), ownerId, importId, itemId, now, now]);
           itemIdsByUrl.set(entry.url, itemId);
           for (const rawTag of hashtags.slice(0, 20)) {
             const name = String(rawTag).trim().slice(0, 40); const normalized = name.toLowerCase(); if (!normalized) continue;
@@ -272,8 +337,11 @@ export function createImportRepository(database: DatabaseHandle) {
         }
 
         await insertRows(database, 'saved_items', ['id','owner_id','original_url','canonical_url','title','description','status','created_at','updated_at','source_platform','source_id','source_metadata_json'], savedItemRows.map((row) => [...row.slice(0, 6), 'queued', ...row.slice(6)]));
-        await insertRows(database, 'processing_jobs', ['id','owner_id','item_id','import_id','correlation_id','status','available_at','created_at','updated_at'], jobRows.map((row) => [...row.slice(0, 5), 'queued', ...row.slice(5)]));
-        await insertRows(database, 'import_entries', ['id','owner_id','import_id','upload_file_id','item_id','job_id','source_platform','source_url','source_id','title','source_metadata_json','status','error_code','created_at'], entryRows);
+        await insertRows(database, 'processing_jobs', ['id','owner_id','item_id','import_id','correlation_id','source_order','status','available_at','created_at','updated_at'], jobRows.map((row) => [...row.slice(0, 6), 'queued', ...row.slice(6)]));
+        await insertRows(database, 'import_entries', ['id','owner_id','import_id','upload_file_id','item_id','job_id','source_platform','source_url','source_id','title','source_metadata_json','status','error_code','source_order','created_at'], entryRows);
+        await insertRows(database, 'ai_analysis_jobs', ['id','owner_id','import_id','item_id','status','available_at','created_at','updated_at'], aiJobRows.map((row) => [...row.slice(0, 4), 'queued', ...row.slice(4)]));
+        if (aiJobRows.length) await database.prepare(`INSERT INTO ai_import_usage (owner_id,import_id,created_at,updated_at)
+          VALUES (?,?,?,?) ON CONFLICT (owner_id,import_id) DO NOTHING`).run(ownerId, importId, now, now);
 
         if (tagNames.size) {
           const tagRows = [...tagNames].map(([normalized, display]) => [randomUUID(), ownerId, normalized, display, now, now]);
@@ -294,10 +362,10 @@ export function createImportRepository(database: DatabaseHandle) {
         const failedCount = failures.length;
         const status = failedCount ? (newCount || duplicateCount ? 'partial' : 'failed') : newCount ? 'queued' : parsedCount ? 'completed' : 'failed';
         const errorCode = failedCount ? 'some_files_failed' : parsedCount ? null : 'no_supported_items';
-        await database.prepare(`UPDATE imports SET source=?,status=?,parsed_count=?,new_count=?,duplicate_count=?,failed_count=?,error_code=?,updated_at=?,completed_at=?,lease_token=NULL,lease_expires_at=NULL WHERE owner_id=? AND id=? AND lease_token=?`)
-          .run(source, status, parsedCount, newCount, duplicateCount, failedCount, errorCode, now, newCount ? null : now, ownerId, importId, leaseToken);
+        await database.prepare(`UPDATE imports SET source=?,status=?,parsed_count=?,new_count=?,duplicate_count=?,skipped_count=?,failed_count=?,error_code=?,updated_at=?,completed_at=?,lease_token=NULL,lease_expires_at=NULL WHERE owner_id=? AND id=? AND lease_token=?`)
+          .run(source, status, parsedCount, newCount, duplicateCount, instagramSkippedCount, failedCount, errorCode, now, newCount ? null : now, ownerId, importId, leaseToken);
         await database.prepare(`UPDATE import_upload_files SET state='accepted',updated_at=? WHERE owner_id=? AND import_id=?`).run(now, ownerId, importId);
-        return { status, parsedCount, newCount, duplicateCount, skippedCount: 0, failedCount };
+        return { status, parsedCount, newCount, duplicateCount, skippedCount: instagramSkippedCount, failedCount };
       });
       return transaction();
     },
@@ -330,8 +398,9 @@ export function createImportRepository(database: DatabaseHandle) {
     },
 
     async listEntries(ownerId: string, importId: string) {
-      return await database.prepare(`SELECT id,item_id,source_platform,source_url,source_id,title,status,error_code,created_at
-        FROM import_entries WHERE owner_id=? AND import_id=? ORDER BY created_at,id`).all(ownerId, importId) as Array<Record<string, unknown>>;
+      return await database.prepare(`SELECT id,item_id,source_platform,source_url,source_id,title,status,error_code,source_order,created_at
+        FROM import_entries WHERE owner_id=? AND import_id=?
+        ORDER BY CASE WHEN source_platform='instagram' AND source_order IS NOT NULL THEN 0 ELSE 1 END, source_order, created_at, id`).all(ownerId, importId) as Array<Record<string, unknown>>;
     },
 
   };

@@ -1,0 +1,19 @@
+FROM node:22.22.0-bookworm-slim
+
+ARG FFMPEG_DEBIAN_VERSION=7:5.1.9-0+deb12u1
+RUN apt-get update \
+  && apt-get install --yes --no-install-recommends "ffmpeg=${FFMPEG_DEBIAN_VERSION}" ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY package.json package-lock.json ./
+COPY apps/api/package.json ./apps/api/package.json
+COPY apps/web/package.json ./apps/web/package.json
+RUN npm ci --include=dev
+
+COPY . .
+RUN npm run build --workspace @rembr/api
+
+ENV NODE_ENV=production
+ENV FFMPEG_PATH=/usr/bin/ffmpeg
+CMD ["npm", "run", "start:worker", "--workspace", "@rembr/api"]

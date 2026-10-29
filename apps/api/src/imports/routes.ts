@@ -6,6 +6,7 @@ import { createProfileGate } from '../account/routes.js';
 import type { AssetStorage } from '../assets/storage.js';
 import { createImportService, ImportServiceError, IMPORT_FILE_LIMIT, IMPORT_TOTAL_LIMIT } from './service.js';
 import type { ImportStorage } from './storage.js';
+import type { createLibraryService } from '../library/service.js';
 
 const createSchema = z.object({ files: z.array(z.object({ name: z.string().min(1).max(255), mime: z.string().max(120).default('application/octet-stream'), size: z.number().int(), chunks: z.number().int() }).strict()).min(1).max(20) }).strict();
 function param(req: express.Request, key: string): string { const value = req.params[key]; return Array.isArray(value) ? value[0] ?? '' : value ?? ''; }
@@ -13,7 +14,8 @@ function fail(res: express.Response, status: number, code: string, message: stri
   return res.status(status).json({ error: { code, message, ...(requestId ? { requestId } : {}) } });
 }
 
-export function createImportRouter(database: DatabaseHandle, assetStorage: AssetStorage, storage: ImportStorage) {
+export function createImportRouter(database: DatabaseHandle, assetStorage: AssetStorage, storage: ImportStorage,
+  library: ReturnType<typeof createLibraryService>) {
   const router = express.Router(); const signedIn = requireUser(database); const profile = createProfileGate(database, assetStorage);
   const imports = createImportService(database, storage);
 
@@ -35,6 +37,19 @@ export function createImportRouter(database: DatabaseHandle, assetStorage: Asset
     } catch {
       return fail(res, 500, 'import_cleanup_pending', 'The import was canceled, but temporary file cleanup will be retried.', req.requestId);
     }
+  });
+
+  router.post('/imports/:id/jobs/cancel', signedIn, profile, async (req, res) => {
+    const result = await imports.cancelQueuedWork(req.user!.id, param(req, 'id'));
+    if (!result.found) return fail(res, 404, 'not_found', 'Import not found.', req.requestId);
+    return res.json({ importId: param(req, 'id'), cancelled: result.cancelled, active: result.active });
+  });
+
+  router.post('/imports/:id/discard-created-items', signedIn, profile, async (req, res) => {
+    const result = await imports.discardCreatedItems(req.user!.id, param(req, 'id'), (ownerId, itemId) => library.delete(ownerId, itemId));
+    if (!result.found) return fail(res, 404, 'not_found', 'Import not found.', req.requestId);
+    if (result.active > 0) return fail(res, 409, 'import_work_active', 'Cancel and wait for this import to stop before removing its items.', req.requestId);
+    return res.json({ importId: param(req, 'id'), deleted: result.deleted, duplicatesPreserved: true });
   });
 
   router.post('/imports', signedIn, profile, async (req, res) => {

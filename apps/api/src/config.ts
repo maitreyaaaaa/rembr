@@ -19,6 +19,8 @@ const environmentSchema = z.object({
   DATABASE_URL: z.preprocess((value) => value === '' ? undefined : value, z.string().url().optional()),
   SUPABASE_URL: z.preprocess((value) => value === '' ? undefined : value, z.string().url().optional()),
   SUPABASE_SERVICE_ROLE_KEY: z.preprocess((value) => value === '' ? undefined : value, z.string().min(1).optional()),
+  META_API_KEY: z.preprocess((value) => value === '' ? undefined : value, z.string().min(1).optional()),
+  FFMPEG_PATH: z.string().min(1).default('ffmpeg'),
   SUPABASE_ASSET_BUCKET: z.string().regex(/^[a-z0-9][a-z0-9_-]{1,61}[a-z0-9]$/).default('rembr-assets'),
   SUPABASE_IMPORT_BUCKET: z.string().regex(/^[a-z0-9][a-z0-9_-]{1,61}[a-z0-9]$/).default('rembr-imports'),
   SUPABASE_MEDIA_BUCKET: z.string().regex(/^[a-z0-9][a-z0-9_-]{1,61}[a-z0-9]$/).default('rembr-media'),
@@ -43,6 +45,7 @@ if (!parsed.success) {
 export const config = {
   ...parsed.data,
   databaseUrl: parsed.data.DATABASE_URL,
+  ffmpegPath: parsed.data.FFMPEG_PATH,
   supabaseUrl: parsed.data.SUPABASE_URL,
   supabaseServiceRoleKey: parsed.data.SUPABASE_SERVICE_ROLE_KEY,
   assetDirectory: resolve(projectRoot, parsed.data.ASSET_DIRECTORY),

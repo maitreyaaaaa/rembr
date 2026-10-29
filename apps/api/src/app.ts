@@ -13,6 +13,7 @@ import { createOrganizationRouter } from './organization/routes.js';
 import { createImportRouter } from './imports/routes.js';
 import { LocalImportStorage, type ImportStorage } from './imports/storage.js';
 import { createJobRouter } from './jobs/routes.js';
+import { createAiRouter } from './ai/routes.js';
 import { LocalAssetStorage, type AssetStorage } from './assets/storage.js';
 import { LocalMediaStorage, type MediaStorage } from './media/storage.js';
 import type { DatabaseHandle } from './db/database.js';
@@ -127,6 +128,7 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
   });
 
   app.use('/api', createAccountRouter(database, assetStorage));
+  app.use('/api', createAiRouter(database));
 
   const requireSignedIn = requireUser(database) as RequestHandler;
   const requireCompletedProfile = createProfileGate(database, assetStorage) as RequestHandler;
@@ -154,7 +156,7 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
   });
   app.use('/api', createLibraryRouter(database, assetStorage, mediaStorage));
   app.use('/api', createOrganizationRouter(database, assetStorage));
-  app.use('/api', createImportRouter(database, assetStorage, importStorage));
+  app.use('/api', createImportRouter(database, assetStorage, importStorage, library));
   app.use('/api', createJobRouter(database, assetStorage));
 
   if (config.SERVE_WEB) {

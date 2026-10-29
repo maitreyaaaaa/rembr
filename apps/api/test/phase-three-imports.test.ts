@@ -143,11 +143,15 @@ test('large import acceptance batches writes and deduplicates repeated URLs acro
     assert.ok(lease);
     const fileRows = await repository.files(account.id, manifest.id);
     const items: ParsedImportItem[] = Array.from({ length: 501 }, (_unused, index) => {
-      const sourceIndex = index === 500 ? 0 : index;
-      const url = `https://www.instagram.com/p/BATCH${sourceIndex}/`;
+      const platform: ParsedImportItem['platform'] = index < 300 ? 'instagram' : 'pinterest';
+      const sourceIndex = index === 500 ? 300 : index;
+      const url = platform === 'instagram'
+        ? `https://www.instagram.com/p/BATCH${sourceIndex}/`
+        : `https://www.pinterest.com/pin/${sourceIndex + 1}/`;
       return {
-        platform: 'instagram', url, sourceId: `BATCH${sourceIndex}`, title: `Saved post ${sourceIndex}`, description: '', collection: 'Saved posts',
+        platform, url, sourceId: `BATCH${sourceIndex}`, title: `Saved post ${sourceIndex}`, description: '', collection: 'Saved posts',
         metadata: { sourceFile: 'saved_posts.json', hashtags: [`tag${sourceIndex}`], collections: ['Saved posts'] },
+        ...(platform === 'instagram' ? { sourceOrder: index } : {}),
       };
     });
 
@@ -158,6 +162,53 @@ test('large import acceptance batches writes and deduplicates repeated URLs acro
     assert.equal(Number((await database.prepare(`SELECT count(*) AS count FROM import_entries WHERE import_id=? AND status='duplicate'`).get(manifest.id) as { count: number }).count), 1);
     assert.equal(Number((await database.prepare('SELECT count(*) AS count FROM item_tags WHERE owner_id=?').get(account.id) as { count: number }).count), 500);
     assert.equal(Number((await database.prepare('SELECT count(*) AS count FROM collection_items WHERE owner_id=?').get(account.id) as { count: number }).count), 500);
+  });
+});
+
+test('owner can stop import jobs and remove only import-created items while duplicate items remain', async () => {
+  await withApi(async (baseUrl, database) => {
+    const ownerCookie = await register(baseUrl, 'import-cleanup@example.test', 'import_cleanup');
+    const otherCookie = await register(baseUrl, 'import-cleanup-other@example.test', 'import_cleanup_other');
+    const account = await database.prepare('SELECT id FROM users WHERE email=?').get('import-cleanup@example.test') as { id: string };
+    const now = new Date().toISOString();
+    const duplicateId = 'existing-instagram-item';
+    await database.prepare(`INSERT INTO saved_items (id,owner_id,original_url,canonical_url,title,description,status,created_at,updated_at,source_platform,source_id,source_metadata_json)
+      VALUES (?,?,?,?,?,?,'ready',?,?, 'instagram','EXISTING','{}')`)
+      .run(duplicateId, account.id, 'https://www.instagram.com/p/EXISTING/', 'https://www.instagram.com/p/EXISTING/', 'Existing item', '', now, now);
+    const repository = createImportRepository(database);
+    const manifest = await repository.create(account.id, 'cleanup-request', 'cleanup-import-key-001', [{ name: 'saved_posts.json', mime: 'application/json', size: 1, chunks: 1 }]);
+    await database.prepare(`UPDATE imports SET status='parsing',lease_token='cleanup-lease',request_id='cleanup-request' WHERE owner_id=? AND id=?`).run(account.id, manifest.id);
+    const files = await repository.files(account.id, manifest.id);
+    const parsed = (url: string, sourceId: string, sourceOrder: number): ParsedImportItem => ({
+      platform: 'instagram', url, sourceId, title: sourceId, description: '', collection: null,
+      metadata: { sourceFile: 'saved_posts.json' }, sourceOrder,
+    });
+    await repository.accept(account.id, manifest.id, 'cleanup-lease', files.map((file) => ({ id: String(file.id), key: String(file.storage_key), name: String(file.original_name) })), [
+      parsed('https://www.instagram.com/p/EXISTING/', 'EXISTING', 0),
+      parsed('https://www.instagram.com/reel/NEWITEM/', 'NEWITEM', 1),
+      parsed('https://www.instagram.com/reel/ACTIVE/', 'ACTIVE', 2),
+    ]);
+    await database.prepare(`UPDATE processing_jobs SET status='processing',lease_token='leased-for-cancel-test',lease_expires_at=?
+      WHERE import_id=? AND item_id IN (SELECT id FROM saved_items WHERE original_url LIKE '%/ACTIVE/')`)
+      .run(new Date(Date.now() + 60_000).toISOString(), manifest.id);
+    const wrongOwner = await fetch(`${baseUrl}/api/imports/${manifest.id}/jobs/cancel`, { method: 'POST', headers: { Cookie: otherCookie } });
+    assert.equal(wrongOwner.status, 404);
+    const canceled = await fetch(`${baseUrl}/api/imports/${manifest.id}/jobs/cancel`, { method: 'POST', headers: { Cookie: ownerCookie } });
+    assert.equal(canceled.status, 200);
+    assert.deepEqual(await canceled.json(), { importId: manifest.id, cancelled: 1, active: 1 });
+    const prematureDiscard = await fetch(`${baseUrl}/api/imports/${manifest.id}/discard-created-items`, { method: 'POST', headers: { Cookie: ownerCookie } });
+    assert.equal(prematureDiscard.status, 409);
+    await database.prepare(`UPDATE processing_jobs SET status='cancelled',error_code='cancelled',lease_token=NULL,lease_expires_at=NULL
+      WHERE import_id=? AND status='cancel_requested'`).run(manifest.id);
+    await database.prepare(`UPDATE imports SET status='partial' WHERE owner_id=? AND id=?`).run(account.id, manifest.id);
+    const discarded = await fetch(`${baseUrl}/api/imports/${manifest.id}/discard-created-items`, { method: 'POST', headers: { Cookie: ownerCookie } });
+    assert.equal(discarded.status, 200);
+    assert.deepEqual(await discarded.json(), { importId: manifest.id, deleted: 2, duplicatesPreserved: true });
+    assert.equal(Number((await database.prepare('SELECT count(*) AS count FROM saved_items WHERE owner_id=? AND id=?').get(account.id, duplicateId) as { count: number }).count), 1);
+    assert.equal(Number((await database.prepare('SELECT count(*) AS count FROM saved_items WHERE owner_id=? AND original_url=?').get(account.id, 'https://www.instagram.com/reel/NEWITEM/') as { count: number }).count), 0);
+    assert.equal(Number((await database.prepare('SELECT count(*) AS count FROM saved_items WHERE owner_id=? AND original_url=?').get(account.id, 'https://www.instagram.com/reel/ACTIVE/') as { count: number }).count), 0);
+    const hostileDiscard = await fetch(`${baseUrl}/api/imports/${manifest.id}/discard-created-items`, { method: 'POST', headers: { Cookie: otherCookie } });
+    assert.equal(hostileDiscard.status, 404);
   });
 });
 
@@ -333,6 +384,22 @@ test('worker stores supported audio and video media privately and serves the dec
       assert.equal(response.status, 200);
       assert.equal(response.headers.get('content-type'), asset.mime);
     }
+  });
+});
+
+test('Instagram media is not copied into persistent Rembr media storage during normal page processing', async () => {
+  await withApi(async (baseUrl, database, _importPath, mediaPath) => {
+    const owner = await register(baseUrl, 'instagram-temp-media@example.test', 'igtempmedia');
+    const capture = await fetch(`${baseUrl}/api/items`, { method: 'POST', headers: { Cookie: owner, 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'https://www.instagram.com/p/public-post/' }) });
+    const item = (await capture.json() as { item: { id: string } }).item;
+    await database.prepare("UPDATE saved_items SET source_platform='instagram' WHERE id=?").run(item.id);
+    let mediaFetches = 0;
+    assert.ok(await processNextJob(database, async () => ({ finalUrl: 'https://www.instagram.com/p/public-post/', contentType: 'text/html', html: '<main>Public post</main><img src="https://cdn.example/image.jpg">' }), {
+      storage: new LocalMediaStorage(mediaPath),
+      fetchMedia: async () => { mediaFetches += 1; return { finalUrl: 'https://cdn.example/image.jpg', mime: 'image/jpeg', bytes: Buffer.from([0xff, 0xd8, 0xff]) }; },
+    }));
+    assert.equal(mediaFetches, 0);
+    assert.equal((await database.prepare('SELECT count(*) AS count FROM media_artifacts WHERE item_id=?').get(item.id) as { count: number }).count, 0);
   });
 });
 

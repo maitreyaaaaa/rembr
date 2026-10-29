@@ -215,10 +215,13 @@ test('Postgres schema starts with the complete empty Rembr model', async () => {
   try {
     const result = await database.prepare(`SELECT count(*) AS count FROM information_schema.tables
       WHERE table_schema='public' AND table_type='BASE TABLE'`).get() as { count: string };
-    assert.equal(Number(result.count), 24);
+    assert.equal(Number(result.count), 31);
     const rls = await database.prepare(`SELECT count(*) AS count FROM pg_class c
       JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='r' AND c.relrowsecurity`).get() as { count: string };
-    assert.equal(Number(rls.count), 24);
+    assert.equal(Number(rls.count), 31);
+    const mediaAnalysisTables = await database.prepare(`SELECT count(*) AS count FROM information_schema.tables
+      WHERE table_schema='public' AND table_name IN ('ai_analysis_preferences','ai_worker_status','ai_analysis_jobs','ai_analysis_results','ai_import_usage','ai_monthly_usage','ai_usage_reservations')`).get() as { count: string };
+    assert.equal(Number(mediaAnalysisTables.count), 7);
   } finally { await database.close(); }
 });
 

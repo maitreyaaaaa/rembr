@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { deflateRawSync } from 'node:zlib';
 import { test } from 'node:test';
-import { parsePlatformExports } from '../src/imports/parser.js';
+import { parsePlatformExports, parsePlatformExportsDetailed } from '../src/imports/parser.js';
 
 function crc32(buffer: Buffer): number {
   let value = 0xffffffff;
@@ -67,6 +67,65 @@ test('Instagram JSON maps the current label_values export shape and record times
   assert.equal(item?.description, 'A saved caption #reading');
   assert.deepEqual(item?.metadata.hashtags, ['reading']);
   assert.equal(item?.metadata.savedAt, new Date(1_700_000_001_000).toISOString());
+});
+
+test('Instagram import orders deduplicated posts by saved date, keeps unknown dates stable, and reports the cap', () => {
+  const savedPost = (id: string, savedAt?: number, url = `https://www.instagram.com/p/${id}/`) => ({
+    string_map_data: {
+      URL: { href: url },
+      Caption: { value: `Caption ${id} #original` },
+      ...(savedAt === undefined ? {} : { 'Saved on': { timestamp: savedAt } }),
+    },
+  });
+  const oldest = savedPost('OLDER001', 1_700_000_000);
+  const duplicateNewer = savedPost('OLDER001', 1_700_000_300, 'https://www.instagram.com/p/OLDER001/?igsh=duplicate');
+  const equalA = savedPost('EQUAL001', 1_700_000_200);
+  const equalB = savedPost('EQUAL002', 1_700_000_200);
+  const undatedA = savedPost('UNDATED1');
+  const undatedB = savedPost('UNDATED2');
+  const bytes = Buffer.from(JSON.stringify([oldest, equalA, undatedA, duplicateNewer, equalB, undatedB]));
+
+  const result = parsePlatformExportsDetailed([{ name: 'saved_posts.json', bytes }]);
+
+  assert.equal(result.instagramSkippedCount, 0);
+  assert.deepEqual(result.items.map((item) => item.sourceId), ['OLDER001', 'EQUAL001', 'EQUAL002', 'UNDATED1', 'UNDATED2']);
+  assert.deepEqual(result.items.map((item) => item.sourceOrder), [0, 1, 2, 3, 4]);
+  assert.equal(result.items[0]?.metadata.savedAt, new Date(1_700_000_300_000).toISOString());
+  assert.deepEqual(result.items[0]?.metadata.hashtags, ['original']);
+});
+
+test('Instagram parser returns only the 300 newest distinct saved posts and leaves invalid or missing dates after dated posts', () => {
+  const savedPosts = Array.from({ length: 302 }, (_, index) => ({
+    string_map_data: {
+      URL: { href: `https://www.instagram.com/p/CAP${String(index).padStart(4, '0')}/` },
+      Caption: { value: `Post ${index}` },
+      'Saved on': { timestamp: 1_700_000_000 + index },
+    },
+  }));
+  (savedPosts[300]!.string_map_data as Record<string, { timestamp?: unknown }>)['Saved on'] = { timestamp: 'not a date' };
+  delete (savedPosts[301]!.string_map_data as Record<string, unknown>)['Saved on'];
+  const bytes = Buffer.from(JSON.stringify(savedPosts));
+
+  const result = parsePlatformExportsDetailed([{ name: 'saved_posts.json', bytes }]);
+
+  assert.equal(result.items.length, 300);
+  assert.equal(result.instagramSkippedCount, 2);
+  assert.equal(result.items[0]?.sourceId, 'CAP0299');
+  assert.equal(result.items[299]?.sourceId, 'CAP0000');
+  assert.deepEqual(result.items.map((item) => item.sourceOrder), Array.from({ length: 300 }, (_, index) => index));
+  assert.ok(result.items.every((item) => item.sourceId !== 'CAP0300' && item.sourceId !== 'CAP0301'));
+});
+
+test('the Instagram cap does not change Pinterest or X ordering and limits', () => {
+  const rows = Array.from({ length: 305 }, (_, index) => `https://www.pinterest.com/pin/${index + 1}/,Pin ${index + 1}`);
+  const result = parsePlatformExportsDetailed([
+    { name: 'pins.csv', bytes: Buffer.from(`url,title\n${rows.join('\n')}\n`) },
+    { name: 'bookmarks.csv', bytes: Buffer.from('tweet_url,text\nhttps://x.com/mira/status/900001,first\nhttps://x.com/mira/status/900002,second\n') },
+  ]);
+  assert.equal(result.instagramSkippedCount, 0);
+  assert.equal(result.items.length, 307);
+  assert.deepEqual(result.items.slice(0, 2).map((item) => item.sourceId), ['1', '2']);
+  assert.deepEqual(result.items.slice(-2).map((item) => item.sourceId), ['900001', '900002']);
 });
 
 test('Pinterest canonicalization rejects lookalike hosts and direct TXT files', () => {

@@ -7,7 +7,7 @@ import { extractPage } from '../items/extract.js';
 
 interface ClaimedJob {
   id: string; item_id: string; owner_id: string; import_id: string | null; correlation_id: string;
-  original_url: string; lease_token: string; attempts: number; max_attempts: number; generation: number;
+  original_url: string; source_platform: string | null; lease_token: string; attempts: number; max_attempts: number; generation: number; source_order: number | null;
 }
 
 export interface FetchResult { finalUrl: string; contentType: string; html: string }
@@ -68,13 +68,13 @@ export async function claimNextJob(database: DatabaseHandle, now = new Date()): 
     }
 
     const job = await database.prepare(`SELECT processing_jobs.id,processing_jobs.item_id,processing_jobs.owner_id,processing_jobs.import_id,
-        processing_jobs.correlation_id,processing_jobs.generation,saved_items.original_url,processing_jobs.attempts,processing_jobs.max_attempts
+        processing_jobs.correlation_id,processing_jobs.generation,processing_jobs.source_order,saved_items.original_url,saved_items.source_platform,processing_jobs.attempts,processing_jobs.max_attempts
       FROM processing_jobs JOIN saved_items ON saved_items.id=processing_jobs.item_id AND saved_items.owner_id=processing_jobs.owner_id
       WHERE processing_jobs.attempts<processing_jobs.max_attempts AND NOT EXISTS (
         SELECT 1 FROM job_pause_states p WHERE p.owner_id=processing_jobs.owner_id AND p.job_id=processing_jobs.id
       ) AND ((processing_jobs.status IN ('queued','retry_wait') AND processing_jobs.available_at<=?)
         OR (processing_jobs.status='processing' AND processing_jobs.lease_expires_at<=?))
-      ORDER BY processing_jobs.created_at ASC LIMIT 1`).get(timestamp, timestamp) as Omit<ClaimedJob, 'lease_token'> | undefined;
+      ORDER BY processing_jobs.created_at ASC, processing_jobs.import_id ASC, processing_jobs.source_order ASC NULLS LAST, processing_jobs.id ASC LIMIT 1`).get(timestamp, timestamp) as Omit<ClaimedJob, 'lease_token'> | undefined;
     if (!job) return undefined;
     const leaseToken = randomUUID(); const attempts = job.attempts + 1;
     const changed = await database.prepare(`UPDATE processing_jobs SET status='processing',attempts=?,lease_token=?,lease_expires_at=?,heartbeat_at=?,updated_at=?
@@ -104,7 +104,7 @@ async function cancelOwnedAttempt(database: DatabaseHandle, job: ClaimedJob, now
   await database.prepare(`UPDATE job_attempts SET status='cancelled',error_code='cancelled',finished_at=?
     WHERE owner_id=? AND job_id=? AND generation=? AND attempt_number=? AND status='running'`)
     .run(now, job.owner_id, job.id, job.generation, job.attempts);
-  finishImportIfIdle(database, job.owner_id, job.import_id, now);
+  await finishImportIfIdle(database, job.owner_id, job.import_id, now);
   return true;
 }
 
@@ -141,7 +141,10 @@ export async function processNextJob(database: DatabaseHandle, fetchPage: PageFe
     const page = await fetchPage(job.original_url);
     const extracted = extractPage(page.html, page.finalUrl);
     const mediaResults: Array<{ sourceUrl: string; storageKey: string | null; mime: string | null; byteSize: number; sha256: string | null; status: 'ready' | 'failed'; errorCode: string | null }> = [];
-    for (const sourceUrl of extracted.mediaUrls.slice(0, 3)) {
+    // Instagram media used for AI analysis is fetched into a private temporary directory
+    // by the AI worker. Keep the established artifact-storage path for other platforms.
+    const persistedMediaUrls = job.source_platform === 'instagram' ? [] : extracted.mediaUrls.slice(0, 3);
+    for (const sourceUrl of persistedMediaUrls) {
       try {
         const downloaded = await mediaProcessor.fetchMedia(sourceUrl);
         const detectedMime = detectSupportedMediaMime(downloaded.bytes, downloaded.mime);

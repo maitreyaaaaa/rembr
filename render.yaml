@@ -27,13 +27,13 @@ services:
 
   - type: worker
     name: rembr-worker
-    runtime: node
+    runtime: docker
+    dockerfilePath: ./Dockerfile.worker
+    dockerContext: .
     region: singapore
     plan: 0.5c-512mb
     branch: master
     autoDeployTrigger: commit
-    buildCommand: npm ci && npm run build --workspace @rembr/api
-    startCommand: npm run start:worker --workspace @rembr/api
     maxShutdownDelaySeconds: 120
     envVars:
       - key: NODE_ENV
