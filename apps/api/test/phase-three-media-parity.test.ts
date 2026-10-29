@@ -17,6 +17,18 @@ test('page extraction collects explicit Open Graph and HTML audio/video sources'
   ]);
 });
 
+test('page extraction repairs misdecoded Instagram metadata and body text only for Instagram', () => {
+  const broken = 'A\u00e2\u0080\u0099s look \u00f0\u009f\u0098\u0080';
+  const instagram = extractPage('<meta property="og:title" content="' + broken + '">' +
+    '<meta name="description" content="' + broken + '"><main>' + broken + '</main>', 'https://www.instagram.com/p/example/');
+  const other = extractPage('<title>' + broken + '</title><main>' + broken + '</main>', 'https://example.com');
+  assert.equal(instagram.title, 'A’s look 😀');
+  assert.equal(instagram.description, 'A’s look 😀');
+  assert.equal(instagram.text, 'A’s look 😀');
+  assert.equal(other.title, broken);
+  assert.equal(other.text, broken);
+});
+
 test('media signature detection accepts supported audio/video and rejects mismatched bytes', () => {
   const mp4 = Buffer.alloc(12); mp4.write('ftyp', 4, 'ascii');
   const webm = Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x00]);

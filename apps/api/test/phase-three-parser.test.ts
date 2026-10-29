@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { deflateRawSync } from 'node:zlib';
 import { test } from 'node:test';
 import { parsePlatformExports, parsePlatformExportsDetailed } from '../src/imports/parser.js';
+import { repairMisdecodedUtf8 } from '../src/items/text-normalization.js';
 
 function crc32(buffer: Buffer): number {
   let value = 0xffffffff;
@@ -77,6 +78,7 @@ test('Instagram JSON repairs UTF-8 captions misdecoded as Latin-1 without changi
   const [item] = parsePlatformExports([{ name: 'saved_posts.json', bytes }]);
   assert.equal(item?.title, 'I’ll send you 😀 — Café 東京');
   assert.equal(item?.description, 'I’ll send you 😀 — Café 東京');
+  assert.equal(repairMisdecodedUtf8('Already correct: Café 東京'), 'Already correct: Café 東京');
 });
 
 test('Instagram import orders deduplicated posts by saved date, keeps unknown dates stable, and reports the cap', () => {

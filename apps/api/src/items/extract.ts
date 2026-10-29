@@ -1,4 +1,5 @@
 import { load } from 'cheerio';
+import { repairMisdecodedUtf8 } from './text-normalization.js';
 
 export interface ExtractedPage {
   title: string;
@@ -14,15 +15,17 @@ export interface ExtractedPage {
 export function extractPage(html: string, sourceUrl: string): ExtractedPage {
   const page = load(html, { xml: false });
   page('script,style,noscript,svg,iframe,object,embed,template').remove();
-  const title = (page('meta[property="og:title"]').attr('content')
+  const isInstagram = /(^|\.)instagram\.com$/i.test(new URL(sourceUrl).hostname);
+  const normalizeSourceText = (value: string) => isInstagram ? repairMisdecodedUtf8(value) : value;
+  const title = normalizeSourceText((page('meta[property="og:title"]').attr('content')
     || page('meta[name="twitter:title"]').attr('content')
     || page('title').first().text()
-    || new URL(sourceUrl).hostname).replace(/\s+/g, ' ').trim().slice(0, 240);
-  const description = (page('meta[name="description"]').attr('content')
+    || new URL(sourceUrl).hostname).replace(/\s+/g, ' ').trim().slice(0, 240));
+  const description = normalizeSourceText((page('meta[name="description"]').attr('content')
     || page('meta[property="og:description"]').attr('content')
-    || '').replace(/\s+/g, ' ').trim().slice(0, 1200);
-  const text = (page('main').text() || page('article').text() || page('body').text() || page.text())
-    .replace(/\s+/g, ' ').trim().slice(0, 200_000);
+    || '').replace(/\s+/g, ' ').trim().slice(0, 1200));
+  const text = normalizeSourceText((page('main').text() || page('article').text() || page('body').text() || page.text())
+    .replace(/\s+/g, ' ').trim().slice(0, 200_000));
   const mediaUrls: string[] = [];
   const imageUrls: string[] = [];
   const videoUrls: string[] = [];
