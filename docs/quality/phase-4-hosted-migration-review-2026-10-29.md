@@ -83,12 +83,17 @@ After both commands, verify the remote ledger with the connected Supabase migrat
 - The user ran the two history-only repair commands above in the Rembr Render Shell. A read-only Supabase listing confirmed all 11 existing migration entries now use the local filename versions.
 - The user had authorized the three pending schema migrations through the Supabase plugin. They were applied in order. Read-only verification confirmed all four entity-label columns, the Smart Collections `entity` source constraint, and the new `ai_visual_search_preferences` table with RLS enabled.
 - Before application, aggregate checks found zero analysis jobs matching the cancellation rule, zero analysis preferences matching the disable rule, and zero grounded-search preferences matching the disable rule. Post-application checks remained zero.
-- The Supabase plugin recorded generated versions `20261029192854` (`rembr_analysis_entity_labels`), `20261029192907` (`rembr_grounded_search_entity_disclosure`), and `20261029192911` (`rembr_visual_search_consent`). SQL is applied, but local CLI history would still see the local migration versions as pending. Run the following **history-only** repair to align those records; do not rerun the SQL:
+- The Supabase plugin recorded generated versions `20261029192854` (`rembr_analysis_entity_labels`), `20261029192907` (`rembr_grounded_search_entity_disclosure`), and `20261029192911` (`rembr_visual_search_consent`). The user successfully marked those generated versions reverted. The next `--status applied` attempt failed because the Render Shell checkout is on `master` and lacks the Phase 4 migration files required by the CLI. The schema remains applied; only its migration-log entries need to be restored under the local versions. Do not rerun the SQL.
 
 ```bash
-npx --yes supabase@2.122.0 migration repair 20261029192854 20261029192907 20261029192911 --status reverted --db-url "$DATABASE_URL"
+mkdir -p /tmp/rembr-phase4-repair/supabase/migrations
+printf 'project_id = "rembr-phase4-repair"\n' > /tmp/rembr-phase4-repair/supabase/config.toml
 
-npx --yes supabase@2.122.0 migration repair 20261029210000 20261029220000 20261029230000 --status applied --db-url "$DATABASE_URL"
+curl -fsSL https://raw.githubusercontent.com/maitreyaaaaa/rembr/feat/phase-4-search-knowledge-ai/supabase/migrations/20261029210000_rembr_analysis_entity_labels.sql -o /tmp/rembr-phase4-repair/supabase/migrations/20261029210000_rembr_analysis_entity_labels.sql
+curl -fsSL https://raw.githubusercontent.com/maitreyaaaaa/rembr/feat/phase-4-search-knowledge-ai/supabase/migrations/20261029220000_rembr_grounded_search_entity_disclosure.sql -o /tmp/rembr-phase4-repair/supabase/migrations/20261029220000_rembr_grounded_search_entity_disclosure.sql
+curl -fsSL https://raw.githubusercontent.com/maitreyaaaaa/rembr/feat/phase-4-search-knowledge-ai/supabase/migrations/20261029230000_rembr_visual_search_consent.sql -o /tmp/rembr-phase4-repair/supabase/migrations/20261029230000_rembr_visual_search_consent.sql
+
+npx --yes supabase@2.122.0 --workdir /tmp/rembr-phase4-repair migration repair 20261029210000 20261029220000 20261029230000 --status applied --db-url "$DATABASE_URL"
 ```
 
-- Afterward, verify the Supabase migration listing shows the three local versions and the expected 14 total entries. No `db push` is needed.
+- These downloads create CLI input files in `/tmp`; they do not execute the SQL or alter the deployed app checkout. After the final command, verify the Supabase migration listing shows the three local versions and the expected 14 total entries. No `db push` is needed.
