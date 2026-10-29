@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { createHash } from 'node:crypto';
 import type { DatabaseHandle } from '../db/database.js';
 
@@ -6,6 +7,7 @@ const ITEM_SAMPLE_LIMIT = 200;
 const DISPLAY_LIMIT = 8;
 
 type CareItem = { id: string; title: string; status: string; created_at: string };
+type ReminderRow = { id: string; item_id: string; remind_at: string; reason: string; note: string; completed_at: string | null; created_at: string; updated_at: string; title: string; item_status: string; item_created_at: string };
 
 function stableRank(seed: string, id: string): string {
   return createHash('sha256').update(`${seed}:${id}`).digest('hex');
@@ -57,6 +59,21 @@ export function createLibraryCheckupRepository(database: DatabaseHandle) {
           WHERE owner_id=? ORDER BY created_at DESC, id DESC LIMIT ?`).all(ownerId, ITEM_SAMPLE_LIMIT) as Promise<CareItem[]>,
       ]);
 
+      const [dueReminderRows, upcomingReminderRows] = await Promise.all([
+        database.prepare(`SELECT reminders.id,reminders.item_id,reminders.remind_at,reminders.reason,reminders.note,reminders.completed_at,
+            reminders.created_at,reminders.updated_at,COALESCE(saved_items.title_override,saved_items.title) AS title,
+            saved_items.status AS item_status,saved_items.created_at AS item_created_at
+          FROM library_reminders reminders JOIN saved_items ON saved_items.owner_id=reminders.owner_id AND saved_items.id=reminders.item_id
+          WHERE reminders.owner_id=? AND reminders.status='pending' AND reminders.remind_at<=?
+          ORDER BY reminders.remind_at ASC,reminders.id ASC LIMIT ?`).all(ownerId, nowIso, DISPLAY_LIMIT) as Promise<ReminderRow[]>,
+        database.prepare(`SELECT reminders.id,reminders.item_id,reminders.remind_at,reminders.reason,reminders.note,reminders.completed_at,
+            reminders.created_at,reminders.updated_at,COALESCE(saved_items.title_override,saved_items.title) AS title,
+            saved_items.status AS item_status,saved_items.created_at AS item_created_at
+          FROM library_reminders reminders JOIN saved_items ON saved_items.owner_id=reminders.owner_id AND saved_items.id=reminders.item_id
+          WHERE reminders.owner_id=? AND reminders.status='pending' AND reminders.remind_at>?
+          ORDER BY reminders.remind_at ASC,reminders.id ASC LIMIT ?`).all(ownerId, nowIso, DISPLAY_LIMIT) as Promise<ReminderRow[]>,
+      ]);
+
       const daySeed = nowIso.slice(0, 10);
       const weekSeed = `${now.getUTCFullYear()}-w${Math.floor((now.getTime() - Date.UTC(now.getUTCFullYear(), 0, 1)) / (7 * 24 * 60 * 60 * 1000))}`;
       return {
@@ -69,10 +86,36 @@ export function createLibraryCheckupRepository(database: DatabaseHandle) {
         },
         needsAttention: attentionRow,
         olderSaves: oldRows,
+        dueReminders: dueReminderRows.map((row) => toReminder(row)),
+        upcomingReminders: upcomingReminderRows.map((row) => toReminder(row)),
         weeklyRediscovery: stableSample(recentRows, weekSeed, 6),
         dailyPick: stableSample(recentRows, daySeed, 1)[0] ?? null,
         readOnly: true,
       };
     },
+    async createReminder(ownerId: string, itemId: string, preset: 'tomorrow' | 'week' | 'month', note = '', now = new Date()) {
+      if (!await database.prepare('SELECT 1 FROM saved_items WHERE owner_id=? AND id=?').get(ownerId, itemId)) return null;
+      const days = preset === 'tomorrow' ? 1 : preset === 'month' ? 30 : 7;
+      const id = randomUUID();
+      const createdAt = now.toISOString();
+      const remindAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000).toISOString();
+      await database.prepare(`INSERT INTO library_reminders (id,owner_id,item_id,remind_at,status,reason,note,completed_at,created_at,updated_at)
+        VALUES (?,?,?,?,'pending',?,?,NULL,?,?)`).run(id, ownerId, itemId, remindAt, preset, note.trim().replace(/\s+/g, ' ').slice(0, 300), createdAt, createdAt);
+      return { id, itemId, remindAt, status: 'pending' as const, reason: preset, note: note.trim().replace(/\s+/g, ' ').slice(0, 300), completedAt: null, createdAt, updatedAt: createdAt };
+    },
+    async updateReminder(ownerId: string, reminderId: string, status: 'done' | 'dismissed', now = new Date()) {
+      const updatedAt = now.toISOString();
+      const result = await database.prepare(`UPDATE library_reminders SET status=?,completed_at=?,updated_at=?
+        WHERE owner_id=? AND id=? AND status='pending'`).run(status, status === 'done' ? updatedAt : null, updatedAt, ownerId, reminderId);
+      return result.changes === 1;
+    },
+  };
+}
+
+function toReminder(row: ReminderRow) {
+  return {
+    id: row.id, itemId: row.item_id, remindAt: row.remind_at, status: 'pending' as const,
+    reason: row.reason, note: row.note, completedAt: row.completed_at, createdAt: row.created_at, updatedAt: row.updated_at,
+    item: { id: row.item_id, title: row.title, status: row.item_status, created_at: row.item_created_at },
   };
 }

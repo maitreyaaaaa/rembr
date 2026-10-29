@@ -30,7 +30,8 @@ interface KnowledgeGraphItem { id: string; title: string; status: string; create
 interface KnowledgeGraphGroup { id: string; type: string; label: string; itemCount: number; items: KnowledgeGraphItem[] }
 interface KnowledgeGraph { groups: KnowledgeGraphGroup[]; stats: { indexedItems: number; conceptNodes: number; links: number }; truncated: boolean }
 interface CheckupItem { id: string; title: string; status: string; created_at: string }
-interface LibraryCheckup { generatedAt: string; summary: { savedItems: number; unorganizedItems: number; needsAttention: number; olderSaves: number }; needsAttention: CheckupItem[]; olderSaves: CheckupItem[]; weeklyRediscovery: CheckupItem[]; dailyPick: CheckupItem | null; readOnly: true }
+interface CheckupReminder { id: string; itemId: string; remindAt: string; status: 'pending'; reason: string; note: string; item: CheckupItem }
+interface LibraryCheckup { generatedAt: string; summary: { savedItems: number; unorganizedItems: number; needsAttention: number; olderSaves: number }; needsAttention: CheckupItem[]; olderSaves: CheckupItem[]; dueReminders: CheckupReminder[]; upcomingReminders: CheckupReminder[]; weeklyRediscovery: CheckupItem[]; dailyPick: CheckupItem | null; readOnly: true }
 interface LibraryAnswer { question: string; answer: string; citations: Array<{ id: string; title: string; snippet: string }>; resultIds: string[]; searchEventId: string | null; mode: 'lexical-excerpts' }
 const AI_DISCLOSURE_VERSION = '2026-10-29-v1';
 interface Session { user: User; profile: Profile | null; profileComplete: boolean; accountStatus: 'active' | 'disabled' }
@@ -360,6 +361,7 @@ function LibraryCheckupPage() {
   const [checkup, setCheckup] = useState<LibraryCheckup | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [reminderBusyId, setReminderBusyId] = useState('');
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try { setCheckup((await api<{ checkup: LibraryCheckup }>('/api/knowledge/checkup')).checkup); }
@@ -367,6 +369,18 @@ function LibraryCheckupPage() {
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
+  async function scheduleReminder(itemId: string, preset: 'tomorrow' | 'week' | 'month', note: string) {
+    setReminderBusyId(itemId); setError('');
+    try { await api('/api/knowledge/reminders', { method: 'POST', body: JSON.stringify({ itemId, preset, note }) }); await load(); }
+    catch (cause) { setError(messageOf(cause, 'Could not set this reminder.')); }
+    finally { setReminderBusyId(''); }
+  }
+  async function updateReminder(reminderId: string, status: 'done' | 'dismissed') {
+    setReminderBusyId(reminderId); setError('');
+    try { await api(`/api/knowledge/reminders/${encodeURIComponent(reminderId)}`, { method: 'PATCH', body: JSON.stringify({ status }) }); await load(); }
+    catch (cause) { setError(messageOf(cause, 'Could not update this reminder.')); }
+    finally { setReminderBusyId(''); }
+  }
   const sections: Array<{ title: string; description: string; items: CheckupItem[] }> = checkup ? [
     { title: 'Needs a look', description: 'Paused, failed, partial, or retrying saves.', items: checkup.needsAttention },
     { title: 'Saved 3+ months ago', description: 'Older items you may want to revisit.', items: checkup.olderSaves },
@@ -375,15 +389,20 @@ function LibraryCheckupPage() {
   return <><PageHeader eyebrow="Library care" title="A quick check-in." description="Find saves that may need attention and rediscover things you kept." actions={<button className="quiet-button" type="button" disabled={loading} onClick={() => void load()}>{loading ? 'Refreshing…' : 'Refresh checkup'}</button>} />
     {error && <div className="notice error phase2-retry-notice" role="alert"><span>{error}</span><button className="quiet-button" type="button" onClick={() => void load()}>Try again</button></div>}
     {loading && !checkup ? <div className="phase2-state" role="status">Reviewing your library…</div> : checkup && <>
-      <section className="phase2-panel" aria-label="Library checkup summary"><div className="phase2-filter-grid"><div><p className="eyebrow">Saved items</p><strong>{checkup.summary.savedItems}</strong></div><div><p className="eyebrow">Needs a look</p><strong>{checkup.summary.needsAttention}</strong></div><div><p className="eyebrow">Not organized</p><strong>{checkup.summary.unorganizedItems}</strong></div><div><p className="eyebrow">Older than 90 days</p><strong>{checkup.summary.olderSaves}</strong></div></div><p className="phase2-helper">This review is read-only. Rembr does not change or delete anything automatically, and these checks work with AI providers disabled.</p></section>
-      {checkup.dailyPick && <section className="phase2-panel"><h2>Picked for today</h2><p className="phase2-helper">A consistent daily pick from your recent library.</p><CheckupItems items={[checkup.dailyPick]} /></section>}
-      {sections.map((section) => <section className="phase2-panel" key={section.title}><h2>{section.title}</h2><p className="phase2-helper">{section.description}</p>{section.items.length ? <CheckupItems items={section.items} /> : <p className="phase2-state">Nothing to show here right now.</p>}</section>)}
+      <section className="phase2-panel" aria-label="Library checkup summary"><div className="phase2-filter-grid"><div><p className="eyebrow">Saved items</p><strong>{checkup.summary.savedItems}</strong></div><div><p className="eyebrow">Needs a look</p><strong>{checkup.summary.needsAttention}</strong></div><div><p className="eyebrow">Not organized</p><strong>{checkup.summary.unorganizedItems}</strong></div><div><p className="eyebrow">Older than 90 days</p><strong>{checkup.summary.olderSaves}</strong></div></div><p className="phase2-helper">Checks are read-only. Rembr never changes or deletes items automatically. You can choose to set reminders; these checks work with AI providers disabled.</p></section>
+      {(checkup.dueReminders.length > 0 || checkup.upcomingReminders.length > 0) && <section className="phase2-panel"><h2>Reminders</h2>{checkup.dueReminders.length > 0 && <><h3>Due now</h3><ReminderItems items={checkup.dueReminders} busyId={reminderBusyId} onUpdate={updateReminder} /></>}{checkup.upcomingReminders.length > 0 && <><h3>Coming up</h3><ReminderItems items={checkup.upcomingReminders} busyId={reminderBusyId} onUpdate={updateReminder} /></>}</section>}
+      {checkup.dailyPick && <section className="phase2-panel"><h2>Picked for today</h2><p className="phase2-helper">A consistent daily pick from your recent library.</p><CheckupItems items={[checkup.dailyPick]} busyId={reminderBusyId} onRemind={scheduleReminder} /></section>}
+      {sections.map((section) => <section className="phase2-panel" key={section.title}><h2>{section.title}</h2><p className="phase2-helper">{section.description}</p>{section.items.length ? <CheckupItems items={section.items} busyId={reminderBusyId} onRemind={scheduleReminder} /> : <p className="phase2-state">Nothing to show here right now.</p>}</section>)}
     </>}
   </>;
 }
 
-function CheckupItems({ items }: { items: CheckupItem[] }) {
-  return <ul className="phase2-manage-list">{items.map((item) => <li key={item.id}><Link to={`/app/items/${encodeURIComponent(item.id)}`}>{item.title}</Link><span className={`status status-${item.status}`}>{readableStatus(item.status as Status)}</span><time dateTime={item.created_at}>{date(item.created_at)}</time></li>)}</ul>;
+function CheckupItems({ items, busyId, onRemind }: { items: CheckupItem[]; busyId: string; onRemind: (itemId: string, preset: 'tomorrow' | 'week' | 'month', note: string) => void }) {
+  return <ul className="phase2-manage-list">{items.map((item) => <li key={item.id}><div className="checkup-item-main"><Link to={`/app/items/${encodeURIComponent(item.id)}`}>{item.title}</Link><span className={`status status-${item.status}`}>{readableStatus(item.status as Status)}</span><time dateTime={item.created_at}>{date(item.created_at)}</time></div><form className="checkup-reminder-form" onSubmit={(event) => { event.preventDefault(); const data = new FormData(event.currentTarget); const value = data.get('preset'); const note = data.get('note'); if ((value === 'tomorrow' || value === 'week' || value === 'month') && typeof note === 'string') onRemind(item.id, value, note); }}><label className="sr-only" htmlFor={`reminder-preset-${item.id}`}>Reminder time for {item.title}</label><select id={`reminder-preset-${item.id}`} name="preset" defaultValue="week"><option value="tomorrow">Tomorrow</option><option value="week">In a week</option><option value="month">In a month</option></select><label className="sr-only" htmlFor={`reminder-note-${item.id}`}>Optional reminder note for {item.title}</label><input id={`reminder-note-${item.id}`} name="note" type="text" maxLength={300} placeholder="Optional note" /><button className="quiet-button" type="submit" disabled={busyId === item.id}>{busyId === item.id ? 'Setting…' : 'Set reminder'}</button></form></li>)}</ul>;
+}
+
+function ReminderItems({ items, busyId, onUpdate }: { items: CheckupReminder[]; busyId: string; onUpdate: (reminderId: string, status: 'done' | 'dismissed') => void }) {
+  return <ul className="phase2-manage-list">{items.map((reminder) => <li key={reminder.id}><div className="checkup-item-main"><Link to={`/app/items/${encodeURIComponent(reminder.item.id)}`}>{reminder.item.title}</Link><time dateTime={reminder.remindAt}>{date(reminder.remindAt)}</time>{reminder.note && <span>{reminder.note}</span>}</div><div className="phase2-card-actions"><button className="quiet-button" type="button" disabled={busyId === reminder.id} onClick={() => onUpdate(reminder.id, 'done')}>Done</button><button className="quiet-button" type="button" disabled={busyId === reminder.id} onClick={() => onUpdate(reminder.id, 'dismissed')}>Dismiss</button></div></li>)}</ul>;
 }
 
 function AddPage() {

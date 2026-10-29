@@ -467,6 +467,11 @@ h1, h2, h3, p { margin-top: 0; }
 .phase2-manage-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 0; border-top: 1px solid var(--line); color: var(--text); font-size: 12px; }
 .phase2-manage-list li > a { overflow: hidden; color: var(--text); font-weight: 700; text-decoration: none; text-overflow: ellipsis; }
 .phase2-manage-list li > a:hover { color: var(--primary); }
+.checkup-item-main { display: flex; min-width: 0; flex: 1 1 280px; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.checkup-item-main > a { flex: 1 1 180px; }
+.checkup-reminder-form { display: flex; flex: 0 1 auto; flex-wrap: wrap; align-items: center; gap: 8px; }
+.checkup-reminder-form select, .checkup-reminder-form input { min-height: 40px; max-width: 220px; border: 1px solid #dfe1e6; border-radius: 10px; padding: 8px 10px; background: #fff; color: var(--text); font: inherit; font-size: 12px; }
+.checkup-reminder-form select:focus-visible, .checkup-reminder-form input:focus-visible { outline: 0; border-color: var(--primary); box-shadow: 0 0 0 4px rgb(49 92 255 / 13%); }
 .phase2-inline-edit { display: flex; min-width: 0; flex: 1; align-items: center; gap: 7px; }
 .phase2-inline-edit input { min-width: 0; min-height: 38px; flex: 1; border: 1px solid var(--line); border-radius: 8px; padding: 0 9px; font: inherit; font-size: 12px; }
 .phase2-inline-edit .phase2-text-button { white-space: nowrap; }
@@ -540,6 +545,7 @@ h1, h2, h3, p { margin-top: 0; }
   .phase2-pagination > span { width: 100%; }
   .phase2-filter-summary, .phase2-retry-notice { align-items: flex-start; flex-direction: column; }
   .phase2-filter-summary .phase2-text-button { align-self: flex-start; }
+  .checkup-reminder-form { width: 100%; }
   .phase2-option-grid, .phase2-collection-grid { grid-template-columns: 1fr; }
   .phase2-inline-form { grid-template-columns: 1fr; }
   .phase2-inline-form .primary-button { width: 100%; }

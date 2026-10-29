@@ -24,6 +24,23 @@ export function createKnowledgeRouter(database: DatabaseHandle, storage: AssetSt
     return res.json({ checkup: await checkup.get(req.user!.id) });
   });
 
+  router.post('/knowledge/reminders', signedIn, profile, async (req, res) => {
+    const parsed = z.object({ itemId: z.string().uuid(), preset: z.enum(['tomorrow','week','month']).default('week'), note: z.string().trim().max(300).default('') }).strict().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: { code: 'invalid_reminder', message: 'Choose a valid item and reminder time.', requestId: req.requestId } });
+    const reminder = await checkup.createReminder(req.user!.id, parsed.data.itemId, parsed.data.preset, parsed.data.note);
+    if (!reminder) return res.status(404).json({ error: { code: 'not_found', message: 'Saved item not found.', requestId: req.requestId } });
+    return res.status(201).json({ reminder });
+  });
+
+  router.patch('/knowledge/reminders/:id', signedIn, profile, async (req, res) => {
+    const parsed = z.object({ status: z.enum(['done','dismissed']) }).strict().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: { code: 'invalid_reminder', message: 'Choose done or dismissed.', requestId: req.requestId } });
+    const value = req.params.id;
+    const reminderId = Array.isArray(value) ? value[0] ?? '' : value ?? '';
+    if (!await checkup.updateReminder(req.user!.id, reminderId, parsed.data.status)) return res.status(404).json({ error: { code: 'not_found', message: 'Pending reminder not found.', requestId: req.requestId } });
+    return res.json({ id: reminderId, status: parsed.data.status });
+  });
+
   router.post('/knowledge/answer', signedIn, profile, async (req, res) => {
     const parsed = z.object({ question: z.string().trim().min(1).max(120) }).strict().safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: { code: 'invalid_question', message: 'Enter a question up to 120 characters.', requestId: req.requestId } });
