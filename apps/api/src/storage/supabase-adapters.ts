@@ -5,6 +5,7 @@ import type { ImportStorage } from '../imports/storage.js';
 import type { MediaStorage, SupportedMediaMime } from '../media/storage.js';
 import { detectSupportedMediaMime } from '../media/storage.js';
 import { SupabaseObjectStore } from './supabase-object-store.js';
+import { SupabasePrivateExportArtifactStorage } from './account-export-storage.js';
 
 const IMPORT_KEY = /^[0-9a-f-]{36}$/i;
 const IMPORT_CHUNK = /^[0-9a-f-]{36}\.([0-9]{1,3})\.part$/i;
@@ -135,11 +136,13 @@ export function createSupabaseStorage(config: {
   assetBucket: string;
   importBucket: string;
   mediaBucket: string;
-}): { assets: AssetStorage; imports: ImportStorage; media: MediaStorage } {
+  exportBucket: string;
+}): { assets: AssetStorage; imports: ImportStorage; media: MediaStorage; exports: SupabasePrivateExportArtifactStorage } {
   return {
     assets: new SupabaseAssetStorage(new SupabaseObjectStore(config.supabaseUrl, config.serviceRoleKey, config.assetBucket)),
     imports: new SupabaseImportStorage(new SupabaseObjectStore(config.supabaseUrl, config.serviceRoleKey, config.importBucket)),
     media: new SupabaseMediaStorage(new SupabaseObjectStore(config.supabaseUrl, config.serviceRoleKey, config.mediaBucket)),
+    exports: new SupabasePrivateExportArtifactStorage(new SupabaseObjectStore(config.supabaseUrl, config.serviceRoleKey, config.exportBucket)),
   };
 }
 

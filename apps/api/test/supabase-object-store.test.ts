@@ -49,3 +49,23 @@ test('Supabase storage does not create a bucket for unrelated HTTP 400 errors', 
     globalThis.fetch = originalFetch;
   }
 });
+
+test('Supabase object storage preserves safe slash-separated key segments', async () => {
+  const originalFetch = globalThis.fetch;
+  const urls: string[] = [];
+  globalThis.fetch = async (input) => {
+    urls.push(String(input));
+    return new Response('ok', { status: 200 });
+  };
+  try {
+    const store = new SupabaseObjectStore('https://example.supabase.co', 'server-key', 'rembr-exports');
+    const key = `account-exports/${'a'.repeat(64)}/70e1ef2b-7a21-4c39-90e9-409a2d4801a2/80e1ef2b-7a21-4c39-90e9-409a2d4801a2.zip`;
+    await store.write(key, Buffer.from('zip'), 'application/zip');
+    await store.read(key);
+    assert.equal(urls.length, 2);
+    assert.ok(urls.every((url) => url.includes('/object/rembr-exports/account-exports/')));
+    assert.ok(urls.every((url) => !url.includes('%2F')));
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

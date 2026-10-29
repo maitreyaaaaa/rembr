@@ -21,6 +21,14 @@ export class SupabaseObjectStore {
     return `${this.baseUrl}/storage/v1/${path}`;
   }
 
+  private objectPath(key: string): string {
+    const segments = key.split('/');
+    if (segments.length === 0 || segments.some((segment) => !segment || segment === '.' || segment === '..')) {
+      throw new Error('invalid_storage_object_key');
+    }
+    return segments.map((segment) => encodeURIComponent(segment)).join('/');
+  }
+
   private async expectOk(response: Response, operation: string): Promise<void> {
     if (!response.ok) throw new Error(`supabase_storage_${operation}_${response.status}`);
   }
@@ -48,7 +56,7 @@ export class SupabaseObjectStore {
   }
 
   async write(key: string, bytes: Buffer, contentType: string): Promise<void> {
-    const response = await fetch(this.endpoint(`object/${encodeURIComponent(this.bucket)}/${encodeURIComponent(key)}`), {
+    const response = await fetch(this.endpoint(`object/${encodeURIComponent(this.bucket)}/${this.objectPath(key)}`), {
       method: 'POST',
       headers: this.headers({ 'content-type': contentType, 'x-upsert': 'false' }),
       body: new Uint8Array(bytes),
@@ -63,7 +71,7 @@ export class SupabaseObjectStore {
   }
 
   async read(key: string): Promise<Buffer> {
-    const response = await fetch(this.endpoint(`object/${encodeURIComponent(this.bucket)}/${encodeURIComponent(key)}`), {
+    const response = await fetch(this.endpoint(`object/${encodeURIComponent(this.bucket)}/${this.objectPath(key)}`), {
       headers: this.headers(),
     });
     await this.expectOk(response, 'read');

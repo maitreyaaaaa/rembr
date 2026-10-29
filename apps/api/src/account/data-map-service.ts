@@ -89,6 +89,12 @@ const categories: readonly DataMapCategoryDefinition[] = [
     ],
   },
   {
+    id: 'privacy_requests',
+    label: 'Privacy and data export activity',
+    description: 'Personal data export request status and timestamps. Download artifacts and worker lease details are excluded.',
+    records: [{ table: 'account_data_exports', ownerColumn: 'owner_id' }],
+  },
+  {
     id: 'private_file_references',
     label: 'Private file references and upload metadata',
     description: 'Database records that reference private assets or staged upload bytes.',

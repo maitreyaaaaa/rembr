@@ -26,7 +26,7 @@ Phase 6 implementation is in progress on `feat/phase-6-account-privacy-admin-bil
 
 ## Source references and adaptations
 
-Use IScraper's account/export/deletion/admin/credit flows to recover supported behavior from `apps/orchestration/src/routes/accountRoutes.js`, `routes/dataExportRoutes.js`, `services/dataExportPipeline.js`, `services/accountDeletion.js`, `routes/adminRoutes.js`, `services/credits.js`, and `application/billingWorkflow.js`. Preserve the reliability constraints in source ADR-001, worker-boundary constraints in ADR-002, and deterministic provider-off behavior in ADR-010.
+Use IScraper's account/export/deletion/admin/credit flows to recover supported behavior from `apps/orchestration/src/routes/accountRoutes.js`, `routes/dataExportRoutes.js`, `services/dataExportPipeline.js`, `services/accountDeletion.js`, `routes/adminRoutes.js`, `services/credits.js`, and `application/billingWorkflow.js`. The complete source ADR porting review is recorded in [`source-adr-porting-review.md`](source-adr-porting-review.md). Preserve the reliability constraints in source ADR-001, worker-boundary constraints in ADR-002, Supabase evidence practices in ADR-009, and deterministic provider-off behavior in ADR-010. Do not import source's Vercel-specific runtime decisions into Rembr's Render deployment.
 
 Do not carry forward source deletion behavior without the improvements recorded in `docs/backend/deletion-billing-exports.md`: it has no distributed processing claim, multi-step freeze can partially commit, and detached-owner steps can be recorded as completed without proving deletion. Source billing tests also do not prove invalid-signature rejection, replay handling, or ledger idempotency. Rembr must add those guarantees before enabling billing.
 

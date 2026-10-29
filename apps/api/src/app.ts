@@ -8,6 +8,10 @@ import { z } from 'zod';
 import { config } from './config.js';
 import { createSession, destroySession, requireUser } from './auth/sessions.js';
 import { createAccountRouter, createProfileGate } from './account/routes.js';
+import { createAccountDataExportService } from './account/data-export-service.js';
+import { createDataExportRouter } from './account/data-export-routes.js';
+import { createOwnerScopedPrivateFileSource } from './account/private-file-source.js';
+import { LocalPrivateExportArtifactStorage } from './storage/account-export-storage.js';
 import { createLibraryRouter } from './library/routes.js';
 import { createOrganizationRouter } from './organization/routes.js';
 import { createImportRouter } from './imports/routes.js';
@@ -38,11 +42,13 @@ function errorResponse(code: string, message: string, requestId?: string) {
   return { error: { code, message, ...(requestId ? { requestId } : {}) } };
 }
 
-export function createApp(database: DatabaseHandle, options: { validateUrl?: typeof validatePublicUrl; checkLink?: typeof checkPublicPage; assetDirectory?: string; assetStorage?: AssetStorage; importDirectory?: string; importStorage?: ImportStorage; mediaDirectory?: string; mediaStorage?: MediaStorage; answerModel?: { countTextInputTokens(prompt: string): Promise<number>; analyzeText(prompt: string): Promise<{ text: string; inputTokens: number; outputTokens: number }> }; imageSearchModel?: VisualSearchModel; providerAvailable?: () => Promise<boolean>; semanticEmbeddingProvider?: EmbeddingProvider } = {}) {
+export function createApp(database: DatabaseHandle, options: { validateUrl?: typeof validatePublicUrl; checkLink?: typeof checkPublicPage; assetDirectory?: string; assetStorage?: AssetStorage; importDirectory?: string; importStorage?: ImportStorage; mediaDirectory?: string; mediaStorage?: MediaStorage; exportStorage?: import('./account/data-export-service.js').PrivateExportArtifactStorage; answerModel?: { countTextInputTokens(prompt: string): Promise<number>; analyzeText(prompt: string): Promise<{ text: string; inputTokens: number; outputTokens: number }> }; imageSearchModel?: VisualSearchModel; providerAvailable?: () => Promise<boolean>; semanticEmbeddingProvider?: EmbeddingProvider } = {}) {
   const app = express();
   const assetStorage = options.assetStorage ?? new LocalAssetStorage(options.assetDirectory ?? config.assetDirectory);
   const importStorage = options.importStorage ?? new LocalImportStorage(options.importDirectory ?? config.importDirectory);
   const mediaStorage = options.mediaStorage ?? new LocalMediaStorage(options.mediaDirectory ?? config.mediaDirectory);
+  const exportStorage = options.exportStorage ?? new LocalPrivateExportArtifactStorage(config.dataExportDirectory);
+  const dataExportService = createAccountDataExportService(database, exportStorage, createOwnerScopedPrivateFileSource(database, { assets: assetStorage, imports: importStorage, media: mediaStorage }));
   const library = createLibraryService(database, assetStorage, mediaStorage);
   const semanticEmbeddingProvider = options.semanticEmbeddingProvider
     ?? (config.openRouterApiKey ? createOpenRouterEmbeddingProvider(config.openRouterApiKey) : undefined);
@@ -137,6 +143,7 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
   });
 
   app.use('/api', createAccountRouter(database, assetStorage));
+  app.use('/api', createDataExportRouter(database, dataExportService));
   app.use('/api', createAiRouter(database));
   app.use('/api', createSemanticSearchRouter({ database, assetStorage, library, provider: semanticEmbeddingProvider }));
   const answerClient = config.META_API_KEY ? createMetaModelClient({ apiKey: config.META_API_KEY }) : undefined;

@@ -884,7 +884,7 @@ function AccountDataMapPanel() {
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, []);
-  return <section className="phase2-panel phase2-narrow" aria-labelledby="account-data-map-title">
+  return <><section className="phase2-panel phase2-narrow" aria-labelledby="account-data-map-title">
     <h2 id="account-data-map-title">Your data in Rembr</h2>
     <p className="phase2-helper">This overview counts records stored in your Rembr account. It does not expose the records themselves.</p>
     {loading && <p className="phase2-state" role="status">Loading your data overview…</p>}
@@ -892,9 +892,49 @@ function AccountDataMapPanel() {
     {dataMap && <>
       <dl className="phase2-definition-list">{dataMap.categories.map((category) => <div key={category.id}><dt>{category.label}</dt><dd>{category.rowCount.toLocaleString()}</dd><dd className="phase2-helper">{category.description}</dd></div>)}</dl>
       <p className="field-note">Private files: {dataMap.privateFileBytes.note}</p>
-      <p className="field-note">Connected AI providers: {dataMap.externalProviderCopies.providers.join(', ')}. {dataMap.externalProviderCopies.note}</p>
+      <p className="field-note">External processing boundaries: {dataMap.externalProviderCopies.providers.join(', ')} may receive selected data only when you enable and use the relevant feature. {dataMap.externalProviderCopies.note}</p>
       <p className="field-note">Updated {new Date(dataMap.generatedAt).toLocaleString()}.</p>
     </>}
+  </section><AccountDataExportPanel /></>;
+}
+
+interface AccountDataExport { id: string; status: 'queued' | 'processing' | 'ready' | 'failed' | 'cancelled' | 'expired'; includeFiles: boolean; attemptCount: number; expiresAt: string | null; errorCode: string | null; createdAt: string; updatedAt: string }
+function AccountDataExportPanel() {
+  const [exports, setExports] = useState<AccountDataExport[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [includeFiles, setIncludeFiles] = useState(true);
+  const load = useCallback(async () => {
+    try { const result = await api<{ exports: AccountDataExport[] }>('/api/account/data-exports'); setExports(result.exports); setError(''); }
+    catch (cause) { setError(messageOf(cause, 'Could not load your export requests.')); }
+    finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    if (!exports.some((item) => item.status === 'queued' || item.status === 'processing')) return;
+    const timer = window.setInterval(() => void load(), 2500);
+    return () => window.clearInterval(timer);
+  }, [exports, load]);
+  async function mutate(path: string, method: string, body?: unknown) {
+    setBusy(true); setError('');
+    try { await api(path, { method, ...(body === undefined ? {} : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }) }); await load(); }
+    catch (cause) { setError(messageOf(cause, 'Could not update your export request.')); }
+    finally { setBusy(false); }
+  }
+  return <section className="phase2-panel phase2-narrow" aria-labelledby="account-data-export-title">
+    <h2 id="account-data-export-title">Export your data</h2>
+    <p className="phase2-helper">Create a ZIP with your Rembr records and, if selected, your private files. Password hashes, session tokens, and copies held by external providers are excluded. Exports are available for seven days.</p>
+    <label className="phase2-check"><input type="checkbox" checked={includeFiles} onChange={(event) => setIncludeFiles(event.target.checked)} /><span>Include private files</span></label>
+    <button className="primary-button" type="button" disabled={busy} onClick={() => void mutate('/api/account/data-exports', 'POST', { includeFiles })}>{busy ? 'Requesting…' : 'Request data export'}</button>
+    {error && <p className="notice error" role="alert">{error}</p>}
+    {loading ? <p className="phase2-state" role="status">Loading export requests…</p> : exports.length > 0 && <ul className="phase2-manage-list">{exports.map((item) => <li key={item.id}>
+      <span><strong>{item.status}</strong> · {item.includeFiles ? 'records and files' : 'records only'} · requested {new Date(item.createdAt).toLocaleString()}{item.expiresAt ? ` · expires ${new Date(item.expiresAt).toLocaleString()}` : ''}{item.errorCode ? ` · ${item.errorCode}` : ''}</span>
+      {item.status === 'ready' && <a className="quiet-button" href={`/api/account/data-exports/${encodeURIComponent(item.id)}/download`}>Download ZIP</a>}
+      {(item.status === 'queued' || item.status === 'failed') && <button className="quiet-button" type="button" disabled={busy} onClick={() => void mutate(`/api/account/data-exports/${encodeURIComponent(item.id)}/cancel`, 'POST')}>Cancel</button>}
+      {item.status === 'failed' && item.attemptCount < 3 && <button className="quiet-button" type="button" disabled={busy} onClick={() => void mutate(`/api/account/data-exports/${encodeURIComponent(item.id)}/retry`, 'POST')}>Retry</button>}
+    </li>)}</ul>}
+    <p className="field-note">Requests have bounded size limits. If one fails because your archive is too large, retry without private files.</p>
   </section>;
 }
 

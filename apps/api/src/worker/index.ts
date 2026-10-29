@@ -9,11 +9,14 @@ import { processNextAiJob } from '../ai/worker.js';
 import { resolveTemporaryAnalysisMedia } from '../ai/temporary-media.js';
 import type { MediaProcessor } from './process-job.js';
 import { createStorageAdapters } from '../storage/adapters.js';
+import { createAccountDataExportService } from '../account/data-export-service.js';
+import { createOwnerScopedPrivateFileSource } from '../account/private-file-source.js';
 
 const database = await createDatabase();
-const { imports: importStorage, media: mediaStorage } = createStorageAdapters();
-await Promise.all([importStorage.initialize(), mediaStorage.initialize()]);
+const { assets: assetStorage, imports: importStorage, media: mediaStorage, exports: exportStorage } = createStorageAdapters();
+await Promise.all([assetStorage.initialize(), importStorage.initialize(), mediaStorage.initialize(), exportStorage.initialize()]);
 const imports = createImportService(database, importStorage);
+const dataExports = createAccountDataExportService(database, exportStorage, createOwnerScopedPrivateFileSource(database, { assets: assetStorage, imports: importStorage, media: mediaStorage }));
 const mediaProcessor: MediaProcessor = { fetchMedia: fetchPublicMedia, storage: mediaStorage };
 const metaClient = createMetaModelClient({ apiKey: config.META_API_KEY });
 const aiMediaResolver = async (job: { original_url: string }) => {
@@ -37,6 +40,7 @@ async function run() {
   console.info('rembr_worker_started', { environment: config.NODE_ENV });
   await imports.retryCleanup();
   await cleanupInactiveMedia(database, mediaStorage);
+  await dataExports.cleanupExpiredArtifacts(100).catch(() => 0);
   await cleanupStalePrivateMediaTempDirectories();
   await writeAiWorkerStatus(Boolean(config.META_API_KEY));
   let lastTempSweepAt = Date.now();
@@ -45,6 +49,7 @@ async function run() {
       await writeAiWorkerStatus(Boolean(config.META_API_KEY)).catch(() => undefined);
       if (Date.now() - lastTempSweepAt >= 15 * 60_000) {
         await cleanupStalePrivateMediaTempDirectories().catch(() => 0);
+        await dataExports.cleanupExpiredArtifacts(100).catch(() => 0);
         lastTempSweepAt = Date.now();
       }
     })();
@@ -57,9 +62,15 @@ async function run() {
         const jobId = await processNextJob(database, undefined, mediaProcessor);
         if (jobId) console.info('rembr_job_processed', { jobId });
         else {
-          const aiJobId = await processNextAiJob(database, metaClient, aiMediaResolver, Boolean(config.META_API_KEY));
-          if (!aiJobId) await delay(1000);
-          else console.info('rembr_ai_job_processed', { jobId: aiJobId });
+          const exportClaim = await dataExports.claimNext();
+          if (exportClaim) {
+            await dataExports.processClaim(exportClaim);
+            console.info('rembr_data_export_processed', { exportId: exportClaim.id });
+          } else {
+            const aiJobId = await processNextAiJob(database, metaClient, aiMediaResolver, Boolean(config.META_API_KEY));
+            if (!aiJobId) await delay(1000);
+            else console.info('rembr_ai_job_processed', { jobId: aiJobId });
+          }
         }
       }
     } catch (error) {
