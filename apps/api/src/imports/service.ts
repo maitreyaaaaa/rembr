@@ -3,6 +3,7 @@ import type { DatabaseHandle } from '../db/database.js';
 import { ImportParseError, parsePlatformExportFile, selectParsedImportItems } from './parser.js';
 import { createImportRepository, ImportRepositoryError, type ImportFileInput } from './repository.js';
 import type { ImportStorage } from './storage.js';
+import { withOwnerWorkLease } from '../account/owner-lifecycle.js';
 
 export class ImportServiceError extends Error {
   constructor(readonly code: string) { super(code); this.name = 'ImportServiceError'; }
@@ -135,26 +136,28 @@ export function createImportService(database: DatabaseHandle, storage: ImportSto
       if (prior && prior.sha256 !== sha256) throw new ImportServiceError('chunk_conflict');
       if (prior && String(file.state) !== 'uploading') return { status: String(file.state), complete: true };
       if (String(file.state) !== 'uploading') throw new ImportServiceError('upload_not_available');
-      const chunkKey = await storage.writeChunk(String(file.storage_key), index, bytes);
-      let result;
-      try { result = await repository.recordChunk(ownerId, importId, fileId, index, bytes.length, sha256, chunkKey); }
-      catch (cause) {
-        if (!prior) await storage.removeChunk(String(file.storage_key), index).catch(() => undefined);
-        throw new ImportServiceError(cause instanceof ImportRepositoryError ? cause.code : 'chunk_record_failed');
-      }
-      if (result.complete) {
-        try {
-          await storage.assemble(result.storageKey, Number(file.chunk_count), Number(file.expected_bytes));
-          const allStaged = await repository.markFileStaged(ownerId, importId, fileId);
-          if (allStaged) return { status: 'staged', complete: true };
-        } catch (cause) {
-          if (cause instanceof ImportRepositoryError && cause.code === 'account_inactive') {
-            await storage.removeFile(result.storageKey).catch(() => undefined);
-          }
-          throw new ImportServiceError(cause instanceof ImportRepositoryError ? cause.code : 'file_assembly_failed');
+      return withOwnerWorkLease(database, ownerId, 'import_upload', async (signal) => {
+        const chunkKey = await storage.writeChunk(String(file.storage_key), index, bytes, signal);
+        let result;
+        try { result = await repository.recordChunk(ownerId, importId, fileId, index, bytes.length, sha256, chunkKey); }
+        catch (cause) {
+          if (!prior) await storage.removeChunk(String(file.storage_key), index).catch(() => undefined);
+          throw new ImportServiceError(cause instanceof ImportRepositoryError ? cause.code : 'chunk_record_failed');
         }
-      }
-      return { status: 'uploading', complete: false };
+        if (result.complete) {
+          try {
+            await storage.assemble(result.storageKey, Number(file.chunk_count), Number(file.expected_bytes), signal);
+            const allStaged = await repository.markFileStaged(ownerId, importId, fileId);
+            if (allStaged) return { status: 'staged', complete: true };
+          } catch (cause) {
+            if (cause instanceof ImportRepositoryError && cause.code === 'account_inactive') {
+              await storage.removeFile(result.storageKey).catch(() => undefined);
+            }
+            throw new ImportServiceError(cause instanceof ImportRepositoryError ? cause.code : 'file_assembly_failed');
+          }
+        }
+        return { status: 'uploading', complete: false };
+      });
     },
 
     async processNextImport() {

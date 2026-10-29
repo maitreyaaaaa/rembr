@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseHandle } from '../db/database.js';
+import { lockActiveOwner } from '../account/owner-lifecycle.js';
 import { tokenizeSearchTerms } from '../library/search-terms.js';
 import { matchingRuleTerms } from './matching.js';
 
@@ -185,13 +186,16 @@ export function createSmartCollectionService(database: DatabaseHandle) {
     const candidates = allCandidates.filter((candidate) => candidate.items.size >= MIN_MATCHES).slice(0, MAX_COLLECTIONS);
     const candidateBySlug = new Map(allCandidates.map((candidate) => [candidate.slug, candidate]));
     const now = new Date().toISOString();
-    for (const candidate of candidates) {
-      const metadata = JSON.stringify({ generatedName: candidate.name, folderGroup: candidate.folderGroup, matchSignals: unique([...candidate.matchSignals]) });
-      await database.prepare(`INSERT INTO smart_collections (id,owner_id,slug,name,description,source_type,generation_metadata,created_at,updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(owner_id,slug) DO UPDATE SET description=EXCLUDED.description,
-          source_type=EXCLUDED.source_type,generation_metadata=EXCLUDED.generation_metadata,updated_at=EXCLUDED.updated_at`)
-        .run(randomUUID(), ownerId, candidate.slug, candidate.name, candidate.description, candidate.sourceType, metadata, now, now);
-    }
+    await database.transaction(async () => {
+      if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
+      for (const candidate of candidates) {
+        const metadata = JSON.stringify({ generatedName: candidate.name, folderGroup: candidate.folderGroup, matchSignals: unique([...candidate.matchSignals]) });
+        await database.prepare(`INSERT INTO smart_collections (id,owner_id,slug,name,description,source_type,generation_metadata,created_at,updated_at)
+          VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(owner_id,slug) DO UPDATE SET description=EXCLUDED.description,
+            source_type=EXCLUDED.source_type,generation_metadata=EXCLUDED.generation_metadata,updated_at=EXCLUDED.updated_at`)
+          .run(randomUUID(), ownerId, candidate.slug, candidate.name, candidate.description, candidate.sourceType, metadata, now, now);
+      }
+    })();
     const slugs = candidates.map((candidate) => candidate.slug);
     const generatedCollections = slugs.length ? `slug IN (${slugs.map(() => '?').join(',')}) OR ` : '';
     const records = await database.prepare(`SELECT id,owner_id,slug,name,description,source_type,pinned,hidden,generation_metadata,created_at,updated_at
@@ -275,17 +279,23 @@ export function createSmartCollectionService(database: DatabaseHandle) {
       if (input.hidden !== undefined) { fields.push('hidden=?'); values.push(input.hidden); }
       if (!fields.length) throw new SmartCollectionError('not_found', 'No smart collection changes were provided.');
       fields.push('updated_at=?'); values.push(new Date().toISOString(), ownerId, collectionId);
-      const result = await database.prepare(`UPDATE smart_collections SET ${fields.join(',')} WHERE owner_id=? AND id=?`).run(...values);
+      const result = await database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
+        return database.prepare(`UPDATE smart_collections SET ${fields.join(',')} WHERE owner_id=? AND id=?`).run(...values);
+      })();
       if (!result.changes) throw new SmartCollectionError('not_found', 'Smart collection not found.');
       return (await this.list(ownerId, true)).collections.find((entry) => entry.id === collectionId);
     },
     async setItemOverride(ownerId: string, collectionId: string, itemId: string, action: 'include' | 'exclude' | 'reset') {
-      if (!await database.prepare('SELECT 1 FROM smart_collections WHERE owner_id=? AND id=?').get(ownerId, collectionId)
-        || !await database.prepare('SELECT 1 FROM saved_items WHERE owner_id=? AND id=?').get(ownerId, itemId)) throw new SmartCollectionError('not_found', 'Smart collection or saved item not found.');
-      if (action === 'reset') await database.prepare('DELETE FROM smart_collection_item_overrides WHERE owner_id=? AND collection_id=? AND item_id=?').run(ownerId, collectionId, itemId);
-      else await database.prepare(`INSERT INTO smart_collection_item_overrides (owner_id,collection_id,item_id,action,reason,created_at,updated_at)
-        VALUES (?,?,?,?,?,?,?) ON CONFLICT(owner_id,collection_id,item_id) DO UPDATE SET action=EXCLUDED.action,reason=EXCLUDED.reason,updated_at=EXCLUDED.updated_at`)
-        .run(ownerId, collectionId, itemId, action, action === 'include' ? 'Added by you.' : 'Hidden by you.', new Date().toISOString(), new Date().toISOString());
+      await database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
+        if (!await database.prepare('SELECT 1 FROM smart_collections WHERE owner_id=? AND id=?').get(ownerId, collectionId)
+          || !await database.prepare('SELECT 1 FROM saved_items WHERE owner_id=? AND id=?').get(ownerId, itemId)) throw new SmartCollectionError('not_found', 'Smart collection or saved item not found.');
+        if (action === 'reset') await database.prepare('DELETE FROM smart_collection_item_overrides WHERE owner_id=? AND collection_id=? AND item_id=?').run(ownerId, collectionId, itemId);
+        else await database.prepare(`INSERT INTO smart_collection_item_overrides (owner_id,collection_id,item_id,action,reason,created_at,updated_at)
+          VALUES (?,?,?,?,?,?,?) ON CONFLICT(owner_id,collection_id,item_id) DO UPDATE SET action=EXCLUDED.action,reason=EXCLUDED.reason,updated_at=EXCLUDED.updated_at`)
+          .run(ownerId, collectionId, itemId, action, action === 'include' ? 'Added by you.' : 'Hidden by you.', new Date().toISOString(), new Date().toISOString());
+      })();
       return this.listItems(ownerId, collectionId, '', 100);
     },
   };

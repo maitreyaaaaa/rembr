@@ -22,7 +22,7 @@ export interface EmbeddingVector {
 export interface EmbeddingProvider {
   readonly model: string;
   readonly dimensions: number;
-  embed(text: string, purpose: EmbeddingPurpose): Promise<EmbeddingVector>;
+  embed(text: string, purpose: EmbeddingPurpose, signal?: AbortSignal): Promise<EmbeddingVector>;
 }
 
 export interface SemanticDocumentInput {

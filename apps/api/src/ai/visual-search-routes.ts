@@ -3,6 +3,8 @@ import { rateLimit } from 'express-rate-limit';
 import multer from 'multer';
 import { z } from 'zod';
 import type { DatabaseHandle } from '../db/database.js';
+import { OwnerLifecycleError, withOwnerWorkLease } from '../account/owner-lifecycle.js';
+import { lockActiveOwner } from '../account/owner-lifecycle.js';
 import { requireUser } from '../auth/sessions.js';
 import { createProfileGate } from '../account/routes.js';
 import type { AssetStorage } from '../assets/storage.js';
@@ -22,7 +24,7 @@ const updatePreferenceSchema = z.object({ enabled: z.boolean(), disclosureVersio
 
 export interface VisualSearchModel {
   countImageInputTokens(prompt: string, images: ImageInput[]): Promise<number[]>;
-  analyzeImages(prompt: string, images: ImageInput[]): Promise<ModelTextResult[]>;
+  analyzeImages(prompt: string, images: ImageInput[], signal?: AbortSignal): Promise<ModelTextResult[]>;
 }
 
 interface VisualSearchPreference {
@@ -54,16 +56,19 @@ function createVisualSearchPreferenceRepository(database: DatabaseHandle) {
     },
     async set(ownerId: string, enabled: boolean): Promise<void> {
       const now = new Date().toISOString();
-      await database.prepare(`INSERT INTO ai_visual_search_preferences
-        (owner_id,enabled,consent_version,consented_at,disabled_at,updated_at)
-        VALUES (?,?,?,?,?,?)
-        ON CONFLICT(owner_id) DO UPDATE SET enabled=excluded.enabled,
-          consent_version=CASE WHEN excluded.enabled THEN excluded.consent_version ELSE ai_visual_search_preferences.consent_version END,
-          consented_at=CASE WHEN excluded.enabled THEN excluded.consented_at ELSE ai_visual_search_preferences.consented_at END,
-          disabled_at=CASE WHEN excluded.enabled THEN NULL ELSE excluded.disabled_at END,
-          updated_at=excluded.updated_at`)
-        .run(ownerId, enabled, enabled ? VISUAL_SEARCH_DISCLOSURE_VERSION : null,
-          enabled ? now : null, enabled ? null : now, now);
+      await database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
+        await database.prepare(`INSERT INTO ai_visual_search_preferences
+          (owner_id,enabled,consent_version,consented_at,disabled_at,updated_at)
+          VALUES (?,?,?,?,?,?)
+          ON CONFLICT(owner_id) DO UPDATE SET enabled=excluded.enabled,
+            consent_version=CASE WHEN excluded.enabled THEN excluded.consent_version ELSE ai_visual_search_preferences.consent_version END,
+            consented_at=CASE WHEN excluded.enabled THEN excluded.consented_at ELSE ai_visual_search_preferences.consented_at END,
+            disabled_at=CASE WHEN excluded.enabled THEN NULL ELSE excluded.disabled_at END,
+            updated_at=excluded.updated_at`)
+          .run(ownerId, enabled, enabled ? VISUAL_SEARCH_DISCLOSURE_VERSION : null,
+            enabled ? now : null, enabled ? null : now, now);
+      })();
     },
   };
 }
@@ -127,7 +132,7 @@ export function createVisualSearchRouter(database: DatabaseHandle, assetStorage:
         return fail(res, 403, 'visual_search_consent_required', 'Image-search consent was turned off. Enable it again before searching.', req.requestId);
       }
 
-      const generated = await options.imageModel.analyzeImages(VISUAL_SEARCH_PROMPT, images);
+      const generated = await withOwnerWorkLease(database, ownerId, 'visual_search', (signal) => options.imageModel!.analyzeImages(VISUAL_SEARCH_PROMPT, images, signal));
       providerReturned = true;
       if (generated.length !== 1) {
         const actual = generated.reduce((sum, output) => sum + sparkCostMicroUsd(output.inputTokens, output.outputTokens), 0);
@@ -163,6 +168,9 @@ export function createVisualSearchRouter(database: DatabaseHandle, assetStorage:
           if (providerReturned || (error instanceof MetaApiError && error.outcomeUnknown)) await usage.holdSearch(reservation);
           else await usage.releaseSearch(reservation);
         } catch { /* Keep the reservation open if usage reconciliation itself fails. */ }
+      }
+      if (error instanceof OwnerLifecycleError && error.code === 'account_inactive') {
+        return fail(res, 403, 'account_disabled', 'This account is disabled while deletion is being reviewed.', req.requestId);
       }
       if (error instanceof AiBudgetExceededError) return fail(res, 429, 'ai_budget_exceeded', 'The shared monthly AI budget is full. Try text search or try again next month.', req.requestId);
       if (error instanceof MetaApiError && error.outcomeUnknown) return fail(res, 503, 'ai_outcome_unknown', 'Meta response status is unknown. Check your library before retrying image search.', req.requestId);

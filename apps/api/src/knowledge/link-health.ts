@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseHandle } from '../db/database.js';
+import { lockActiveOwner } from '../account/owner-lifecycle.js';
 import { checkPublicPage, type LinkHealthResult } from '../items/safe-fetch.js';
 
 const RECHECK_AFTER_DAYS = 7;
@@ -55,13 +56,16 @@ export function createLibraryLinkHealthRepository(database: DatabaseHandle, prob
         catch { result = { status: 'unknown', sourceUrl: item.url, finalUrl: '', httpStatus: null, errorCode: 'check_failed', errorMessage: 'This link could not be checked safely right now.', checkedAt: now.toISOString() }; }
         const id = randomUUID();
         const checkedAt = result.checkedAt || now.toISOString();
-        await database.prepare(`INSERT INTO link_health_checks
-            (id,owner_id,item_id,status,source_url,final_url,http_status,error_code,error_message,checked_at,created_at,updated_at)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-          ON CONFLICT(owner_id,item_id) DO UPDATE SET status=excluded.status,source_url=excluded.source_url,
-            final_url=excluded.final_url,http_status=excluded.http_status,error_code=excluded.error_code,
-            error_message=excluded.error_message,checked_at=excluded.checked_at,updated_at=excluded.updated_at`)
-          .run(id, ownerId, item.id, result.status, item.url, result.finalUrl || null, result.httpStatus, result.errorCode.slice(0, 80), result.errorMessage.slice(0, 200), checkedAt, now.toISOString(), now.toISOString());
+        await database.transaction(async () => {
+          if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
+          await database.prepare(`INSERT INTO link_health_checks
+              (id,owner_id,item_id,status,source_url,final_url,http_status,error_code,error_message,checked_at,created_at,updated_at)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(owner_id,item_id) DO UPDATE SET status=excluded.status,source_url=excluded.source_url,
+              final_url=excluded.final_url,http_status=excluded.http_status,error_code=excluded.error_code,
+              error_message=excluded.error_message,checked_at=excluded.checked_at,updated_at=excluded.updated_at`)
+            .run(id, ownerId, item.id, result.status, item.url, result.finalUrl || null, result.httpStatus, result.errorCode.slice(0, 80), result.errorMessage.slice(0, 200), checkedAt, now.toISOString(), now.toISOString());
+        })();
         checked.push({ itemId: item.id, title: item.title, status: result.status, sourceUrl: item.url, finalUrl: result.finalUrl || null, httpStatus: result.httpStatus, errorCode: result.errorCode.slice(0, 80), errorMessage: result.errorMessage.slice(0, 200), checkedAt });
       }
       return checked;

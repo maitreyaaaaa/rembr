@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseHandle } from '../db/database.js';
+import { lockActiveOwner } from '../account/owner-lifecycle.js';
 import { tokenizeSearchTerms } from './search-terms.js';
 
 export interface ItemListQuery {
@@ -153,6 +154,7 @@ export function createLibraryRepository(database: DatabaseHandle) {
     async createPage(ownerId: string, originalUrl: string, canonicalUrl: string, title: string, correlationId: string = randomUUID()) {
       const id = randomUUID(); const now = new Date().toISOString();
       await database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
         await database.prepare(`INSERT INTO saved_items (id,owner_id,original_url,canonical_url,title,status,created_at,updated_at)
           VALUES (?,?,?,?,?,'queued',?,?)`).run(id,ownerId,originalUrl,canonicalUrl,title,now,now);
         await database.prepare(`INSERT INTO processing_jobs (id,owner_id,item_id,correlation_id,status,available_at,created_at,updated_at)
@@ -252,7 +254,10 @@ export function createLibraryRepository(database: DatabaseHandle) {
       if (changes.titleOverride !== undefined) { fields.push('title_override=?'); values.push(changes.titleOverride?.trim() || null); }
       if (changes.descriptionOverride !== undefined) { fields.push('description_override=?'); values.push(changes.descriptionOverride?.trim() || null); }
       fields.push('updated_at=?'); values.push(new Date().toISOString(), ownerId, itemId);
-      const result = await database.prepare(`UPDATE saved_items SET ${fields.join(',')} WHERE owner_id=? AND id=?`).run(...values);
+      const result = await database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
+        return database.prepare(`UPDATE saved_items SET ${fields.join(',')} WHERE owner_id=? AND id=?`).run(...values);
+      })();
       return result.changes ? this.get(ownerId, itemId) : undefined;
     },
     async delete(ownerId: string, itemId: string) {
@@ -261,6 +266,7 @@ export function createLibraryRepository(database: DatabaseHandle) {
         WHERE note_assets.owner_id=? AND note_assets.item_id=?`).all(ownerId, itemId) as Array<{ id: string; storageKey: string }>;
       const mediaKeys = (await database.prepare('SELECT storage_key FROM media_artifacts WHERE owner_id=? AND item_id=? AND storage_key IS NOT NULL').all(ownerId, itemId) as Array<{ storage_key: string }>).map((row) => row.storage_key);
       const deleted = await database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
         if (!await database.prepare('SELECT 1 FROM saved_items WHERE owner_id=? AND id=?').get(ownerId, itemId)) return false;
         const now = new Date().toISOString();
         for (const asset of assets) await database.prepare("UPDATE asset_objects SET state='deleting', updated_at=? WHERE owner_id=? AND id=?").run(new Date().toISOString(), ownerId, asset.id);
@@ -279,6 +285,7 @@ export function createLibraryRepository(database: DatabaseHandle) {
     async saveNote(input: { ownerId: string; itemId: string; isCreate: boolean; body: string; title: string; links: string[]; assetIds: string[]; now: string }) {
       const { ownerId, itemId, isCreate, body, title, links, assetIds, now } = input;
       await database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
         const existing = isCreate ? [] : await this.noteAssets(ownerId, itemId);
         if (existing.length + assetIds.length > 5) throw new Error('too_many_images');
         if (isCreate) {
@@ -307,6 +314,7 @@ export function createLibraryRepository(database: DatabaseHandle) {
         .get(ownerId, itemId, assetId) as { storageKey: string } | undefined;
       if (!asset) return undefined;
       await database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
         await database.prepare("UPDATE asset_objects SET state='deleting', updated_at=? WHERE owner_id=? AND id=?").run(new Date().toISOString(), ownerId, assetId);
         const remaining = await database.prepare('SELECT asset_id AS id FROM note_assets WHERE owner_id=? AND item_id=? AND asset_id<>? ORDER BY position').all(ownerId, itemId, assetId) as Array<{ id: string }>;
         await database.prepare('DELETE FROM note_assets WHERE owner_id=? AND item_id=?').run(ownerId, itemId);

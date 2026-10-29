@@ -1,18 +1,28 @@
 import type { DatabaseHandle } from '../db/database.js';
+import { lockActiveOwner } from '../account/owner-lifecycle.js';
 
 export type AssetKind = 'avatar' | 'note_image';
 
 export function createAssetRepository(database: DatabaseHandle) {
   return {
     async stage(id: string, ownerId: string, kind: AssetKind, key: string, mime: string, bytes: number, sha256: string, now: string) {
-      await database.prepare(`INSERT INTO asset_objects (id,owner_id,kind,storage_key,detected_mime,byte_size,sha256,state,created_at,updated_at)
-        VALUES (?,?,?,?,?,?,?,'staging',?,?)`).run(id, ownerId, kind, key, mime, bytes, sha256, now, now);
+      await database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
+        await database.prepare(`INSERT INTO asset_objects (id,owner_id,kind,storage_key,detected_mime,byte_size,sha256,state,created_at,updated_at)
+          VALUES (?,?,?,?,?,?,?,'staging',?,?)`).run(id, ownerId, kind, key, mime, bytes, sha256, now, now);
+      })();
     },
-    async markReady(id: string, now: string) {
-      await database.prepare("UPDATE asset_objects SET state='ready',updated_at=? WHERE id=?").run(now, id);
+    async markReady(ownerId: string, id: string, now: string) {
+      await database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
+        await database.prepare("UPDATE asset_objects SET state='ready',updated_at=? WHERE owner_id=? AND id=? AND state='staging'").run(now, ownerId, id);
+      })();
     },
     async markDeleting(ownerId: string, id: string, now: string) {
-      await database.prepare("UPDATE asset_objects SET state='deleting',updated_at=? WHERE owner_id=? AND id=?").run(now, ownerId, id);
+      await database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
+        await database.prepare("UPDATE asset_objects SET state='deleting',updated_at=? WHERE owner_id=? AND id=?").run(now, ownerId, id);
+      })();
     },
     async getForOwner(ownerId: string, id: string, state?: 'ready' | 'deleting') {
       const stateClause = state ? ' AND state=?' : '';

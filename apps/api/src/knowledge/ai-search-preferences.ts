@@ -1,4 +1,5 @@
 import type { DatabaseHandle } from '../db/database.js';
+import { lockActiveOwner } from '../account/owner-lifecycle.js';
 
 export const AI_SEARCH_DISCLOSURE_VERSION = '2026-10-29-v5';
 
@@ -16,14 +17,17 @@ export function createAiSearchPreferenceRepository(database: DatabaseHandle) {
     },
     async set(ownerId: string, enabled: boolean) {
       const now = new Date().toISOString();
-      await database.prepare(`INSERT INTO ai_search_preferences
-        (owner_id,enabled,consent_version,consented_at,disabled_at,updated_at) VALUES (?,?,?,?,?,?)
-        ON CONFLICT (owner_id) DO UPDATE SET enabled=excluded.enabled,
-          consent_version=CASE WHEN excluded.enabled THEN excluded.consent_version ELSE ai_search_preferences.consent_version END,
-          consented_at=CASE WHEN excluded.enabled THEN excluded.consented_at ELSE ai_search_preferences.consented_at END,
-          disabled_at=CASE WHEN excluded.enabled THEN NULL ELSE excluded.disabled_at END,
-          updated_at=excluded.updated_at`)
-        .run(ownerId, enabled, enabled ? AI_SEARCH_DISCLOSURE_VERSION : null, enabled ? now : null, enabled ? null : now, now);
+      await database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
+        await database.prepare(`INSERT INTO ai_search_preferences
+          (owner_id,enabled,consent_version,consented_at,disabled_at,updated_at) VALUES (?,?,?,?,?,?)
+          ON CONFLICT (owner_id) DO UPDATE SET enabled=excluded.enabled,
+            consent_version=CASE WHEN excluded.enabled THEN excluded.consent_version ELSE ai_search_preferences.consent_version END,
+            consented_at=CASE WHEN excluded.enabled THEN excluded.consented_at ELSE ai_search_preferences.consented_at END,
+            disabled_at=CASE WHEN excluded.enabled THEN NULL ELSE excluded.disabled_at END,
+            updated_at=excluded.updated_at`)
+          .run(ownerId, enabled, enabled ? AI_SEARCH_DISCLOSURE_VERSION : null, enabled ? now : null, enabled ? null : now, now);
+      })();
     },
   };
 }

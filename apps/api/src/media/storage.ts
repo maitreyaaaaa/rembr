@@ -9,7 +9,7 @@ const MAX_MEDIA_BYTES = 5 * 1024 * 1024;
 export type SupportedMediaMime = 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' | 'audio/mpeg' | 'audio/mp4' | 'audio/ogg' | 'audio/wav' | 'audio/webm' | 'video/mp4' | 'video/webm' | 'video/ogg';
 export interface MediaStorage {
   initialize(): Promise<void>;
-  write(bytes: Buffer, declaredMime?: string): Promise<{ key: string; mime: SupportedMediaMime; sha256: string }>;
+  write(bytes: Buffer, declaredMime?: string, key?: string, signal?: AbortSignal): Promise<{ key: string; mime: SupportedMediaMime; sha256: string }>;
   read(key: string): Promise<Buffer>;
   remove(key: string): Promise<void>;
   removeUnknown(validKeys: Set<string>): Promise<void>;
@@ -31,13 +31,17 @@ export class LocalMediaStorage implements MediaStorage {
   readonly root: string;
   constructor(root: string) { this.root = resolve(root); }
   async initialize(): Promise<void> { await mkdir(this.root, { recursive: true, mode: 0o700 }); }
-  async write(bytes: Buffer, declaredMime?: string): Promise<{ key: string; mime: SupportedMediaMime; sha256: string }> {
+  async write(bytes: Buffer, declaredMime?: string, requestedKey?: string, signal?: AbortSignal): Promise<{ key: string; mime: SupportedMediaMime; sha256: string }> {
     const mime = detectSupportedMediaMime(bytes, declaredMime);
     if (!mime || bytes.length < 1 || bytes.length > MAX_MEDIA_BYTES) throw new Error('invalid_media_bytes');
-    const id = randomUUID(); const key = `${id}.media`; const temp = join(this.root, `${id}.tmp`);
+    const id = requestedKey?.replace(/\.media$/i, '') ?? randomUUID();
+    if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error('invalid_media_key');
+    const key = `${id}.media`; const temp = join(this.root, `${id}.tmp`);
+    signal?.throwIfAborted();
     await this.initialize();
     try {
-      await writeFile(temp, bytes, { flag: 'wx', mode: 0o600 });
+      await writeFile(temp, bytes, { flag: 'wx', mode: 0o600, signal });
+      signal?.throwIfAborted();
       await rename(temp, join(this.root, key));
     } catch (cause) {
       await rm(temp, { force: true }).catch(() => undefined);

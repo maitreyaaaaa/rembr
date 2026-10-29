@@ -2,7 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import { z } from 'zod';
 import type { DatabaseHandle } from '../db/database.js';
-import { requireUser } from '../auth/sessions.js';
+import { requireAccountLifecycleUser, requireUser } from '../auth/sessions.js';
 import { detectImageMime, imageExtensionMatches, type AssetStorage } from '../assets/storage.js';
 import { AccountServiceError, createAccountService } from './service.js';
 import type { ProfileRow } from './repository.js';
@@ -37,11 +37,12 @@ function publicProfile(userId: string, row: ProfileRow | undefined) {
 export function createAccountRouter(database: DatabaseHandle, storage: AssetStorage) {
   const router = express.Router();
   const signedIn = requireUser(database);
+  const lifecycleSignedIn = requireAccountLifecycleUser(database);
   const account = createAccountService(database, storage);
   const dataMap = createAccountDataMapService(database);
   const avatarUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 250 * 1024, files: 1, fields: 2, fieldSize: 4000 } }).single('avatar');
 
-  router.get('/auth/session', signedIn, async (req, res) => {
+  router.get('/auth/session', lifecycleSignedIn, async (req, res) => {
     const session = await account.session(req.user!);
     res.json({
       ...session,

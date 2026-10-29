@@ -37,8 +37,11 @@ export class LocalPrivateExportArtifactStorage implements PrivateExportArtifactS
     return destination;
   }
 
-  async write(ownerId: string, exportId: string, leaseToken: string, bytes: Buffer): Promise<string> {
-    const key = objectKey(ownerId, exportId, leaseToken);
+  keyForAttempt(ownerId: string, exportId: string, leaseToken: string): string {
+    return objectKey(ownerId, exportId, leaseToken);
+  }
+
+  async write(ownerId: string, key: string, bytes: Buffer): Promise<void> {
     const destination = this.path(ownerId, key);
     await mkdir(dirname(destination), { recursive: true, mode: 0o700 });
     const temporary = join(dirname(destination), `${randomUUID()}.tmp`);
@@ -49,7 +52,6 @@ export class LocalPrivateExportArtifactStorage implements PrivateExportArtifactS
       await rm(temporary, { force: true }).catch(() => undefined);
       throw cause;
     }
-    return key;
   }
 
   async read(ownerId: string, key: string): Promise<Buffer> {
@@ -66,10 +68,13 @@ export class SupabasePrivateExportArtifactStorage implements PrivateExportArtifa
 
   initialize(): Promise<void> { return this.objects.initialize(); }
 
-  async write(ownerId: string, exportId: string, leaseToken: string, bytes: Buffer): Promise<string> {
-    const key = objectKey(ownerId, exportId, leaseToken);
+  keyForAttempt(ownerId: string, exportId: string, leaseToken: string): string {
+    return objectKey(ownerId, exportId, leaseToken);
+  }
+
+  async write(ownerId: string, key: string, bytes: Buffer): Promise<void> {
+    checkedKey(ownerId, key);
     await this.objects.write(key, bytes, 'application/zip');
-    return key;
   }
 
   async read(ownerId: string, key: string): Promise<Buffer> {

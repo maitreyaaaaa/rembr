@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AddressInfo } from 'node:net';
@@ -16,6 +16,18 @@ import { claimNextJob, processNextJob } from '../src/worker/process-job.js';
 import { CaptureError } from '../src/items/safe-fetch.js';
 
 const password = 'correct-horse-battery-staple';
+
+test('local media storage honors an aborted owner-work signal before creating an object', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'rembr-media-abort-'));
+  try {
+    const storage = new LocalMediaStorage(root);
+    const controller = new AbortController();
+    controller.abort(new Error('work_lease_lost'));
+    await assert.rejects(storage.write(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), 'image/png',
+      '6e40dc60-72a2-4ce3-96b5-fc502e1bff96.media', controller.signal));
+    assert.deepEqual(await readdir(root), []);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
 
 test('upload validation accepts source-compatible X JavaScript bookmark exports', () => {
   const bytes = Buffer.byteLength('window.YTD.bookmark.part0 = [];');
@@ -455,34 +467,61 @@ test('cancellation during a running fetch fences the final artifact write', asyn
   });
 });
 
-test('a capture media file is removed when its owner is frozen before commit', async () => {
+test('capture media intent fences deletion and retries cleanup when freeze wins during object write', async () => {
   await withApi(async (baseUrl, database) => {
     const owner = await register(baseUrl, 'media-fenced@example.test', 'media_fenced');
     const capture = await fetch(`${baseUrl}/api/items`, { method: 'POST', headers: { Cookie: owner, 'Content-Type': 'application/json' }, body: JSON.stringify({ url: 'https://example.com/media-fenced' }) });
     const item = (await capture.json() as { item: { id: string } }).item;
     const account = await database.prepare('SELECT owner_id FROM saved_items WHERE id=?').get(item.id) as { owner_id: string };
-    const removed: string[] = [];
+    const stored = new Set<string>(); const removed: string[] = []; let removeAttempts = 0;
+    let signalWriteStarted!: () => void; let releaseWrite!: () => void;
+    const writeStarted = new Promise<void>((resolve) => { signalWriteStarted = resolve; });
+    const writeGate = new Promise<void>((resolve) => { releaseWrite = resolve; });
     const storage = {
       async initialize() {},
-      async write() {
-        await database.transaction(async () => {
-          await database.prepare("UPDATE users SET account_status='disabled' WHERE id=?").run(account.owner_id);
-          await database.prepare("UPDATE processing_jobs SET status='cancelled',lease_token=NULL,lease_expires_at=NULL WHERE item_id=?").run(item.id);
-        })();
-        return { key: 'media-fenced.media', mime: 'image/png' as const, bytes: 8, sha256: 'a'.repeat(64) };
+      async write(_bytes: Buffer, _mime: string, key?: string) {
+        signalWriteStarted();
+        await writeGate;
+        stored.add(String(key));
+        return { key: String(key), mime: 'image/png' as const, bytes: 8, sha256: 'a'.repeat(64) };
       },
       async read() { throw new Error('not used'); },
-      async remove(key: string) { removed.push(key); },
+      async remove(key: string) {
+        removed.push(key); removeAttempts += 1;
+        if (removeAttempts === 1) throw new Error('temporary storage failure');
+        stored.delete(key);
+      },
       async removeUnknown() {},
     };
     const image = Buffer.from([137,80,78,71,13,10,26,10]);
-    const result = await processNextJob(database,
+    const processing = processNextJob(database,
       async () => ({ finalUrl: 'https://example.com/media-fenced', contentType: 'text/html', html: '<img src="https://cdn.example/image.png">' }),
       { storage, fetchMedia: async (url) => ({ finalUrl: url, mime: 'image/png', bytes: image }) });
-    assert.equal(result, null);
-    assert.deepEqual(removed, ['media-fenced.media']);
+    await writeStarted;
+    const lease = await database.prepare(`SELECT count(*) AS count FROM account_owner_work_leases
+      WHERE owner_id=? AND work_type='media_upload' AND expires_at>?`).get(account.owner_id, new Date().toISOString()) as { count: number };
+    assert.equal(Number(lease.count), 1);
+    const intent = await database.prepare(`SELECT storage_key,status,error_code,active FROM media_artifacts WHERE item_id=?`)
+      .get(item.id) as { storage_key: string; status: string; error_code: string; active: number };
+    assert.match(intent.storage_key, /^[0-9a-f-]{36}\.media$/i);
+    assert.deepEqual({ status: intent.status, error_code: intent.error_code, active: Number(intent.active) },
+      { status: 'failed', error_code: 'media_write_pending', active: 1 });
+    await database.transaction(async () => {
+      await database.prepare("UPDATE users SET account_status='disabled' WHERE id=?").run(account.owner_id);
+      await database.prepare(`UPDATE processing_jobs SET status='cancelled',lease_token=NULL,lease_expires_at=NULL
+        WHERE item_id=? AND owner_id=?`).run(item.id, account.owner_id);
+    })();
+    assert.equal((await database.prepare('SELECT count(*) AS count FROM media_artifacts WHERE owner_id=? AND storage_key=?')
+      .get(account.owner_id, intent.storage_key) as { count: number }).count, 1,
+      'deletion can enumerate the planned object key before storage.write completes');
+    releaseWrite();
+    assert.equal(await processing, null);
+    assert.deepEqual(removed, [intent.storage_key, intent.storage_key]);
+    assert.equal(stored.size, 0);
     assert.equal((await database.prepare('SELECT count(*) AS count FROM media_artifacts WHERE item_id=?').get(item.id) as { count: number }).count, 0);
     assert.equal((await database.prepare('SELECT count(*) AS count FROM media_cleanup_queue').get() as { count: number }).count, 0);
+    assert.equal((await database.prepare('SELECT count(*) AS count FROM account_owner_work_leases WHERE owner_id=?')
+      .get(account.owner_id) as { count: number }).count, 0);
     assert.equal((await database.prepare('SELECT status FROM processing_jobs WHERE item_id=?').get(item.id) as { status: string }).status, 'cancelled');
   });
 });

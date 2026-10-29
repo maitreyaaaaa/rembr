@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { OWNER_WORK_LEASE_TTL_MS } from '../account/owner-lifecycle.js';
 
 const META_API_BASE = 'https://api.meta.ai/v1';
 export const MUSE_SPARK_MODEL = 'muse-spark-1.3';
@@ -38,6 +39,18 @@ export interface MetaModelClientOptions {
   apiKey: string | null | undefined;
   fetcher?: typeof fetch;
   timeoutMs?: number;
+}
+
+function combineRequestSignal(signal: AbortSignal | undefined, timeoutMs: number) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(new DOMException('Meta request timed out.', 'TimeoutError')), timeoutMs);
+  const abortFromCaller = () => controller.abort(signal?.reason ?? new DOMException('Meta request aborted.', 'AbortError'));
+  if (signal?.aborted) abortFromCaller();
+  else signal?.addEventListener('abort', abortFromCaller, { once: true });
+  return {
+    signal: controller.signal,
+    dispose() { clearTimeout(timeout); signal?.removeEventListener('abort', abortFromCaller); },
+  };
 }
 
 function requireKey(apiKey: string | null | undefined): string {
@@ -150,26 +163,32 @@ function wavDurationIsValid(durationSeconds: number): boolean {
 export function createMetaModelClient(options: MetaModelClientOptions) {
   const fetcher = options.fetcher ?? fetch;
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1 || timeoutMs >= OWNER_WORK_LEASE_TTL_MS) {
+    throw new TypeError('Meta request timeout must be positive and shorter than the owner-work lease TTL.');
+  }
 
-  async function postJson(path: string, body: unknown): Promise<unknown> {
+  async function postJson(path: string, body: unknown, signal?: AbortSignal): Promise<unknown> {
     const key = requireKey(options.apiKey);
-    let response: Response;
+    const request = combineRequestSignal(signal, timeoutMs);
     try {
-      response = await fetcher(`${META_API_BASE}${path}`, {
+      const response = await fetcher(`${META_API_BASE}${path}`, {
         method: 'POST',
         headers: { authorization: `Bearer ${key}`, 'content-type': 'application/json', accept: 'application/json' },
         body: JSON.stringify(body),
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: request.signal,
       });
+      if (!response.ok) throw await parseErrorResponse(response);
+      try { return await response.json() as unknown; }
+      catch { throw new MetaApiError('invalid_response', 'Meta returned an invalid response.', { status: response.status, retryable: false, outcomeUnknown: true }); }
     } catch (error) {
+      if (error instanceof MetaApiError) throw error;
       throw networkError(error);
+    } finally {
+      request.dispose();
     }
-    if (!response.ok) throw await parseErrorResponse(response);
-    try { return await response.json() as unknown; }
-    catch { throw new MetaApiError('invalid_response', 'Meta returned an invalid response.', { status: response.status, retryable: false, outcomeUnknown: true }); }
   }
 
-  async function analyzeImages(prompt: string, images: ImageInput[]): Promise<ModelTextResult[]> {
+  async function analyzeImages(prompt: string, images: ImageInput[], signal?: AbortSignal): Promise<ModelTextResult[]> {
     if (!prompt.trim() || !images.length) throw new MetaApiError('invalid_input', 'A prompt and at least one image are required.');
     const groups = groupImageInputs(images);
     const results: ModelTextResult[] = [];
@@ -186,7 +205,7 @@ export function createMetaModelClient(options: MetaModelClientOptions) {
       if (Buffer.byteLength(JSON.stringify(body)) > 50 * 1024 * 1024) {
         throw new MetaApiError('invalid_input', 'The encoded image request exceeds 50 MiB.');
       }
-      const raw = await postJson('/responses', body);
+      const raw = await postJson('/responses', body, signal);
       const text = responseText(raw);
       const usage = tokenUsage(raw);
       if (text === null || usage === null) throw new MetaApiError('invalid_response', 'Meta returned an incomplete analysis response.', { retryable: false, outcomeUnknown: true });
@@ -216,7 +235,7 @@ export function createMetaModelClient(options: MetaModelClientOptions) {
     return counts;
   }
 
-  async function analyzeVideo(prompt: string, bytes: Uint8Array): Promise<ModelTextResult> {
+  async function analyzeVideo(prompt: string, bytes: Uint8Array, signal?: AbortSignal): Promise<ModelTextResult> {
     if (!prompt.trim() || bytes.byteLength < 1 || bytes.byteLength > MAX_VIDEO_BYTES) {
       throw new MetaApiError('invalid_input', 'The video is empty or exceeds 25 MiB.');
     }
@@ -235,7 +254,7 @@ export function createMetaModelClient(options: MetaModelClientOptions) {
     if (Buffer.byteLength(JSON.stringify(body)) > 50 * 1024 * 1024) {
       throw new MetaApiError('invalid_input', 'The encoded video request exceeds 50 MiB.');
     }
-    const raw = await postJson('/responses', body);
+    const raw = await postJson('/responses', body, signal);
     const text = responseText(raw);
     const usage = tokenUsage(raw);
     if (text === null || usage === null) throw new MetaApiError('invalid_response', 'Meta returned an incomplete analysis response.', { retryable: false, outcomeUnknown: true });
@@ -251,13 +270,13 @@ export function createMetaModelClient(options: MetaModelClientOptions) {
     return count;
   }
 
-  async function analyzeText(prompt: string): Promise<ModelTextResult> {
+  async function analyzeText(prompt: string, signal?: AbortSignal): Promise<ModelTextResult> {
     if (!prompt.trim()) throw new MetaApiError('invalid_input', 'A prompt is required.');
     const raw = await postJson('/responses', {
       model: MUSE_SPARK_MODEL,
       max_output_tokens: MAX_OUTPUT_TOKENS,
       input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: prompt.slice(0, 8_000) }] }],
-    });
+    }, signal);
     const text = responseText(raw);
     const usage = tokenUsage(raw);
     if (text === null || usage === null) throw new MetaApiError('invalid_response', 'Meta returned an incomplete analysis response.', { retryable: false, outcomeUnknown: true });
@@ -282,7 +301,7 @@ export function createMetaModelClient(options: MetaModelClientOptions) {
     return count;
   }
 
-  async function transcribeWav(bytes: Uint8Array, durationSeconds: number): Promise<TranscriptionResult> {
+  async function transcribeWav(bytes: Uint8Array, durationSeconds: number, signal?: AbortSignal): Promise<TranscriptionResult> {
     if (!wavDurationIsValid(durationSeconds) || bytes.byteLength < 44 || bytes.byteLength > MAX_AUDIO_BODY_BYTES
       || Buffer.from(bytes.subarray(0, 4)).toString('ascii') !== 'RIFF'
       || Buffer.from(bytes.subarray(8, 12)).toString('ascii') !== 'WAVE') {
@@ -298,24 +317,27 @@ export function createMetaModelClient(options: MetaModelClientOptions) {
       Buffer.from(`\r\n--${boundary}--\r\n`),
     ]);
     if (body.byteLength > MAX_AUDIO_BODY_BYTES) throw new MetaApiError('invalid_input', 'The complete audio request exceeds 32 MiB.');
-    let response: Response;
+    const request = combineRequestSignal(signal, timeoutMs);
     try {
-      response = await fetcher(`${META_API_BASE}/asr/transcribe`, {
+      const response = await fetcher(`${META_API_BASE}/asr/transcribe`, {
         method: 'POST',
         headers: { authorization: `Bearer ${key}`, accept: 'application/json', 'content-type': `multipart/form-data; boundary=${boundary}` },
         body,
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: request.signal,
       });
+      if (!response.ok) throw await parseErrorResponse(response);
+      try {
+        const result = transcription(await response.json() as unknown);
+        if (!result) throw new Error('invalid_transcription');
+        return result;
+      } catch {
+        throw new MetaApiError('invalid_response', 'Meta returned an invalid transcription response.', { status: response.status, retryable: false, outcomeUnknown: true });
+      }
     } catch (error) {
+      if (error instanceof MetaApiError) throw error;
       throw networkError(error);
-    }
-    if (!response.ok) throw await parseErrorResponse(response);
-    try {
-      const result = transcription(await response.json() as unknown);
-      if (!result) throw new Error('invalid_transcription');
-      return result;
-    } catch {
-      throw new MetaApiError('invalid_response', 'Meta returned an invalid transcription response.', { status: response.status, retryable: false, outcomeUnknown: true });
+    } finally {
+      request.dispose();
     }
   }
 

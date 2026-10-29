@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseHandle } from '../db/database.js';
+import { lockActiveOwner } from '../account/owner-lifecycle.js';
 
 export interface SavedItemSummary {
   id: string;
@@ -51,6 +52,7 @@ export function createItemRepository(database: DatabaseHandle) {
       const id = randomUUID();
       const now = new Date().toISOString();
       const transaction = database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
         await database.prepare(`INSERT INTO saved_items
           (id, owner_id, original_url, canonical_url, title, status, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, 'queued', ?, ?)`)
@@ -90,7 +92,10 @@ export function createItemRepository(database: DatabaseHandle) {
     },
 
     async delete(ownerId: string, itemId: string) {
-      const result = await database.prepare('DELETE FROM saved_items WHERE owner_id = ? AND id = ?').run(ownerId, itemId);
+      const result = await database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
+        return database.prepare('DELETE FROM saved_items WHERE owner_id = ? AND id = ?').run(ownerId, itemId);
+      })();
       return result.changes > 0;
     },
   };

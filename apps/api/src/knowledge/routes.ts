@@ -1,6 +1,7 @@
 import express from 'express';
 import { rateLimit } from 'express-rate-limit';
 import type { DatabaseHandle } from '../db/database.js';
+import { OwnerLifecycleError, withOwnerWorkLease } from '../account/owner-lifecycle.js';
 import { requireUser } from '../auth/sessions.js';
 import { createProfileGate } from '../account/routes.js';
 import type { AssetStorage } from '../assets/storage.js';
@@ -19,7 +20,7 @@ import { z } from 'zod';
 
 type TextAnswerModel = {
   countTextInputTokens(prompt: string): Promise<number>;
-  analyzeText(prompt: string): Promise<{ text: string; inputTokens: number; outputTokens: number }>;
+  analyzeText(prompt: string, signal?: AbortSignal): Promise<{ text: string; inputTokens: number; outputTokens: number }>;
 };
 const questionSchema = z.object({
   question: z.string().trim().min(1).max(120),
@@ -183,7 +184,7 @@ export function createKnowledgeRouter(database: DatabaseHandle, storage: AssetSt
           reservation = undefined;
           fallbackReason = 'Library answer consent was turned off; showing saved evidence excerpts.';
         } else {
-          const generated = await options.answerModel.analyzeText(prompt);
+          const generated = await withOwnerWorkLease(database, ownerId, 'grounded_answer', (signal) => options.answerModel!.analyzeText(prompt, signal));
           providerReturned = true;
           const actualMicroUsd = sparkCostMicroUsd(generated.inputTokens, generated.outputTokens);
           const settled = await aiUsage.settleSearch(reservation, actualMicroUsd);
@@ -211,6 +212,9 @@ export function createKnowledgeRouter(database: DatabaseHandle, storage: AssetSt
             if (providerReturned || (error instanceof MetaApiError && error.outcomeUnknown)) await aiUsage.holdSearch(reservation);
             else await aiUsage.releaseSearch(reservation);
           } catch { /* An open reservation blocks further spend until it can be reconciled. */ }
+        }
+        if (error instanceof OwnerLifecycleError && error.code === 'account_inactive') {
+          return res.status(403).json({ error: { code: 'account_disabled', message: 'This account is disabled while deletion is being reviewed.', requestId: req.requestId } });
         }
         if (error instanceof AiBudgetExceededError) fallbackReason = 'The shared monthly AI budget is full; showing saved evidence excerpts.';
         else if (error instanceof MetaApiError && error.outcomeUnknown) fallbackReason = 'Meta response status is unknown; showing saved evidence excerpts.';
@@ -260,7 +264,7 @@ export function createKnowledgeRouter(database: DatabaseHandle, storage: AssetSt
         reservation = undefined;
         return res.status(403).json({ error: { code: 'ai_search_consent_required', message: 'Library AI consent was turned off. Enable it again before generating a summary.', requestId: req.requestId } });
       }
-      const generated = await options.answerModel.analyzeText(prompt);
+          const generated = await withOwnerWorkLease(database, ownerId, 'grounded_answer', (signal) => options.answerModel!.analyzeText(prompt, signal));
       providerReturned = true;
       const actualMicroUsd = sparkCostMicroUsd(generated.inputTokens, generated.outputTokens);
       const settled = await aiUsage.settleSearch(reservation, actualMicroUsd);
@@ -283,6 +287,9 @@ export function createKnowledgeRouter(database: DatabaseHandle, storage: AssetSt
           if (providerReturned || (error instanceof MetaApiError && error.outcomeUnknown)) await aiUsage.holdSearch(reservation);
           else await aiUsage.releaseSearch(reservation);
         } catch { /* Keep an open reservation if usage reconciliation itself fails. */ }
+      }
+      if (error instanceof OwnerLifecycleError && error.code === 'account_inactive') {
+        return res.status(403).json({ error: { code: 'account_disabled', message: 'This account is disabled while deletion is being reviewed.', requestId: req.requestId } });
       }
       if (error instanceof AiBudgetExceededError) return res.status(429).json({ error: { code: 'ai_budget_exceeded', message: 'The shared monthly AI budget is full. Try again next month.', requestId: req.requestId } });
       if (error instanceof MetaApiError && error.outcomeUnknown) return res.status(503).json({ error: { code: 'ai_outcome_unknown', message: 'Meta response status is unknown. Check for an existing summary before retrying.', requestId: req.requestId } });

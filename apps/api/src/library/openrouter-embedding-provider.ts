@@ -1,4 +1,5 @@
 import type { EmbeddingPurpose, EmbeddingProvider, EmbeddingVector } from './semantic-embeddings.js';
+import { OWNER_WORK_LEASE_TTL_MS } from '../account/owner-lifecycle.js';
 
 export const OPENROUTER_EMBEDDING_MODEL = 'openai/text-embedding-3-small';
 export const OPENROUTER_EMBEDDING_DIMENSIONS = 1_536;
@@ -56,7 +57,7 @@ export class OpenRouterEmbeddingProvider implements EmbeddingProvider {
     const normalizedKey = apiKey.trim();
     if (!normalizedKey) throw new OpenRouterEmbeddingError('OpenRouter embeddings are not configured.', false);
     const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-    if (!Number.isInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 60_000) {
+    if (!Number.isInteger(timeoutMs) || timeoutMs < 1_000 || timeoutMs > 60_000 || timeoutMs >= OWNER_WORK_LEASE_TTL_MS) {
       throw new OpenRouterEmbeddingError('OpenRouter embedding timeout must be between 1000 and 60000 milliseconds.');
     }
     this.apiKey = normalizedKey;
@@ -64,9 +65,12 @@ export class OpenRouterEmbeddingProvider implements EmbeddingProvider {
     this.timeoutMs = timeoutMs;
   }
 
-  async embed(text: string, _purpose: EmbeddingPurpose): Promise<EmbeddingVector> {
+  async embed(text: string, _purpose: EmbeddingPurpose, signal?: AbortSignal): Promise<EmbeddingVector> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
+    const abortFromCaller = () => controller.abort(signal?.reason);
+    if (signal?.aborted) abortFromCaller();
+    else signal?.addEventListener('abort', abortFromCaller, { once: true });
     try {
       const response = await this.fetchImpl(OPENROUTER_EMBEDDINGS_URL, {
         method: 'POST',
@@ -99,6 +103,7 @@ export class OpenRouterEmbeddingProvider implements EmbeddingProvider {
       throw new OpenRouterEmbeddingError('OpenRouter embedding request could not be completed.');
     } finally {
       clearTimeout(timeout);
+      signal?.removeEventListener('abort', abortFromCaller);
     }
   }
 }

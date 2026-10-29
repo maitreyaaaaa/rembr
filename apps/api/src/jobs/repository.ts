@@ -1,4 +1,5 @@
 import type { DatabaseHandle } from '../db/database.js';
+import { lockActiveOwner } from '../account/owner-lifecycle.js';
 
 export type JobActionError = 'not_found' | 'not_cancellable' | 'not_retryable' | 'not_reprocessable';
 
@@ -24,6 +25,7 @@ export function createJobRepository(database: DatabaseHandle) {
     async cancel(ownerId: string, itemId: string) {
       const now = new Date().toISOString();
       const transaction = database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
         const job = await find(ownerId, itemId); if (!job) return 'not_found' as const;
         const status = String(job.status);
         if (status === 'cancelled') return { status };
@@ -45,6 +47,7 @@ export function createJobRepository(database: DatabaseHandle) {
     async retry(ownerId: string, itemId: string) {
       const now = new Date().toISOString();
       const transaction = database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
         const job = await find(ownerId, itemId); if (!job) return 'not_found' as const;
         const retryable = ['dns_failed', 'page_timeout', 'page_unavailable', 'fetch_failed', 'worker_interrupted', 'storage_unavailable'];
         if (String(job.status) !== 'failed' || !retryable.includes(String(job.error_code))) return 'not_retryable' as const;
@@ -62,6 +65,7 @@ export function createJobRepository(database: DatabaseHandle) {
     async reprocess(ownerId: string, itemId: string) {
       const now = new Date().toISOString();
       const transaction = database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
         const job = await find(ownerId, itemId); if (!job) return 'not_found' as const;
         if (!['completed', 'partial'].includes(String(job.status))) return 'not_reprocessable' as const;
         const generation = Number(job.generation) + 1;

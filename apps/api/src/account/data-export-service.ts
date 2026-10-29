@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import JSZip from 'jszip';
-import { lockActiveOwner } from './owner-lifecycle.js';
+import { lockActiveOwner, OwnerLifecycleError, withOwnerWorkLease } from './owner-lifecycle.js';
 import type { DatabaseHandle } from '../db/database.js';
 import { createAccountDataMapService } from './data-map-service.js';
 
@@ -33,7 +33,8 @@ export interface OwnerScopedPrivateFileSource {
 }
 
 export interface PrivateExportArtifactStorage {
-  write(ownerId: string, exportId: string, leaseToken: string, bytes: Buffer): Promise<string>;
+  keyForAttempt(ownerId: string, exportId: string, leaseToken: string): string;
+  write(ownerId: string, key: string, bytes: Buffer): Promise<void>;
   read(ownerId: string, key: string): Promise<Buffer>;
   remove(ownerId: string, key: string): Promise<void>;
 }
@@ -97,6 +98,8 @@ const excludedColumns: Record<string, ReadonlySet<string>> = {
   import_upload_chunks: new Set(['storage_key']),
   media_artifacts: new Set(['storage_key']),
   account_data_exports: new Set(['lease_token', 'lease_expires_at', 'artifact_key']),
+  account_deletion_requests: new Set(['owner_hash', 'approved_by', 'lease_token', 'lease_expires_at']),
+  account_deletion_steps: new Set(['error_code']),
 };
 
 function ownerColumnFor(table: string): OwnerColumn {
@@ -414,32 +417,80 @@ export function createAccountDataExportService(
         snapshot.zip.file('manifest.json', JSON.stringify(manifest, null, 2));
         const archive = await snapshot.zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', compressionOptions: { level: 6 } });
         if (archive.length > limits.maxArchiveBytes) throw new AccountDataExportError('archive_size_limit_exceeded', 'The compressed archive exceeds the configured export size limit.');
-        artifactKey = await artifactStorage.write(claim.ownerId, claim.id, claim.leaseToken, archive);
         const completedAt = now.toISOString();
-        const finalized = await database.transaction(async () => {
-          if (!await lockActiveOwner(database, claim.ownerId)) {
-            await database.prepare(`UPDATE account_data_exports SET status='cancelled',artifact_key=NULL,lease_token=NULL,
-              lease_expires_at=NULL,updated_at=?,error_code='account_inactive'
-              WHERE owner_id=? AND id=? AND status='processing' AND lease_token=?`)
-              .run(completedAt, claim.ownerId, claim.id, claim.leaseToken);
-            return false;
+        const finalized = await withOwnerWorkLease(database, claim.ownerId, 'export_write', async (signal) => {
+          try {
+            const current = await database.prepare(`SELECT artifact_key FROM account_data_exports WHERE owner_id=? AND id=?
+              AND status='processing' AND lease_token=? AND lease_expires_at>?`)
+              .get(claim.ownerId, claim.id, claim.leaseToken, completedAt) as { artifact_key: string | null } | undefined;
+            if (!current) return false;
+
+            // A reclaimed attempt may inherit a durable key from a worker that crashed after writing.
+            // Remove it before replacing the pointer; if removal fails, keep the key for deletion/retry.
+            if (current.artifact_key) {
+              await artifactStorage.remove(claim.ownerId, current.artifact_key);
+              await database.prepare(`UPDATE account_data_exports SET artifact_key=NULL,updated_at=?
+                WHERE owner_id=? AND id=? AND status='processing' AND lease_token=? AND artifact_key=?`)
+                .run(completedAt, claim.ownerId, claim.id, claim.leaseToken, current.artifact_key);
+            }
+
+            artifactKey = artifactStorage.keyForAttempt(claim.ownerId, claim.id, claim.leaseToken);
+            const staged = await database.prepare(`UPDATE account_data_exports SET artifact_key=?,updated_at=?
+              WHERE owner_id=? AND id=? AND status='processing' AND lease_token=? AND lease_expires_at>?`)
+              .run(artifactKey, completedAt, claim.ownerId, claim.id, claim.leaseToken, completedAt);
+            if (staged.changes !== 1) { artifactKey = null; return false; }
+
+            if (signal.aborted) throw signal.reason ?? new Error('owner_work_lease_lost');
+            await artifactStorage.write(claim.ownerId, artifactKey, archive);
+            if (signal.aborted) throw signal.reason ?? new Error('owner_work_lease_lost');
+            const committed = await database.transaction(async () => {
+              if (!await lockActiveOwner(database, claim.ownerId)) {
+                await database.prepare(`UPDATE account_data_exports SET status='cancelled',lease_token=NULL,
+                  lease_expires_at=NULL,updated_at=?,error_code='account_inactive'
+                  WHERE owner_id=? AND id=? AND status='processing' AND lease_token=?`)
+                  .run(completedAt, claim.ownerId, claim.id, claim.leaseToken);
+                return false;
+              }
+              const update = await database.prepare(`UPDATE account_data_exports SET status='ready',expires_at=?,
+                completed_at=?,updated_at=?,lease_token=NULL,lease_expires_at=NULL,error_code=NULL
+                WHERE owner_id=? AND id=? AND status='processing' AND lease_token=? AND lease_expires_at>?`)
+                .run(expiresAt, completedAt, completedAt, claim.ownerId, claim.id, claim.leaseToken, completedAt);
+              return update.changes === 1;
+            })();
+            if (!committed) {
+              await artifactStorage.remove(claim.ownerId, artifactKey);
+              await database.prepare(`UPDATE account_data_exports SET artifact_key=NULL,updated_at=?
+                WHERE owner_id=? AND id=? AND artifact_key=?`).run(completedAt, claim.ownerId, claim.id, artifactKey);
+            }
+            return committed;
+          } catch (cause) {
+            if (artifactKey) {
+              try {
+                await artifactStorage.remove(claim.ownerId, artifactKey);
+                await database.prepare(`UPDATE account_data_exports SET artifact_key=NULL,updated_at=?
+                  WHERE owner_id=? AND id=? AND artifact_key=?`)
+                  .run(completedAt, claim.ownerId, claim.id, artifactKey);
+                artifactKey = null;
+              } catch { /* retain the durable key for deletion or a later retry */ }
+            }
+            throw cause;
           }
-          const update = await database.prepare(`UPDATE account_data_exports SET status='ready',artifact_key=?,expires_at=?,
-            completed_at=?,updated_at=?,lease_token=NULL,lease_expires_at=NULL,error_code=NULL
-            WHERE owner_id=? AND id=? AND status='processing' AND lease_token=? AND lease_expires_at>?`)
-            .run(artifactKey, expiresAt, completedAt, completedAt, claim.ownerId, claim.id, claim.leaseToken, completedAt);
-          return update.changes === 1;
-        })();
-        if (!finalized) {
-          await artifactStorage.remove(claim.ownerId, artifactKey);
-          return getStatus(claim.ownerId, claim.id);
-        }
+        });
+        if (!finalized) return getStatus(claim.ownerId, claim.id);
       } catch (cause) {
-        if (artifactKey) await artifactStorage.remove(claim.ownerId, artifactKey).catch(() => undefined);
-        const code = cause instanceof AccountDataExportError ? cause.code : 'export_failed';
-        await database.prepare(`UPDATE account_data_exports SET status='failed',error_code=?,updated_at=?,lease_token=NULL,lease_expires_at=NULL
+        if (artifactKey) {
+          try {
+            await artifactStorage.remove(claim.ownerId, artifactKey);
+            await database.prepare(`UPDATE account_data_exports SET artifact_key=NULL,updated_at=?
+              WHERE owner_id=? AND id=? AND artifact_key=?`)
+              .run(now.toISOString(), claim.ownerId, claim.id, artifactKey);
+          } catch { /* retain the durable key for deletion or a later retry */ }
+        }
+        const accountInactive = cause instanceof OwnerLifecycleError && cause.code === 'account_inactive';
+        const code = accountInactive ? 'account_inactive' : cause instanceof AccountDataExportError ? cause.code : 'export_failed';
+        await database.prepare(`UPDATE account_data_exports SET status=?,error_code=?,updated_at=?,lease_token=NULL,lease_expires_at=NULL
           WHERE owner_id=? AND id=? AND status='processing' AND lease_token=?`)
-          .run(code, now.toISOString(), claim.ownerId, claim.id, claim.leaseToken);
+          .run(accountInactive ? 'cancelled' : 'failed', code, now.toISOString(), claim.ownerId, claim.id, claim.leaseToken);
       }
       return getStatus(claim.ownerId, claim.id);
     },

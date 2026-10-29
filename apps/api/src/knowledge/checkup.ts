@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { createHash } from 'node:crypto';
 import type { DatabaseHandle } from '../db/database.js';
+import { lockActiveOwner } from '../account/owner-lifecycle.js';
 
 const OLD_SAVE_DAYS = 90;
 const ITEM_SAMPLE_LIMIT = 200;
@@ -114,19 +115,27 @@ export function createLibraryCheckupRepository(database: DatabaseHandle) {
       };
     },
     async createReminder(ownerId: string, itemId: string, preset: 'tomorrow' | 'week' | 'month', note = '', now = new Date()) {
-      if (!await database.prepare('SELECT 1 FROM saved_items WHERE owner_id=? AND id=?').get(ownerId, itemId)) return null;
       const days = preset === 'tomorrow' ? 1 : preset === 'month' ? 30 : 7;
       const id = randomUUID();
       const createdAt = now.toISOString();
       const remindAt = new Date(now.getTime() + days * 24 * 60 * 60 * 1000).toISOString();
-      await database.prepare(`INSERT INTO library_reminders (id,owner_id,item_id,remind_at,status,reason,note,completed_at,created_at,updated_at)
-        VALUES (?,?,?,?,'pending',?,?,NULL,?,?)`).run(id, ownerId, itemId, remindAt, preset, note.trim().replace(/\s+/g, ' ').slice(0, 300), createdAt, createdAt);
+      const inserted = await database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
+        if (!await database.prepare('SELECT 1 FROM saved_items WHERE owner_id=? AND id=?').get(ownerId, itemId)) return false;
+        await database.prepare(`INSERT INTO library_reminders (id,owner_id,item_id,remind_at,status,reason,note,completed_at,created_at,updated_at)
+          VALUES (?,?,?,?,'pending',?,?,NULL,?,?)`).run(id, ownerId, itemId, remindAt, preset, note.trim().replace(/\s+/g, ' ').slice(0, 300), createdAt, createdAt);
+        return true;
+      })();
+      if (!inserted) return null;
       return { id, itemId, remindAt, status: 'pending' as const, reason: preset, note: note.trim().replace(/\s+/g, ' ').slice(0, 300), completedAt: null, createdAt, updatedAt: createdAt };
     },
     async updateReminder(ownerId: string, reminderId: string, status: 'done' | 'dismissed', now = new Date()) {
       const updatedAt = now.toISOString();
-      const result = await database.prepare(`UPDATE library_reminders SET status=?,completed_at=?,updated_at=?
-        WHERE owner_id=? AND id=? AND status='pending'`).run(status, status === 'done' ? updatedAt : null, updatedAt, ownerId, reminderId);
+      const result = await database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
+        return database.prepare(`UPDATE library_reminders SET status=?,completed_at=?,updated_at=?
+          WHERE owner_id=? AND id=? AND status='pending'`).run(status, status === 'done' ? updatedAt : null, updatedAt, ownerId, reminderId);
+      })();
       return result.changes === 1;
     },
   };

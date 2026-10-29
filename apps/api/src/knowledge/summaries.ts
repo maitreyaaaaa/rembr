@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { DatabaseHandle } from '../db/database.js';
+import { lockActiveOwner } from '../account/owner-lifecycle.js';
 
 export const SAVED_ITEM_SUMMARY_PROMPT_VERSION = '2026-10-29-v1';
 
@@ -45,6 +46,7 @@ export function createSavedItemSummaryRepository(database: DatabaseHandle) {
     async save(input: { ownerId: string; itemId: string; model: string; context: SavedItemSummaryContext; summary: string; inputTokens: number; outputTokens: number; billedMicroUsd: number }) {
       const createdAt = new Date().toISOString();
       return database.transaction(async () => {
+        if (!await lockActiveOwner(database, input.ownerId)) throw new Error('account_inactive');
         await database.prepare('SELECT id FROM saved_items WHERE owner_id=? AND id=? FOR UPDATE').get(input.ownerId, input.itemId);
         const next = await database.prepare(`SELECT COALESCE(MAX(generation),0)+1 AS generation FROM ai_saved_item_summaries
           WHERE owner_id=? AND item_id=?`).get(input.ownerId, input.itemId) as { generation: number };

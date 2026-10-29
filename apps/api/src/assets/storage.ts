@@ -6,7 +6,7 @@ export type ImageMime = 'image/png' | 'image/jpeg' | 'image/webp' | 'image/gif';
 export interface StoredAsset { id: string; key: string; mime: ImageMime; bytes: number; sha256: string }
 export interface AssetStorage {
   initialize(): Promise<void>;
-  write(data: Buffer, id?: string): Promise<StoredAsset>;
+  write(data: Buffer, id?: string, signal?: AbortSignal): Promise<StoredAsset>;
   read(key: string): Promise<Buffer>;
   remove(key: string): Promise<void>;
   removeTemporaryAndUnknown(validKeys: Set<string>): Promise<void>;

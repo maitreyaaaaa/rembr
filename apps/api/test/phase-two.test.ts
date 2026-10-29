@@ -8,10 +8,17 @@ import { once } from 'node:events';
 import { test } from 'node:test';
 import { createApp } from '../src/app.js';
 import { createTestDatabase } from '../src/db/database.js';
+import { createAccountRepository } from '../src/account/repository.js';
+import { createAssetRepository } from '../src/assets/repository.js';
+import { createAssetService } from '../src/assets/service.js';
 import { AI_SEARCH_DISCLOSURE_VERSION } from '../src/knowledge/ai-search-preferences.js';
 import { MetaApiError } from '../src/ai/meta-client.js';
 import { recoverAssets } from '../src/assets/recovery.js';
 import { LocalAssetStorage } from '../src/assets/storage.js';
+import { createItemRepository } from '../src/items/repository.js';
+import { createJobRepository } from '../src/jobs/repository.js';
+import { createLibraryRepository } from '../src/library/repository.js';
+import { createOrganizationRepository } from '../src/organization/repository.js';
 
 const origin = 'http://127.0.0.1:5173';
 const password = 'correct-horse-battery-staple';
@@ -74,6 +81,58 @@ test('profile usernames are unique after normalization and owner scoped', async 
     const duplicate = await profile(baseUrl, second.cookie, 'unique_name');
     assert.equal(duplicate.status, 409);
     assert.equal((await duplicate.json() as { error: { code: string } }).error.code, 'username_taken');
+  });
+});
+
+test('account, library, job, organization, and asset writes fence a disabled owner', async () => {
+  await withApi(async (baseUrl, database) => {
+    const account = await register(baseUrl, 'freeze-write-owner@example.test');
+    const ownerId = account.user.user.id;
+    const accountRepository = createAccountRepository(database);
+    const assetRepository = createAssetRepository(database);
+    const itemRepository = createItemRepository(database);
+    const jobRepository = createJobRepository(database);
+    const libraryRepository = createLibraryRepository(database);
+    const organizationRepository = createOrganizationRepository(database);
+
+    await accountRepository.saveProfile(ownerId, 'freeze_owner', null, null, null, new Date().toISOString());
+    const item = await itemRepository.create(ownerId, 'https://example.com/freeze-write', 'https://example.com/freeze-write', 'Freeze write');
+    await assetRepository.stage('freeze-asset', ownerId, 'avatar', 'freeze-asset.asset', 'image/png', 8, 'a'.repeat(64), new Date().toISOString());
+    await database.prepare("UPDATE users SET account_status='disabled' WHERE id=?").run(ownerId);
+
+    await assert.rejects(accountRepository.saveProfile(ownerId, 'frozen_owner', null, null, null, new Date().toISOString()), /account_inactive/);
+    await assert.rejects(accountRepository.saveOnboarding(ownerId, [], null, null, null, new Date().toISOString()), /account_inactive/);
+    await assert.rejects(itemRepository.create(ownerId, 'https://example.com/blocked', 'https://example.com/blocked', 'Blocked'), /account_inactive/);
+    await assert.rejects(itemRepository.delete(ownerId, item.id), /account_inactive/);
+    await assert.rejects(jobRepository.cancel(ownerId, item.id), /account_inactive/);
+    await assert.rejects(jobRepository.retry(ownerId, item.id), /account_inactive/);
+    await assert.rejects(jobRepository.reprocess(ownerId, item.id), /account_inactive/);
+    await assert.rejects(libraryRepository.createPage(ownerId, 'https://example.com/blocked-page', 'https://example.com/blocked-page', 'Blocked'), /account_inactive/);
+    await assert.rejects(libraryRepository.saveNote({ ownerId, itemId: 'frozen-note', isCreate: true, body: 'blocked', title: 'Blocked', links: [], assetIds: [], now: new Date().toISOString() }), /account_inactive/);
+    await assert.rejects(organizationRepository.createTag({ id: 'frozen-tag', ownerId, normalized: 'frozen', name: 'Frozen', now: new Date().toISOString() }), /account_inactive/);
+    await assert.rejects(organizationRepository.createCollection({ id: 'frozen-collection', ownerId, name: 'Frozen', normalized: 'frozen', description: '', now: new Date().toISOString() }), /account_inactive/);
+    await assert.rejects(assetRepository.markReady(ownerId, 'freeze-asset', new Date().toISOString()), /account_inactive/);
+
+    assert.equal((await database.prepare('SELECT state FROM asset_objects WHERE id=?').get('freeze-asset') as { state: string }).state, 'staging');
+    assert.equal((await database.prepare("SELECT count(*) AS count FROM saved_items WHERE owner_id=? AND canonical_url='https://example.com/blocked'").get(ownerId) as { count: number }).count, 0);
+
+    await database.prepare("UPDATE users SET account_status='active' WHERE id=?").run(ownerId);
+    const stored = new Set<string>();
+    const assetService = createAssetService(database, {
+      async initialize() {},
+      async write(bytes, id = 'asset') {
+        const key = `${id}.asset`;
+        stored.add(key);
+        await database.prepare("UPDATE users SET account_status='disabled' WHERE id=?").run(ownerId);
+        return { id, key, mime: 'image/png', bytes: bytes.length, sha256: 'b'.repeat(64) };
+      },
+      async read() { throw new Error('not used'); },
+      async remove(key) { stored.delete(key); },
+      async removeTemporaryAndUnknown() {},
+    });
+    await assert.rejects(assetService.stage(ownerId, 'avatar', Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), 'image/png'), /account_inactive/);
+    assert.equal(stored.size, 0);
+    assert.equal((await database.prepare("SELECT count(*) AS count FROM asset_objects WHERE owner_id=? AND state='staging'").get(ownerId) as { count: number }).count, 1);
   });
 });
 
@@ -829,10 +888,10 @@ test('Postgres schema starts with the complete empty Rembr model', async () => {
   try {
     const result = await database.prepare(`SELECT count(*) AS count FROM information_schema.tables
       WHERE table_schema='public' AND table_type='BASE TABLE'`).get() as { count: string };
-    assert.equal(Number(result.count), 45);
+    assert.equal(Number(result.count), 51);
     const rls = await database.prepare(`SELECT count(*) AS count FROM pg_class c
       JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='r' AND c.relrowsecurity`).get() as { count: string };
-    assert.equal(Number(rls.count), 45);
+    assert.equal(Number(rls.count), 51);
     const mediaAnalysisTables = await database.prepare(`SELECT count(*) AS count FROM information_schema.tables
       WHERE table_schema='public' AND table_name IN ('ai_analysis_preferences','ai_worker_status','ai_analysis_jobs','ai_analysis_results','ai_import_usage','ai_monthly_usage','ai_usage_reservations')`).get() as { count: string };
     assert.equal(Number(mediaAnalysisTables.count), 7);

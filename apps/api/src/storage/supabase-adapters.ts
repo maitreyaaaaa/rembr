@@ -18,11 +18,11 @@ export class SupabaseAssetStorage implements AssetStorage {
 
   initialize(): Promise<void> { return this.objects.initialize(); }
 
-  async write(data: Buffer, id = randomUUID()): Promise<StoredAsset> {
+  async write(data: Buffer, id = randomUUID(), signal?: AbortSignal): Promise<StoredAsset> {
     const mime = detectImageMime(data);
     if (!mime) throw new Error('unsupported_asset_type');
     const key = `${id}.asset`;
-    await this.objects.write(key, data, mime);
+    await this.objects.write(key, data, mime, signal);
     return { id, key, mime, bytes: data.length, sha256: createHash('sha256').update(data).digest('hex') };
   }
 
@@ -48,10 +48,10 @@ export class SupabaseImportStorage implements ImportStorage {
 
   initialize(): Promise<void> { return this.objects.initialize(); }
 
-  async writeChunk(fileKey: string, index: number, bytes: Buffer): Promise<string> {
+  async writeChunk(fileKey: string, index: number, bytes: Buffer, signal?: AbortSignal): Promise<string> {
     if (!IMPORT_KEY.test(fileKey) || !Number.isInteger(index) || index < 0 || index > 99) throw new Error('invalid_import_storage_key');
     const key = `${fileKey}.${index.toString().padStart(3, '0')}.part`;
-    await this.objects.write(key, bytes, 'application/octet-stream');
+    await this.objects.write(key, bytes, 'application/octet-stream', signal);
     return key;
   }
 
@@ -65,18 +65,18 @@ export class SupabaseImportStorage implements ImportStorage {
     await this.objects.remove(`${fileKey}.${index.toString().padStart(3, '0')}.part`);
   }
 
-  async assemble(fileKey: string, chunkCount: number, expectedBytes: number): Promise<void> {
+  async assemble(fileKey: string, chunkCount: number, expectedBytes: number, signal?: AbortSignal): Promise<void> {
     if (!IMPORT_KEY.test(fileKey) || !Number.isInteger(chunkCount) || chunkCount < 1 || chunkCount > 100) throw new Error('invalid_import_storage_key');
     const chunks: Buffer[] = [];
     let total = 0;
     for (let index = 0; index < chunkCount; index += 1) {
-      const chunk = await this.readChunk(`${fileKey}.${index.toString().padStart(3, '0')}.part`);
+      const chunk = await this.objects.read(`${fileKey}.${index.toString().padStart(3, '0')}.part`, signal);
       total += chunk.length;
       if (total > expectedBytes) throw new Error('import_byte_count_mismatch');
       chunks.push(chunk);
     }
     if (total !== expectedBytes) throw new Error('import_byte_count_mismatch');
-    await this.objects.write(`${fileKey}.upload`, Buffer.concat(chunks, total), 'application/octet-stream');
+    await this.objects.write(`${fileKey}.upload`, Buffer.concat(chunks, total), 'application/octet-stream', signal);
   }
 
   async readFile(fileKey: string): Promise<Buffer> {
@@ -104,11 +104,12 @@ export class SupabaseMediaStorage implements MediaStorage {
 
   initialize(): Promise<void> { return this.objects.initialize(); }
 
-  async write(bytes: Buffer, declaredMime?: string): Promise<{ key: string; mime: SupportedMediaMime; sha256: string }> {
+  async write(bytes: Buffer, declaredMime?: string, requestedKey?: string, signal?: AbortSignal): Promise<{ key: string; mime: SupportedMediaMime; sha256: string }> {
     const mime = detectSupportedMediaMime(bytes, declaredMime);
     if (!mime || bytes.length < 1 || bytes.length > MAX_MEDIA_BYTES) throw new Error('invalid_media_bytes');
-    const key = `${randomUUID()}.media`;
-    await this.objects.write(key, bytes, mime);
+    const key = requestedKey ?? `${randomUUID()}.media`;
+    if (!MEDIA_KEY.test(key)) throw new Error('invalid_media_key');
+    await this.objects.write(key, bytes, mime, signal);
     return { key, mime, sha256: createHash('sha256').update(bytes).digest('hex') };
   }
 

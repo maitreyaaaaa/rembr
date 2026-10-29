@@ -4,6 +4,7 @@ import { config } from '../config.js';
 import { detectSupportedMediaMime, LocalMediaStorage, type MediaStorage } from '../media/storage.js';
 import { CaptureError, fetchPublicMedia, fetchPublicPage } from '../items/safe-fetch.js';
 import { extractPage } from '../items/extract.js';
+import { lockActiveOwner, OwnerLifecycleError, withOwnerWorkLease } from '../account/owner-lifecycle.js';
 
 interface ClaimedJob {
   id: string; item_id: string; owner_id: string; import_id: string | null; correlation_id: string;
@@ -124,11 +125,26 @@ export async function cleanupInactiveMedia(database: DatabaseHandle, storage: Me
   for (const row of queued) {
     try {
       await storage.remove(row.storage_key);
-      await database.prepare('DELETE FROM media_cleanup_queue WHERE storage_key=?').run(row.storage_key);
+      await database.transaction(async () => {
+        await database.prepare('DELETE FROM media_artifacts WHERE storage_key=? AND active=0').run(row.storage_key);
+        await database.prepare('DELETE FROM media_cleanup_queue WHERE storage_key=?').run(row.storage_key);
+      })();
     } catch {
       await database.prepare('UPDATE media_cleanup_queue SET attempt_count=attempt_count+1,last_error=?,updated_at=? WHERE storage_key=?')
         .run('storage_unavailable', new Date().toISOString(), row.storage_key);
     }
+  }
+  const abandoned = await database.prepare(`SELECT id,storage_key FROM media_artifacts
+    WHERE active=1 AND status='failed' AND error_code='media_write_pending'
+      AND created_at<=? AND NOT EXISTS (
+        SELECT 1 FROM account_owner_work_leases lease WHERE lease.owner_id=media_artifacts.owner_id AND lease.expires_at>?
+      )`).all(new Date(Date.now() - 15 * 60_000).toISOString(), new Date().toISOString()) as Array<{ id: string; storage_key: string | null }>;
+  for (const row of abandoned) {
+    try {
+      if (row.storage_key) await storage.remove(row.storage_key);
+      await database.prepare(`DELETE FROM media_artifacts WHERE id=? AND active=1 AND status='failed' AND error_code='media_write_pending'`)
+        .run(row.id);
+    } catch { /* A later worker sweep or account deletion retries from the durable media row. */ }
   }
   const rows = await database.prepare(`SELECT id,storage_key FROM media_artifacts WHERE active=0`).all() as Array<{ id: string; storage_key: string | null }>;
   for (const row of rows) {
@@ -159,24 +175,12 @@ export async function processNextJob(database: DatabaseHandle, fetchPage: PageFe
   try {
     const page = await fetchPage(job.original_url);
     const extracted = extractPage(page.html, page.finalUrl);
-    const mediaResults: Array<{ sourceUrl: string; storageKey: string | null; mime: string | null; byteSize: number; sha256: string | null; status: 'ready' | 'failed'; errorCode: string | null }> = [];
+    const mediaResults: Array<{ id?: string; sourceUrl: string; storageKey: string | null; mime: string | null; byteSize: number; sha256: string | null; status: 'ready' | 'failed'; errorCode: string | null }> = [];
     // Instagram media used for AI analysis is fetched into a private temporary directory
     // by the AI worker. Keep the established artifact-storage path for other platforms.
     const persistedMediaUrls = job.source_platform === 'instagram' ? [] : extracted.mediaUrls.slice(0, 3);
-    for (const sourceUrl of persistedMediaUrls) {
-      try {
-        const downloaded = await mediaProcessor.fetchMedia(sourceUrl);
-        const detectedMime = detectSupportedMediaMime(downloaded.bytes, downloaded.mime);
-        if (!detectedMime || detectedMime !== downloaded.mime) throw new CaptureError('media_signature_mismatch', 'The media type did not match its file contents.');
-        const stored = await mediaProcessor.storage.write(downloaded.bytes, detectedMime);
-        writtenMediaKeys.push(stored.key);
-        mediaResults.push({ sourceUrl, storageKey: stored.key, mime: stored.mime, byteSize: downloaded.bytes.length, sha256: stored.sha256, status: 'ready', errorCode: null });
-      } catch (cause) {
-        mediaResults.push({ sourceUrl, storageKey: null, mime: null, byteSize: 0, sha256: null, status: 'failed', errorCode: cause instanceof CaptureError ? cause.code : 'media_store_failed' });
-      }
-    }
-    const mediaFailed = mediaResults.some((result) => result.status === 'failed');
     const now = new Date().toISOString();
+    let mediaFailed = false;
     const finish = database.transaction(async () => {
       const active = await database.prepare(`SELECT processing_jobs.status FROM processing_jobs JOIN users ON users.id=processing_jobs.owner_id
         WHERE processing_jobs.id=? AND processing_jobs.owner_id=? AND processing_jobs.item_id=? AND processing_jobs.lease_token=?
@@ -195,8 +199,18 @@ export async function processNextJob(database: DatabaseHandle, fetchPage: PageFe
       const insertMedia = database.prepare(`INSERT INTO media_artifacts
         (id,owner_id,item_id,generation,source_url,storage_key,detected_mime,byte_size,sha256,status,error_code,active,created_at)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`);
-      for (const media of mediaResults) await insertMedia.run(randomUUID(), job.owner_id, job.item_id, job.generation, media.sourceUrl, media.storageKey,
-        media.mime, media.byteSize, media.sha256, media.status, media.errorCode, media.status === 'failed' || !mediaFailed ? 1 : 0, now);
+      for (const media of mediaResults) {
+        const activeMedia = media.status === 'failed' || !mediaFailed ? 1 : 0;
+        if (media.id) {
+          await database.prepare(`UPDATE media_artifacts SET storage_key=?,detected_mime=?,byte_size=?,sha256=?,status=?,error_code=?,active=?
+            WHERE id=? AND owner_id=? AND item_id=?`)
+            .run(media.storageKey, media.mime, media.byteSize, media.sha256, media.status, media.errorCode, activeMedia,
+              media.id, job.owner_id, job.item_id);
+        } else {
+          await insertMedia.run(randomUUID(), job.owner_id, job.item_id, job.generation, media.sourceUrl, media.storageKey,
+            media.mime, media.byteSize, media.sha256, media.status, media.errorCode, activeMedia, now);
+        }
+      }
       const finalStatus = mediaFailed ? 'partial' : 'completed';
       await database.prepare(`UPDATE processing_jobs SET status=?,lease_token=NULL,lease_expires_at=NULL,heartbeat_at=?,error_code=?,updated_at=?
         WHERE id=? AND owner_id=? AND lease_token=? AND status='processing'`).run(finalStatus, now, mediaFailed ? 'media_partial' : null, now, job.id, job.owner_id, job.lease_token);
@@ -207,8 +221,82 @@ export async function processNextJob(database: DatabaseHandle, fetchPage: PageFe
       await finishImportIfIdle(database, job.owner_id, job.import_id, now);
       return true;
     });
-    const committed = await finish();
-    if (committed !== true) await queueMediaCleanup(database, writtenMediaKeys);
+    const committed = await withOwnerWorkLease(database, job.owner_id, 'media_upload', async (signal) => {
+      try {
+        for (const sourceUrl of persistedMediaUrls) {
+          try {
+            const downloaded = await mediaProcessor.fetchMedia(sourceUrl);
+            const detectedMime = detectSupportedMediaMime(downloaded.bytes, downloaded.mime);
+            if (!detectedMime || detectedMime !== downloaded.mime) throw new CaptureError('media_signature_mismatch', 'The media type did not match its file contents.');
+            const id = randomUUID(); const storageKey = `${randomUUID()}.media`;
+            await database.transaction(async () => {
+              if (!await lockActiveOwner(database, job.owner_id)) throw new OwnerLifecycleError('account_inactive');
+              await database.prepare(`INSERT INTO media_artifacts
+                (id,owner_id,item_id,generation,source_url,storage_key,detected_mime,byte_size,sha256,status,error_code,active,created_at)
+                VALUES (?,?,?,?,?,?,NULL,0,NULL,'failed','media_write_pending',1,?)`)
+                .run(id, job.owner_id, job.item_id, job.generation, sourceUrl, storageKey, now);
+            })();
+            try {
+              const stored = await mediaProcessor.storage.write(downloaded.bytes, detectedMime, storageKey, signal);
+              if (stored.key !== storageKey) throw new Error('media_storage_key_mismatch');
+              writtenMediaKeys.push(storageKey);
+              await database.prepare(`UPDATE media_artifacts SET detected_mime=?,byte_size=?,sha256=?,status='ready',error_code=NULL
+                WHERE id=? AND owner_id=? AND storage_key=? AND status='failed' AND error_code='media_write_pending'`)
+                .run(stored.mime, downloaded.bytes.length, stored.sha256, id, job.owner_id, storageKey);
+              mediaResults.push({ id, sourceUrl, storageKey, mime: stored.mime, byteSize: downloaded.bytes.length, sha256: stored.sha256, status: 'ready', errorCode: null });
+            } catch (cause) {
+              let removed = false;
+              try { await mediaProcessor.storage.remove(storageKey); removed = true; } catch { /* The durable intent remains available to deletion/recovery. */ }
+              if (removed) {
+                await database.prepare(`UPDATE media_artifacts SET storage_key=NULL,detected_mime=NULL,byte_size=0,sha256=NULL,
+                  status='failed',error_code=? WHERE id=? AND owner_id=?`)
+                  .run(cause instanceof CaptureError ? cause.code : 'media_store_failed', id, job.owner_id);
+              } else {
+                await database.prepare(`UPDATE media_artifacts SET status='failed',error_code='media_cleanup_pending',active=0
+                  WHERE id=? AND owner_id=?`).run(id, job.owner_id);
+                await queueMediaCleanup(database, [storageKey]);
+              }
+              mediaResults.push({ id, sourceUrl, storageKey: removed ? null : storageKey, mime: null, byteSize: 0, sha256: null,
+                status: 'failed', errorCode: cause instanceof CaptureError ? cause.code : 'media_store_failed' });
+            }
+          } catch (cause) {
+            if (cause instanceof OwnerLifecycleError) throw cause;
+            mediaResults.push({ sourceUrl, storageKey: null, mime: null, byteSize: 0, sha256: null,
+              status: 'failed', errorCode: cause instanceof CaptureError ? cause.code : 'media_store_failed' });
+          }
+        }
+        mediaFailed = mediaResults.some((result) => result.status === 'failed');
+        const result = await finish();
+        if (result !== true) {
+          for (const media of mediaResults) {
+            if (!media.id || !media.storageKey) continue;
+            try {
+              await mediaProcessor.storage.remove(media.storageKey);
+              await database.prepare('DELETE FROM media_artifacts WHERE id=? AND owner_id=?').run(media.id, job.owner_id);
+            } catch {
+              await database.prepare(`UPDATE media_artifacts SET status='failed',error_code='media_cleanup_pending',active=0
+                WHERE id=? AND owner_id=?`).run(media.id, job.owner_id);
+              await queueMediaCleanup(database, [media.storageKey]);
+            }
+          }
+        }
+        return result;
+      } catch (cause) {
+        for (const media of mediaResults) {
+          if (!media.id || !media.storageKey) continue;
+          try {
+            await mediaProcessor.storage.remove(media.storageKey);
+            await database.prepare('DELETE FROM media_artifacts WHERE id=? AND owner_id=?').run(media.id, job.owner_id);
+          } catch {
+            await database.prepare(`UPDATE media_artifacts SET status='failed',error_code='media_cleanup_pending',active=0
+              WHERE id=? AND owner_id=?`).run(media.id, job.owner_id).catch(() => undefined);
+            await queueMediaCleanup(database, [media.storageKey]).catch(() => undefined);
+          }
+        }
+        throw cause;
+      }
+    });
+    if (committed !== true && writtenMediaKeys.length) await queueMediaCleanup(database, writtenMediaKeys);
     await cleanupInactiveMedia(database, mediaProcessor.storage);
     return committed === false ? null : job.id;
   } catch (error) {
@@ -220,6 +308,19 @@ export async function processNextJob(database: DatabaseHandle, fetchPage: PageFe
         .get(job.id, job.owner_id, job.lease_token) as { status: string } | undefined;
       if (!state) return;
       if (state.status === 'cancel_requested') { await cancelOwnedAttempt(database, job, now); return; }
+      if (error instanceof OwnerLifecycleError && error.code === 'account_inactive') {
+        await database.prepare(`UPDATE processing_jobs SET status='cancelled',lease_token=NULL,lease_expires_at=NULL,error_code='account_inactive',updated_at=?
+          WHERE id=? AND owner_id=? AND lease_token=?`).run(now, job.id, job.owner_id, job.lease_token);
+        await database.prepare(`UPDATE saved_items SET status='failed',error_code='account_inactive',updated_at=? WHERE id=? AND owner_id=?`)
+          .run(now, job.item_id, job.owner_id);
+        await database.prepare(`UPDATE import_entries SET status='cancelled',error_code='account_inactive' WHERE owner_id=? AND import_id=? AND job_id=?`)
+          .run(job.owner_id, job.import_id, job.id);
+        await database.prepare(`UPDATE job_attempts SET status='cancelled',error_code='account_inactive',finished_at=?
+          WHERE owner_id=? AND job_id=? AND generation=? AND attempt_number=? AND status='running'`)
+          .run(now, job.owner_id, job.id, job.generation, job.attempts);
+        await finishImportIfIdle(database, job.owner_id, job.import_id, now);
+        return;
+      }
       await database.prepare(`UPDATE processing_jobs SET status=?,available_at=?,lease_token=NULL,lease_expires_at=NULL,error_code=?,updated_at=?
         WHERE id=? AND owner_id=? AND lease_token=?`).run(retry ? 'retry_wait' : 'failed', retry ? availableAt : now, code, now, job.id, job.owner_id, job.lease_token);
       await database.prepare(`UPDATE saved_items SET status=?,error_code=?,updated_at=? WHERE id=? AND owner_id=?`)

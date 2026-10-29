@@ -10,6 +10,9 @@ import { createSession, destroySession, requireUser } from './auth/sessions.js';
 import { createAccountRouter, createProfileGate } from './account/routes.js';
 import { createAccountDataExportService } from './account/data-export-service.js';
 import { createDataExportRouter } from './account/data-export-routes.js';
+import { createAccountDeletionService } from './account/deletion-service.js';
+import { createAccountDeletionAdminRouter, createAccountDeletionRouter } from './account/deletion-routes.js';
+import { createAccountSecurityActivityRouter, recordAccountSecurityEvent } from './account/security-activity.js';
 import { createOwnerScopedPrivateFileSource } from './account/private-file-source.js';
 import { LocalPrivateExportArtifactStorage } from './storage/account-export-storage.js';
 import { createLibraryRouter } from './library/routes.js';
@@ -49,6 +52,7 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
   const mediaStorage = options.mediaStorage ?? new LocalMediaStorage(options.mediaDirectory ?? config.mediaDirectory);
   const exportStorage = options.exportStorage ?? new LocalPrivateExportArtifactStorage(config.dataExportDirectory);
   const dataExportService = createAccountDataExportService(database, exportStorage, createOwnerScopedPrivateFileSource(database, { assets: assetStorage, imports: importStorage, media: mediaStorage }));
+  const accountDeletionService = createAccountDeletionService(database);
   const library = createLibraryService(database, assetStorage, mediaStorage);
   const semanticEmbeddingProvider = options.semanticEmbeddingProvider
     ?? (config.openRouterApiKey ? createOpenRouterEmbeddingProvider(config.openRouterApiKey) : undefined);
@@ -102,8 +106,13 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
       await database.prepare('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)')
         .run(userId, parsed.data.email, passwordHash, new Date().toISOString());
       await createSession(database, userId, res);
+      await recordAccountSecurityEvent(database, userId, 'sign_in').catch(() => undefined);
       res.status(201).json({ user: { id: userId, email: parsed.data.email } });
     } catch (error) {
+      if (error instanceof Error && error.message === 'account_inactive') {
+        res.status(403).json(errorResponse('account_disabled', 'This account is disabled.', req.requestId));
+        return;
+      }
       if ((typeof error === 'object' && error !== null && 'code' in error && error.code === '23505') || String(error).includes('users_email_key')) {
         res.status(409).json(errorResponse('account_exists', 'An account with this email already exists.', req.requestId));
         return;
@@ -131,19 +140,28 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
         return;
       }
       await createSession(database, user.id, res);
+      await recordAccountSecurityEvent(database, user.id, 'sign_in').catch(() => undefined);
       res.json({ user: { id: user.id, email: user.email } });
     } catch (error) {
+      if (error instanceof Error && error.message === 'account_inactive') {
+        res.status(403).json(errorResponse('account_disabled', 'This account is disabled.', req.requestId));
+        return;
+      }
       next(error);
     }
   });
 
   app.post('/api/auth/logout', async (req, res) => {
-    await destroySession(database, req, res);
+    const userId = await destroySession(database, req, res);
+    if (userId) await recordAccountSecurityEvent(database, userId, 'sign_out').catch(() => undefined);
     res.status(204).end();
   });
 
+  app.use('/api', createAccountSecurityActivityRouter(database));
   app.use('/api', createAccountRouter(database, assetStorage));
   app.use('/api', createDataExportRouter(database, dataExportService));
+  app.use('/api', createAccountDeletionRouter(database, accountDeletionService));
+  app.use('/api', createAccountDeletionAdminRouter(database, accountDeletionService));
   app.use('/api', createAiRouter(database));
   app.use('/api', createSemanticSearchRouter({ database, assetStorage, library, provider: semanticEmbeddingProvider }));
   const answerClient = config.META_API_KEY ? createMetaModelClient({ apiKey: config.META_API_KEY }) : undefined;
@@ -218,6 +236,10 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
     }
     if (error instanceof SyntaxError && 'body' in error) {
       res.status(400).json(errorResponse('invalid_json', 'The request body must be valid JSON.', requestId));
+      return;
+    }
+    if (error instanceof Error && error.message === 'account_inactive') {
+      res.status(403).json(errorResponse('account_disabled', 'This account is disabled.', requestId));
       return;
     }
     console.error('request_failed', { requestId, errorType: error instanceof Error ? error.name : 'unknown' });

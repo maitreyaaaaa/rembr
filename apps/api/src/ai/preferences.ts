@@ -1,4 +1,5 @@
 import type { DatabaseHandle } from '../db/database.js';
+import { lockActiveOwner } from '../account/owner-lifecycle.js';
 
 export const AI_DISCLOSURE_VERSION = '2026-10-29-v2';
 
@@ -29,6 +30,7 @@ export function createAiPreferenceRepository(database: DatabaseHandle) {
     async set(ownerId: string, enabled: boolean): Promise<void> {
       const now = new Date().toISOString();
       await database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
         await database.prepare(`INSERT INTO ai_analysis_preferences
           (owner_id,enabled,consent_version,consented_at,disabled_at,updated_at)
           VALUES (?,?,?,?,?,?)

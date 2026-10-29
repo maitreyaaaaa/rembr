@@ -32,13 +32,13 @@ Do not carry forward source deletion behavior without the improvements recorded 
 
 ## Implementation sequence
 
-1. Account data map: owner-scoped database row counts, clear private-file and provider-boundary disclosures. Implemented locally; user-facing count panel is in Settings.
-2. Full data export: authenticated request/status/cancel/download, bounded worker processing, complete manifest, expiring private artifact, and coverage against the Rembr data map.
-3. Account deletion: owner request/cancel, admin approval, atomic execution claim, retry-safe data/storage cleanup, deletion audit, and prevention of job resurrection or account recreation.
-4. Security activity and privacy controls: log and expose only safe event metadata; keep settings tied to actual retention/provider behavior.
-5. Admin/support: establish an explicit operator role, safe projections, denial tests, action confirmation, throttling, and immutable audit history.
-6. Billing/credits: implement only behind an off-by-default configuration boundary; verify provider signatures, replay safety, purchase ownership, and atomic ledger idempotency before enabling.
-7. Retention: reconcile every new and existing data category with export/deletion and expiry rules; add cleanup recovery where needed.
+1. Account data map: owner-scoped database row counts, clear private-file and provider-boundary disclosures. Implemented locally; user-facing count panel is in Settings. Hosted and browser verification remain open.
+2. Full data export: authenticated request/status/cancel/download, bounded worker processing, complete manifest, expiring private artifact, and coverage against the Rembr data map. Implemented locally with staged artifact recovery and owner-work lease renewal; systematic field coverage, browser, and hosted storage evidence remain open.
+3. Account deletion: owner request/cancel, admin approval, atomic execution claim, retry-safe data/storage cleanup, deletion audit, and prevention of job resurrection or account recreation. Implemented locally; hosted/browser evidence and complete writer-path inventory remain open.
+4. Security activity and privacy controls: log and expose only safe event metadata; keep settings tied to actual retention/provider behavior. Local owner activity and deletion controls are implemented; retention policy and browser review remain open.
+5. Admin/support: establish an explicit operator role, safe projections, denial tests, action confirmation, throttling, and immutable audit history. Local deletion queue and audit screen/API are implemented; initial operator provisioning and broader support scope remain open.
+6. Billing/credits: implement only behind an off-by-default configuration boundary; verify provider signatures, replay safety, purchase ownership, and atomic ledger idempotency before enabling. Disabled pending explicit product and configuration approval.
+7. Retention: reconcile every new and existing data category with export/deletion and expiry rules; add cleanup recovery where needed. Seven-day export expiry and 90-day security activity pruning are implemented; deletion audit, backups, provider copies, and the complete lifecycle policy remain open.
 
 ## Exit criteria
 

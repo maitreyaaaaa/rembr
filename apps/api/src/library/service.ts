@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import ipaddr from 'ipaddr.js';
 import type { DatabaseHandle } from '../db/database.js';
+import { lockActiveOwner } from '../account/owner-lifecycle.js';
 import { createAssetService } from '../assets/service.js';
 import { detectImageMime, imageExtensionMatches, type AssetStorage } from '../assets/storage.js';
 import type { MediaStorage } from '../media/storage.js';
@@ -67,6 +68,7 @@ export function createLibraryService(database: DatabaseHandle, storage: AssetSto
           collectionId: query.collectionId ?? null, sort: query.sort, matchMode: query.matchMode ?? 'terms' });
         try {
           await database.transaction(async () => {
+            if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
             const retentionCutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
             await database.prepare('DELETE FROM search_events WHERE owner_id=? AND created_at<?').run(ownerId, retentionCutoff);
             await database.prepare(`INSERT INTO search_events (id,owner_id,query_hash,query_length,filters_json,result_count,created_at)
@@ -86,12 +88,15 @@ export function createLibraryService(database: DatabaseHandle, storage: AssetSto
       return { items: page.items, nextCursor, hasMore: page.hasMore, searchEventId };
     },
     async recordSearchFeedback(ownerId: string, input: { searchEventId: string; itemId: string; rating: 'helpful' | 'not_helpful' }) {
-      const exists = await database.prepare(`SELECT 1 FROM search_event_results WHERE owner_id=? AND event_id=? AND item_id=?`).get(ownerId, input.searchEventId, input.itemId);
-      if (!exists) throw new LibraryServiceError('not_found', 'This item was not part of that search.');
       const now = new Date().toISOString();
-      await database.prepare(`INSERT INTO search_result_feedback (owner_id,event_id,item_id,rating,created_at,updated_at)
-        VALUES (?,?,?,?,?,?) ON CONFLICT(owner_id,event_id,item_id) DO UPDATE SET rating=EXCLUDED.rating,updated_at=EXCLUDED.updated_at`)
-        .run(ownerId, input.searchEventId, input.itemId, input.rating, now, now);
+      await database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
+        const exists = await database.prepare(`SELECT 1 FROM search_event_results WHERE owner_id=? AND event_id=? AND item_id=?`).get(ownerId, input.searchEventId, input.itemId);
+        if (!exists) throw new LibraryServiceError('not_found', 'This item was not part of that search.');
+        await database.prepare(`INSERT INTO search_result_feedback (owner_id,event_id,item_id,rating,created_at,updated_at)
+          VALUES (?,?,?,?,?,?) ON CONFLICT(owner_id,event_id,item_id) DO UPDATE SET rating=EXCLUDED.rating,updated_at=EXCLUDED.updated_at`)
+          .run(ownerId, input.searchEventId, input.itemId, input.rating, now, now);
+      })();
       return { searchEventId: input.searchEventId, itemId: input.itemId, rating: input.rating, updatedAt: now };
     },
     get(ownerId: string, itemId: string) { return repository.get(ownerId, itemId); },

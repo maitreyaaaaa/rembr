@@ -1,4 +1,5 @@
 import type { DatabaseHandle } from '../db/database.js';
+import { lockActiveOwner } from '../account/owner-lifecycle.js';
 import type {
   SemanticEmbeddingRecord,
   SemanticEmbeddingRepository,
@@ -52,12 +53,15 @@ export function createSemanticEmbeddingRepository(database: DatabaseHandle): Sem
     async upsertOwnerEmbedding(record: SemanticEmbeddingRecord): Promise<void> {
       const vector = vectorLiteral(record.vector);
       const now = new Date().toISOString();
-      await database.prepare(`INSERT INTO semantic_item_embeddings
-        (owner_id,item_id,content_hash,model,embedding,created_at,updated_at)
-        VALUES (?,?,?,?,?::extensions.vector,?,?)
-        ON CONFLICT(owner_id,item_id,model) DO UPDATE SET
-          content_hash=excluded.content_hash, embedding=excluded.embedding, updated_at=excluded.updated_at`)
-        .run(record.ownerId, record.itemId, record.contentHash, record.model, vector, now, now);
+      await database.transaction(async () => {
+        if (!await lockActiveOwner(database, record.ownerId)) throw new Error('account_inactive');
+        await database.prepare(`INSERT INTO semantic_item_embeddings
+          (owner_id,item_id,content_hash,model,embedding,created_at,updated_at)
+          VALUES (?,?,?,?,?::extensions.vector,?,?)
+          ON CONFLICT(owner_id,item_id,model) DO UPDATE SET
+            content_hash=excluded.content_hash, embedding=excluded.embedding, updated_at=excluded.updated_at`)
+          .run(record.ownerId, record.itemId, record.contentHash, record.model, vector, now, now);
+      })();
     },
 
     async searchOwnerEmbeddings(input): Promise<readonly SemanticSearchHit[]> {

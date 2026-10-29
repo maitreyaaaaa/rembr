@@ -1,4 +1,5 @@
 import type { DatabaseHandle } from '../db/database.js';
+import { lockActiveOwner } from './owner-lifecycle.js';
 
 export interface ProfileRow {
   username: string;
@@ -18,6 +19,7 @@ export function createAccountRepository(database: DatabaseHandle) {
 
     async saveProfile(userId: string, username: string, avatarUrl: string | null, avatarAssetId: string | null, oldAssetId: string | null, now: string) {
       await database.transaction(async () => {
+        if (!await lockActiveOwner(database, userId)) throw new Error('account_inactive');
         if (oldAssetId && oldAssetId !== avatarAssetId) await database.prepare("UPDATE asset_objects SET state='deleting',updated_at=? WHERE owner_id=? AND id=?").run(now, userId, oldAssetId);
         await database.prepare(`INSERT INTO profiles (user_id, username, avatar_url, avatar_asset_id, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?)
@@ -39,6 +41,7 @@ export function createAccountRepository(database: DatabaseHandle) {
 
     async saveOnboarding(userId: string, contentTypes: string[], referralSource: string | null, completedAt: string | null, skippedAt: string | null, now: string) {
       await database.transaction(async () => {
+        if (!await lockActiveOwner(database, userId)) throw new Error('account_inactive');
         await database.prepare(`INSERT INTO onboarding_preferences (user_id, referral_source, completed_at, skipped_at, created_at, updated_at)
           VALUES (?, ?, ?, ?, ?, ?)
           ON CONFLICT(user_id) DO UPDATE SET referral_source=excluded.referral_source,

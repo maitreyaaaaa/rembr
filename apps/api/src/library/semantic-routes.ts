@@ -3,6 +3,7 @@ import express from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import type { DatabaseHandle } from '../db/database.js';
+import { lockActiveOwner, OwnerLifecycleError, withOwnerWorkLease } from '../account/owner-lifecycle.js';
 import { requireUser } from '../auth/sessions.js';
 import { createProfileGate } from '../account/routes.js';
 import type { AssetStorage } from '../assets/storage.js';
@@ -84,7 +85,7 @@ export function createSemanticSearchRouter(input: {
       }
       const reservation = await usage.reserveSearch({ ownerId, amountMicroUsd: EMBEDDING_RESERVATION_MICROUSD });
       try {
-        const result = await provider.embed(text, purpose);
+        const result = await withOwnerWorkLease(database, ownerId, 'semantic_embedding', (signal) => provider.embed(text, purpose, signal));
         const stillConsented = await database.prepare(`SELECT enabled,disclosure_version FROM semantic_search_preferences WHERE owner_id=?`)
           .get(ownerId) as { enabled: boolean | number; disclosure_version: string | null } | undefined;
         if (!stillConsented?.enabled || stillConsented.disclosure_version !== SEMANTIC_DISCLOSURE_VERSION) {
@@ -101,7 +102,9 @@ export function createSemanticSearchRouter(input: {
         }
         return result;
       } catch (cause) {
-        if (cause instanceof OpenRouterEmbeddingError && !cause.outcomeUnknown) {
+        if (cause instanceof OwnerLifecycleError) {
+          await usage.releaseSearch(reservation).catch(() => undefined);
+        } else if (cause instanceof OpenRouterEmbeddingError && !cause.outcomeUnknown) {
           await usage.releaseSearch(reservation).catch(() => undefined);
         } else {
           // The provider may have accepted and billed a timed-out or malformed request.
@@ -125,6 +128,7 @@ export function createSemanticSearchRouter(input: {
     const ownerId = req.user!.id;
     const now = new Date().toISOString();
     await database.transaction(async () => {
+      if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
       await database.prepare(`INSERT INTO semantic_search_preferences
         (owner_id,enabled,disclosure_version,consented_at,disabled_at,updated_at)
         VALUES (?,?,?,?,?,?) ON CONFLICT(owner_id) DO UPDATE SET enabled=excluded.enabled,
@@ -179,6 +183,9 @@ export function createSemanticSearchRouter(input: {
         await database.prepare('DELETE FROM semantic_item_embeddings WHERE owner_id=?').run(ownerId);
         return fail(res, 403, 'semantic_consent_required', 'Semantic-search consent was turned off. No new vectors were kept.', req.requestId);
       }
+      if (cause instanceof OwnerLifecycleError && cause.code === 'account_inactive') {
+        return fail(res, 403, 'account_disabled', 'This account is disabled while deletion is being reviewed.', req.requestId);
+      }
       if (cause instanceof AiBudgetExceededError) return fail(res, 429, 'ai_budget_exceeded', 'The shared monthly AI budget is full. Semantic indexing paused; keyword search remains available.', req.requestId);
       console.warn('semantic_index_failed', { requestId: req.requestId, errorType: cause instanceof Error ? cause.name : 'unknown' });
       return fail(res, 502, 'semantic_index_unavailable', 'Semantic indexing could not be completed. Your saved items remain available through keyword search.', req.requestId);
@@ -221,6 +228,9 @@ export function createSemanticSearchRouter(input: {
       const searchEventId = await recordSearchEvent(database, ownerId, parsed.data.q, items.map((item) => item.id));
       return res.json({ items, nextCursor: null, hasMore: false, searchEventId, mode: 'semantic_hybrid', fallbackReason: items.length ? null : 'no_matching_results' });
     } catch (cause) {
+      if (cause instanceof OwnerLifecycleError && cause.code === 'account_inactive') {
+        return fail(res, 403, 'account_disabled', 'This account is disabled while deletion is being reviewed.', req.requestId);
+      }
       if (cause instanceof AiBudgetExceededError) return res.json(await fallback('budget_exhausted'));
       console.warn('semantic_search_failed', { requestId: req.requestId, errorType: cause instanceof Error ? cause.name : 'unknown' });
       return res.json(await fallback('provider_error'));
@@ -235,6 +245,7 @@ async function recordSearchEvent(database: DatabaseHandle, ownerId: string, quer
   const now = new Date().toISOString();
   try {
     await database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
       const retentionCutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
       await database.prepare('DELETE FROM search_events WHERE owner_id=? AND created_at<?').run(ownerId, retentionCutoff);
       await database.prepare(`INSERT INTO search_events (id,owner_id,query_hash,query_length,filters_json,result_count,created_at)

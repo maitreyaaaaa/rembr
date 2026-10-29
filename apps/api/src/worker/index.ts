@@ -11,12 +11,14 @@ import type { MediaProcessor } from './process-job.js';
 import { createStorageAdapters } from '../storage/adapters.js';
 import { createAccountDataExportService } from '../account/data-export-service.js';
 import { createOwnerScopedPrivateFileSource } from '../account/private-file-source.js';
+import { createAccountDeletionService } from '../account/deletion-service.js';
 
 const database = await createDatabase();
 const { assets: assetStorage, imports: importStorage, media: mediaStorage, exports: exportStorage } = createStorageAdapters();
 await Promise.all([assetStorage.initialize(), importStorage.initialize(), mediaStorage.initialize(), exportStorage.initialize()]);
 const imports = createImportService(database, importStorage);
 const dataExports = createAccountDataExportService(database, exportStorage, createOwnerScopedPrivateFileSource(database, { assets: assetStorage, imports: importStorage, media: mediaStorage }));
+const accountDeletions = createAccountDeletionService(database);
 const mediaProcessor: MediaProcessor = { fetchMedia: fetchPublicMedia, storage: mediaStorage };
 const metaClient = createMetaModelClient({ apiKey: config.META_API_KEY });
 const aiMediaResolver = async (job: { original_url: string }) => {
@@ -56,20 +58,26 @@ async function run() {
   }, 30_000);
   while (!stopping) {
     try {
-      const importId = await imports.processNextImport();
-      if (importId) console.info('rembr_import_processed', { importId });
-      else {
-        const jobId = await processNextJob(database, undefined, mediaProcessor);
-        if (jobId) console.info('rembr_job_processed', { jobId });
+      const deletionClaim = await accountDeletions.claimNext();
+      if (deletionClaim) {
+        const result = await accountDeletions.processClaim(deletionClaim, { assets: assetStorage, imports: importStorage, media: mediaStorage, exports: exportStorage });
+        console.info('rembr_account_deletion_processed', { deletionId: deletionClaim.id, status: result?.status ?? 'unknown' });
+      } else {
+        const importId = await imports.processNextImport();
+        if (importId) console.info('rembr_import_processed', { importId });
         else {
-          const exportClaim = await dataExports.claimNext();
-          if (exportClaim) {
-            await dataExports.processClaim(exportClaim);
-            console.info('rembr_data_export_processed', { exportId: exportClaim.id });
-          } else {
-            const aiJobId = await processNextAiJob(database, metaClient, aiMediaResolver, Boolean(config.META_API_KEY));
-            if (!aiJobId) await delay(1000);
-            else console.info('rembr_ai_job_processed', { jobId: aiJobId });
+          const jobId = await processNextJob(database, undefined, mediaProcessor);
+          if (jobId) console.info('rembr_job_processed', { jobId });
+          else {
+            const exportClaim = await dataExports.claimNext();
+            if (exportClaim) {
+              await dataExports.processClaim(exportClaim);
+              console.info('rembr_data_export_processed', { exportId: exportClaim.id });
+            } else {
+              const aiJobId = await processNextAiJob(database, metaClient, aiMediaResolver, Boolean(config.META_API_KEY));
+              if (!aiJobId) await delay(1000);
+              else console.info('rembr_ai_job_processed', { jobId: aiJobId });
+            }
           }
         }
       }

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { SupabaseMediaStorage } from '../src/storage/supabase-adapters.js';
 import { SupabaseObjectStore } from '../src/storage/supabase-object-store.js';
 
 test('Supabase storage creates a bucket when Storage reports NoSuchBucket with HTTP 400', async () => {
@@ -68,4 +69,58 @@ test('Supabase object storage preserves safe slash-separated key segments', asyn
   } finally {
     globalThis.fetch = originalFetch;
   }
+});
+
+test('Supabase media storage honors a preallocated key and rejects invalid keys', async () => {
+  const originalFetch = globalThis.fetch;
+  const urls: string[] = [];
+  globalThis.fetch = async (input) => {
+    urls.push(String(input));
+    return new Response('ok', { status: 200 });
+  };
+  try {
+    const storage = new SupabaseMediaStorage(new SupabaseObjectStore('https://example.supabase.co', 'server-key', 'rembr-media'));
+    const key = '80e1ef2b-7a21-4c39-90e9-409a2d4801a2.media';
+    const result = await storage.write(Buffer.from([0xff, 0xd8, 0xff]), 'image/jpeg', key);
+    assert.equal(result.key, key);
+    assert.ok(urls[0]?.includes(`/object/rembr-media/${key}`));
+    await assert.rejects(storage.write(Buffer.from([0xff, 0xd8, 0xff]), 'image/jpeg', '../unsafe.media'), /invalid_media_key/);
+    assert.equal(urls.length, 1, 'invalid reserved keys do not reach storage');
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test('Supabase object storage requests time out before an owner-work lease expires', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_input, init) => await new Promise<Response>((_resolve, reject) => {
+    const signal = init?.signal;
+    if (!signal) { reject(new Error('missing storage timeout signal')); return; }
+    if (signal.aborted) { reject(signal.reason); return; }
+    signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+  });
+  try {
+    const store = new SupabaseObjectStore('https://example.supabase.co', 'server-key', 'rembr-media', 15);
+    await assert.rejects(store.write('80e1ef2b-7a21-4c39-90e9-409a2d4801a2.media', Buffer.from('bytes'), 'application/octet-stream'),
+      (cause: unknown) => cause instanceof Error && cause.name === 'TimeoutError');
+    assert.throws(() => new SupabaseObjectStore('https://example.supabase.co', 'server-key', 'rembr-media', 15 * 60_000),
+      /shorter than the owner-work lease TTL/);
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test('Supabase object storage caller abort cancels an in-flight request', async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_input, init) => await new Promise<Response>((_resolve, reject) => {
+    const signal = init?.signal;
+    if (!signal) { reject(new Error('missing storage abort signal')); return; }
+    if (signal.aborted) { reject(signal.reason); return; }
+    signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+  });
+  const controller = new AbortController();
+  try {
+    const store = new SupabaseObjectStore('https://example.supabase.co', 'server-key', 'rembr-media', 1_000);
+    const pending = store.write('80e1ef2b-7a21-4c39-90e9-409a2d4801a2.media', Buffer.from('bytes'), 'application/octet-stream', controller.signal);
+    controller.abort(new DOMException('caller cancelled', 'AbortError'));
+    await assert.rejects(pending, (cause: unknown) => cause instanceof Error && cause.name === 'AbortError');
+  } finally { globalThis.fetch = originalFetch; }
 });

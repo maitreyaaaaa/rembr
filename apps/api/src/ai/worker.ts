@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { lockActiveOwner } from '../account/owner-lifecycle.js';
 import type { DatabaseHandle } from '../db/database.js';
+import { OwnerLifecycleError, withOwnerWorkLease } from '../account/owner-lifecycle.js';
 import { AI_DISCLOSURE_VERSION } from './preferences.js';
 import { AiBudgetExceededError, createAiUsageRepository, sparkCostMicroUsd, voiceCostMicroUsd, type AiUsageReservation } from './usage.js';
 import { MetaApiError, groupImageInputs, MAX_AUDIO_BODY_BYTES, MAX_AUDIO_SECONDS, MAX_IMAGE_BYTES, MAX_INLINE_IMAGE_GROUP_BYTES, MAX_VIDEO_BYTES, MUSE_SPARK_MODEL, MUSE_VOICE_MODEL, type ImageInput, type ModelTextResult, type TranscriptionResult } from './meta-client.js';
@@ -35,12 +36,12 @@ export type AiMediaResolver = (job: AiJob) => Promise<AiMediaResolution>;
 
 export interface AiModelClient {
   countTextInputTokens(prompt: string): Promise<number>;
-  analyzeText(prompt: string): Promise<ModelTextResult>;
+  analyzeText(prompt: string, signal?: AbortSignal): Promise<ModelTextResult>;
   countImageInputTokens(prompt: string, images: ImageInput[]): Promise<number[]>;
   countVideoInputTokens(prompt: string, bytes: Uint8Array): Promise<number>;
-  analyzeImages(prompt: string, images: ImageInput[]): Promise<ModelTextResult[]>;
-  analyzeVideo(prompt: string, bytes: Uint8Array): Promise<ModelTextResult>;
-  transcribeWav(bytes: Uint8Array, durationSeconds: number): Promise<TranscriptionResult>;
+  analyzeImages(prompt: string, images: ImageInput[], signal?: AbortSignal): Promise<ModelTextResult[]>;
+  analyzeVideo(prompt: string, bytes: Uint8Array, signal?: AbortSignal): Promise<ModelTextResult>;
+  transcribeWav(bytes: Uint8Array, durationSeconds: number, signal?: AbortSignal): Promise<TranscriptionResult>;
 }
 
 interface ClaimedAiJob extends Omit<AiJob, 'lease_token'> { lease_token: string }
@@ -257,7 +258,7 @@ export async function processNextAiJob(database: DatabaseHandle, client: AiModel
         attemptNumber: job.attempts * 100 + ++reservationCall, amountMicroUsd: sparkCostMicroUsd(tokenCounts[0]!, MAX_OUTPUT_TOKENS), now });
       reservations.push(reservation);
       await ensureConsent();
-      const outputs = await client.analyzeImages(prompt, group);
+      const outputs = await withOwnerWorkLease(database, job.owner_id, 'ai_analysis', (signal) => client.analyzeImages(prompt, group, signal));
       if (outputs.length !== 1) { unknownUsage = true; throw new MetaApiError('invalid_response', 'The provider response count did not match the image request.', { retryable: false, outcomeUnknown: true }); }
       const output = outputs[0]!;
       const actual = sparkCostMicroUsd(output.inputTokens, output.outputTokens);
@@ -288,7 +289,7 @@ export async function processNextAiJob(database: DatabaseHandle, client: AiModel
         attemptNumber: job.attempts * 100 + ++reservationCall, amountMicroUsd: sparkCostMicroUsd(inputTokens, MAX_OUTPUT_TOKENS), now });
       reservations.push(reservation);
       await ensureConsent();
-      const output = await client.analyzeVideo(prompt, bytes);
+      const output = await withOwnerWorkLease(database, job.owner_id, 'ai_analysis', (signal) => client.analyzeVideo(prompt, bytes, signal));
       if (!await usage.settle(reservation, sparkCostMicroUsd(output.inputTokens, output.outputTokens))) {
         unknownUsage = true; throw new MetaApiError('outcome_unknown', 'Usage exceeded its reservation.', { retryable: false, outcomeUnknown: true });
       }
@@ -305,7 +306,7 @@ export async function processNextAiJob(database: DatabaseHandle, client: AiModel
         attemptNumber: job.attempts * 100 + ++reservationCall, amountMicroUsd: voiceCostMicroUsd(duration), now });
       reservations.push(reservation);
       await ensureConsent();
-      const transcription = await client.transcribeWav(bytes, duration);
+      const transcription = await withOwnerWorkLease(database, job.owner_id, 'ai_analysis', (signal) => client.transcribeWav(bytes, duration, signal));
       if (!await usage.settle(reservation, voiceCostMicroUsd(transcription.audioDurationMs / 1000))) {
         unknownUsage = true; throw new MetaApiError('outcome_unknown', 'Audio usage exceeded its reservation.', { retryable: false, outcomeUnknown: true });
       }
@@ -321,7 +322,7 @@ export async function processNextAiJob(database: DatabaseHandle, client: AiModel
         attemptNumber: job.attempts * 100 + ++reservationCall, amountMicroUsd: sparkCostMicroUsd(inputTokens, MAX_OUTPUT_TOKENS), now });
       reservations.push(reservation);
       await ensureConsent();
-      const output = await client.analyzeText(textPrompt);
+      const output = await withOwnerWorkLease(database, job.owner_id, 'ai_analysis', (signal) => client.analyzeText(textPrompt, signal));
       const actual = sparkCostMicroUsd(output.inputTokens, output.outputTokens);
       if (!await usage.settle(reservation, actual)) {
         unknownUsage = true; throw new MetaApiError('outcome_unknown', 'Text usage exceeded its reservation.', { retryable: false, outcomeUnknown: true });
@@ -351,7 +352,7 @@ export async function processNextAiJob(database: DatabaseHandle, client: AiModel
       billedMicroUsd,
     }, now.toISOString());
   } catch (error) {
-    if (error instanceof AiConsentDisabledError) consentDisabled = true;
+    if (error instanceof AiConsentDisabledError || (error instanceof OwnerLifecycleError && error.code === 'account_inactive')) consentDisabled = true;
     else if (error instanceof AiBudgetExceededError) pausedForBudget = error.scope;
     else if (error instanceof MetaApiError && error.outcomeUnknown) unknownUsage = true;
     else if (error instanceof MetaApiError && error.retryable && job.attempts < 3 && accumulated.length === 0 && transcripts.length === 0) retryableFailure = true;

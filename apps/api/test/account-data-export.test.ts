@@ -8,6 +8,7 @@ import {
   type PrivateExportArtifactStorage,
   type PrivateExportFileReference,
 } from '../src/account/data-export-service.js';
+import { withOwnerWorkLease } from '../src/account/owner-lifecycle.js';
 
 const start = new Date('2026-10-30T12:00:00.000Z');
 
@@ -27,10 +28,12 @@ function fakeStorage(): PrivateExportArtifactStorage & { artifacts: Map<string, 
   return {
     artifacts,
     removals,
-    async write(ownerId, exportId, leaseToken, bytes) {
-      const key = `${ownerId}/${exportId}/${leaseToken}.zip`;
+    keyForAttempt(ownerId, exportId, leaseToken) {
+      return `${ownerId}/${exportId}/${leaseToken}.zip`;
+    },
+    async write(ownerId, key, bytes) {
+      if (!key.startsWith(`${ownerId}/`)) throw new Error('wrong_owner');
       artifacts.set(key, Buffer.from(bytes));
-      return key;
     },
     async read(ownerId, key) {
       if (!key.startsWith(`${ownerId}/`)) throw new Error('wrong_owner');
@@ -212,19 +215,93 @@ test('export claims skip disabled owners and remove an archive when freezing win
     const claim = await service.claimNext(start);
     assert.ok(claim);
     const write = storage.write.bind(storage);
-    storage.write = async (ownerId, exportId, leaseToken, bytes) => {
-      const key = await write(ownerId, exportId, leaseToken, bytes);
+    storage.write = async (ownerId, key, bytes) => {
+      await write(ownerId, key, bytes);
       await database.transaction(async () => {
         await database.prepare("UPDATE users SET account_status='disabled' WHERE id=?").run(ownerId);
-        await database.prepare("UPDATE account_data_exports SET status='cancelled',lease_token=NULL,lease_expires_at=NULL WHERE id=?").run(exportId);
+        await database.prepare("UPDATE account_data_exports SET status='cancelled',lease_token=NULL,lease_expires_at=NULL WHERE id=?").run(claim.id);
       })();
-      return key;
     };
     const result = await service.processClaim(claim, start);
     assert.equal(result?.status, 'cancelled');
     assert.equal(storage.artifacts.size, 0);
     assert.equal(storage.removals.length, 1);
     assert.equal((await service.getStatus('owner-frozen', requested.id))?.status, 'cancelled');
+  } finally {
+    await database.close();
+  }
+});
+
+test('an export claimed before account freeze is cancelled before its artifact write starts', async () => {
+  const database = await createTestDatabase();
+  const storage = fakeStorage();
+  try {
+    await seedUser(database, 'owner-freeze-before-write', 'freeze-before-write@example.test');
+    const service = createAccountDataExportService(database, storage, fakeFileSource().source);
+    const requested = await service.request('owner-freeze-before-write', false, start);
+    const claim = await service.claimNext(start);
+    assert.ok(claim);
+    await database.prepare("UPDATE users SET account_status='disabled' WHERE id=?").run('owner-freeze-before-write');
+
+    const cancelled = await service.processClaim(claim, start);
+    assert.equal(cancelled?.status, 'cancelled');
+    assert.equal(cancelled?.errorCode, 'account_inactive');
+    assert.equal(storage.artifacts.size, 0);
+    assert.equal((await service.getStatus('owner-freeze-before-write', requested.id))?.status, 'cancelled');
+  } finally {
+    await database.close();
+  }
+});
+
+test('reclaimed export removes the durable staged artifact from the prior attempt before retrying', async () => {
+  const database = await createTestDatabase();
+  const storage = fakeStorage();
+  try {
+    await seedUser(database, 'owner-reclaim', 'reclaim@example.test');
+    const service = createAccountDataExportService(database, storage, fakeFileSource().source);
+    const requested = await service.request('owner-reclaim', false, start);
+    const firstClaim = await service.claimNext(start);
+    assert.ok(firstClaim);
+    const stagedKey = storage.keyForAttempt('owner-reclaim', requested.id, firstClaim.leaseToken);
+    storage.artifacts.set(stagedKey, Buffer.from('orphan from a crashed worker'));
+    await database.prepare('UPDATE account_data_exports SET artifact_key=? WHERE id=?').run(stagedKey, requested.id);
+
+    const reclaimed = await service.claimNext(new Date(start.getTime() + 15 * 60_000 + 1));
+    assert.ok(reclaimed);
+    assert.notEqual(reclaimed.leaseToken, firstClaim.leaseToken);
+    const ready = await service.processClaim(reclaimed, new Date(start.getTime() + 15 * 60_000 + 1));
+    assert.equal(ready?.status, 'ready');
+    assert.equal(storage.artifacts.has(stagedKey), false);
+    assert.ok(storage.removals.includes(stagedKey));
+    const row = await database.prepare('SELECT artifact_key FROM account_data_exports WHERE id=?').get(requested.id) as { artifact_key: string };
+    assert.ok(row.artifact_key);
+    assert.notEqual(row.artifact_key, stagedKey);
+  } finally {
+    await database.close();
+  }
+});
+
+test('owner work lease heartbeats extend active writes and fail closed when the lease disappears', async () => {
+  const database = await createTestDatabase();
+  try {
+    await seedUser(database, 'owner-heartbeat', 'heartbeat@example.test');
+    let initialExpiry = '';
+    let renewedExpiry = '';
+    const operation = withOwnerWorkLease(database, 'owner-heartbeat', 'export_write', async (signal) => {
+      const initial = await database.prepare('SELECT expires_at FROM account_owner_work_leases WHERE owner_id=?').get('owner-heartbeat') as { expires_at: string };
+      initialExpiry = initial.expires_at;
+      await new Promise((resolve) => setTimeout(resolve, 30));
+      const renewed = await database.prepare('SELECT expires_at FROM account_owner_work_leases WHERE owner_id=?').get('owner-heartbeat') as { expires_at: string };
+      renewedExpiry = renewed.expires_at;
+      await new Promise<void>((resolve, reject) => {
+        if (signal.aborted) reject(signal.reason);
+        else signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      });
+    }, new Date(), 5);
+    await new Promise((resolve) => setTimeout(resolve, 45));
+    await database.prepare('DELETE FROM account_owner_work_leases WHERE owner_id=?').run('owner-heartbeat');
+    await assert.rejects(operation, /work_lease_lost/);
+    assert.ok(Date.parse(renewedExpiry) > Date.parse(initialExpiry));
   } finally {
     await database.close();
   }

@@ -91,8 +91,17 @@ const categories: readonly DataMapCategoryDefinition[] = [
   {
     id: 'privacy_requests',
     label: 'Privacy and data export activity',
-    description: 'Personal data export request status and timestamps. Download artifacts and worker lease details are excluded.',
-    records: [{ table: 'account_data_exports', ownerColumn: 'owner_id' }],
+    description: 'Personal data export and account deletion request status and timestamps. Download artifacts and worker lease details are excluded.',
+    records: [
+      { table: 'account_data_exports', ownerColumn: 'owner_id' },
+      { table: 'account_deletion_requests', ownerColumn: 'owner_id' },
+    ],
+  },
+  {
+    id: 'security_activity',
+    label: 'Account security activity',
+    description: 'Recent sign-in, sign-out, and deletion request events. Only event labels and timestamps are stored.',
+    records: [{ table: 'account_security_events', ownerColumn: 'owner_id' }],
   },
   {
     id: 'private_file_references',
@@ -108,7 +117,8 @@ const categories: readonly DataMapCategoryDefinition[] = [
   },
 ];
 
-const countedTables: CountedTable[] = categories.flatMap((category) => category.records);
+export const ACCOUNT_OWNER_TABLES: readonly CountedTable[] = categories.flatMap((category) => category.records);
+const countedTables = ACCOUNT_OWNER_TABLES;
 const countSql = countedTables.map(({ table, ownerColumn }) =>
   `SELECT '${table}' AS table_name, COUNT(*) AS row_count FROM ${table} WHERE ${ownerColumn} = ?`,
 ).join('\nUNION ALL\n');

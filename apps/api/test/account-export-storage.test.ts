@@ -14,7 +14,8 @@ test('local export storage writes private owner-namespaced artifacts and rejects
   try {
     const store = new LocalPrivateExportArtifactStorage(root);
     await store.initialize();
-    const key = await store.write(owner, exportId, lease, Buffer.from('private archive'));
+    const key = store.keyForAttempt(owner, exportId, lease);
+    await store.write(owner, key, Buffer.from('private archive'));
     assert.match(key, /^account-exports\/[a-f0-9]{64}\//);
     assert.deepEqual(await store.read(owner, key), Buffer.from('private archive'));
     await assert.rejects(store.read('another-owner', key), /owner_mismatch/);
@@ -32,7 +33,8 @@ test('Supabase export adapter uses private namespaced object keys', async () => 
     async remove(key: string) { seen.push(`remove:${key}`); },
   };
   const store = new SupabasePrivateExportArtifactStorage(objects);
-  const key = await store.write(owner, exportId, lease, Buffer.from('zip'));
+  const key = store.keyForAttempt(owner, exportId, lease);
+  await store.write(owner, key, Buffer.from('zip'));
   assert.deepEqual(await store.read(owner, key), Buffer.from('zip'));
   await store.remove(owner, key);
   assert.match(seen[0]!, /^write:account-exports\/[a-f0-9]{64}\/.+\.zip:application\/zip$/);
