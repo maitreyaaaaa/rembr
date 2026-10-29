@@ -24,6 +24,7 @@ export function SmartCollectionsPage({ request }: { request: Request }) {
   const [librarySearched, setLibrarySearched] = useState(false);
   const [libraryLoading, setLibraryLoading] = useState(false);
   const [includedIds, setIncludedIds] = useState<Set<string>>(() => new Set());
+  const [groupSearchDraft, setGroupSearchDraft] = useState(searchParams.get('search') ?? '');
   const [includeHidden, setIncludeHidden] = useState(searchParams.get('hidden') === 'true');
   const search = searchParams.get('search') ?? '';
   const cursor = searchParams.get('cursor') ?? '';
@@ -35,6 +36,8 @@ export function SmartCollectionsPage({ request }: { request: Request }) {
     setLibraryQuery('');
     setIncludedIds(new Set());
   }, [collectionId]);
+
+  useEffect(() => { setGroupSearchDraft(search); }, [collectionId, search]);
 
   const load = useCallback(async (refresh = false) => {
     setLoading(true); setError('');
@@ -106,8 +109,10 @@ export function SmartCollectionsPage({ request }: { request: Request }) {
     finally { setBusy(false); }
   }
 
-  function changeSearch(value: string) {
+  function submitSearch(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     const next = new URLSearchParams(searchParams);
+    const value = groupSearchDraft.trim();
     if (value) next.set('search', value); else next.delete('search');
     next.delete('cursor'); setSearchParams(next, { replace: true });
   }
@@ -122,13 +127,11 @@ export function SmartCollectionsPage({ request }: { request: Request }) {
     if (value) next.set('hidden', 'true'); else next.delete('hidden');
     setSearchParams(next, { replace: true });
   }
-  function submitSearch(event: FormEvent<HTMLFormElement>) { event.preventDefault(); }
-
   if (collectionId) return <>
     <div className="phase2-back"><Link to="/app/smart-collections">← All smart collections</Link></div>
     {detail && <PageHeading eyebrow={detail.collection.name} title={detail.collection.name} description={detail.collection.description} actions={<Link className="quiet-button" to="/app/smart-collections">All smart collections</Link>} />}
     <section className="phase2-panel">
-      <form className="phase2-filter-grid" onSubmit={submitSearch}><label>Search this group<input type="search" maxLength={120} value={search} onChange={(event) => changeSearch(event.target.value)} placeholder="Title, note, page text, or topic" /></label><div><p className="eyebrow">Matching saves</p><strong>{detail?.collection.itemCount ?? '—'}</strong></div></form>
+      <form className="phase2-filter-grid" onSubmit={submitSearch}><label>Search this group<input type="search" maxLength={120} value={groupSearchDraft} onChange={(event) => setGroupSearchDraft(event.target.value)} placeholder="Title, note, page text, or topic" /></label><button className="quiet-button" type="submit">Search group</button><div><p className="eyebrow">Matching saves</p><strong>{detail?.collection.itemCount ?? '—'}</strong></div></form>
       <p className="phase2-helper">Matches are based on saved page text, your notes, existing tags, folders, and analysis. No new AI analysis is run.</p>
     </section>
     <section className="phase2-panel" aria-labelledby="add-save-heading">

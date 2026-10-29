@@ -431,6 +431,10 @@ test('Smart Collections support owner-scoped renames and manual membership corre
     assert.equal(rename.status, 200);
     assert.equal((await rename.json() as { collection: { name: string } }).collection.name, 'Interface references');
 
+    const terms = await fetch(`${baseUrl}/api/smart-collections/${uiGroup.id}/items?search=${encodeURIComponent('dashboard interface')}`, { headers: { Cookie: owner.cookie } });
+    assert.equal(terms.status, 200);
+    assert.deepEqual((await terms.json() as { items: Array<{ id: string }> }).items.map(({ id }) => id), [ids[1]]);
+
     const include = await fetch(`${baseUrl}/api/smart-collections/${uiGroup.id}/items/${ids[2]}/override`, { method: 'PUT', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'include' }) });
     assert.equal(include.status, 200);
     let grouped = await fetch(`${baseUrl}/api/smart-collections/${uiGroup.id}/items?limit=100`, { headers: { Cookie: owner.cookie } });
