@@ -52,6 +52,12 @@ Before a hosted write:
 
 The hosted advisor reported RLS enabled without policies on 41 public tables (INFO), one mutable `search_path` warning for `public.rembr_enforce_instagram_import_order`, five unindexed foreign keys (INFO), and 18 unused indexes (INFO). These are observations of the current project's backend-only schema and were not introduced or changed by this review. Reassess before exposing direct Data API access; this is not a complete security audit.
 
+## Follow-up — 2026-10-29
+
+- A fresh read-only Supabase migration listing still returns the same 11 hosted versions above. The Phase 4 branch now contains 14 local migrations; in addition to the two earlier pending migrations, `20261029230000_rembr_visual_search_consent.sql` is also absent from hosted history.
+- The user confirms `DATABASE_URL` is configured on the Render `Rembr` workspace and chose to run the history-only repair from the Dashboard Shell. No history repair, schema migration, or other hosted write has occurred in this follow-up.
+- Repair remains limited to replacing the nine alternate version IDs with the matching local IDs. Do not apply any pending schema migrations in this history-repair step.
+
 ## Local verification
 
 - `npm.cmd run check` passed: API/web typecheck, API/web lint, 91 API tests, and API/web production builds.
