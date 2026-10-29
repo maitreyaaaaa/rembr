@@ -7,6 +7,7 @@ import { once } from 'node:events';
 import { test } from 'node:test';
 import { createApp } from '../src/app.js';
 import { createTestDatabase } from '../src/db/database.js';
+import { AI_SEARCH_DISCLOSURE_VERSION } from '../src/knowledge/ai-search-preferences.js';
 import { recoverAssets } from '../src/assets/recovery.js';
 import { LocalAssetStorage } from '../src/assets/storage.js';
 
@@ -184,7 +185,7 @@ test('Phase 4 grounded answers require separate consent and only retain citation
     const item = (await created.json() as { item: { id: string } }).item;
     await fetch(`${baseUrl}/api/items/${item.id}`, { method: 'PATCH', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ titleOverride: 'Design systems', descriptionOverride: 'A reliable system for accessible product teams.' }) });
     await database.prepare(`INSERT INTO ai_search_preferences (owner_id,enabled,consent_version,consented_at,updated_at)
-      VALUES (?,TRUE,'2026-10-29-v3',?,?)`).run(owner.user.user.id, new Date().toISOString(), new Date().toISOString());
+      VALUES (?,TRUE,'2026-10-29-v4',?,?)`).run(owner.user.user.id, new Date().toISOString(), new Date().toISOString());
     const oldConsent = await fetch(`${baseUrl}/api/knowledge/ai-preferences`, { headers: { Cookie: owner.cookie } });
     assert.equal((await oldConsent.json() as { preference: { enabled: boolean } }).preference.enabled, false);
     const noConsent = await fetch(`${baseUrl}/api/knowledge/answer`, { method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ question: 'What did I save about design systems?' }) });
@@ -197,7 +198,7 @@ test('Phase 4 grounded answers require separate consent and only retain citation
     assert.equal(oldDisclosure.status, 400);
     const tooMuchHistory = await fetch(`${baseUrl}/api/knowledge/answer`, { method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ question: 'design', messages: Array.from({ length: 9 }, () => ({ role: 'user', content: 'design systems' })) }) });
     assert.equal(tooMuchHistory.status, 400);
-    const consent = await fetch(`${baseUrl}/api/knowledge/ai-preferences`, { method: 'PUT', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: true, disclosureVersion: '2026-10-29-v4' }) });
+    const consent = await fetch(`${baseUrl}/api/knowledge/ai-preferences`, { method: 'PUT', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: true, disclosureVersion: AI_SEARCH_DISCLOSURE_VERSION }) });
     assert.equal(consent.status, 200);
     const grounded = await fetch(`${baseUrl}/api/knowledge/answer`, { method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ question: 'What did I save about design systems?' }) });
     const body = await grounded.json() as { mode: string; claims: Array<{ text: string; citationIds: string[] }>; citations: Array<{ id: string }> };
@@ -271,7 +272,7 @@ test('Phase 4 saved-item summaries are user-triggered, consent-gated, owner-scop
 
     await fetch(`${baseUrl}/api/knowledge/ai-preferences`, {
       method: 'PUT', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled: true, disclosureVersion: '2026-10-29-v4' }),
+      body: JSON.stringify({ enabled: true, disclosureVersion: AI_SEARCH_DISCLOSURE_VERSION }),
     });
     const generated = await fetch(`${baseUrl}/api/knowledge/items/${item.id}/summary`, {
       method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({}),
@@ -339,8 +340,10 @@ test('grounded library answers cite matching OCR and media analysis without expo
     };
     const ownerItem = await seedAnalysis(owner, 'owner', 'Project Aurora screenshot says: renew the solar array in June.');
     await seedAnalysis(foreign, 'foreign', 'Project Aurora confidential owner-only phrase: blue lighthouse 77.');
+    await database.prepare(`UPDATE ai_analysis_results SET brands_json=?,tools_json=?,people_json=?,repositories_json=?
+      WHERE owner_id=? AND item_id=?`).run(JSON.stringify(['Acme']), JSON.stringify(['Figma']), JSON.stringify(['Ada Lovelace']), JSON.stringify(['rembr/core']), owner.user.user.id, ownerItem);
     await database.prepare(`INSERT INTO ai_search_preferences (owner_id,enabled,consent_version,consented_at,updated_at)
-      VALUES (?,TRUE,'2026-10-29-v4',?,?)`).run(owner.user.user.id, now, now);
+      VALUES (?,TRUE,?,?,?)`).run(owner.user.user.id, AI_SEARCH_DISCLOSURE_VERSION, now, now);
     const response = await fetch(`${baseUrl}/api/knowledge/answer`, {
       method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' },
       body: JSON.stringify({ question: 'What does the Project Aurora screenshot say?' }),
@@ -352,6 +355,15 @@ test('grounded library answers cite matching OCR and media analysis without expo
     assert.match(answer.citations[0]!.snippet, /OCR text: Project Aurora screenshot says/);
     assert.match(prompt, /OCR text: Project Aurora screenshot says/);
     assert.doesNotMatch(prompt, /blue lighthouse 77/);
+    const entityAnswer = await fetch(`${baseUrl}/api/knowledge/answer`, {
+      method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: 'Acme' }),
+    });
+    const entityResult = await entityAnswer.json() as { citations: Array<{ id: string; snippet: string }> };
+    assert.deepEqual(entityResult.citations.map(({ id }) => id), [ownerItem]);
+    assert.match(entityResult.citations[0]!.snippet, /brands: Acme/);
+    assert.match(prompt, /brands: Acme/);
+    assert.doesNotMatch(prompt, /Ada Lovelace.*blue lighthouse 77/s);
   }, { providerAvailable: async () => true, answerModel: {
     countTextInputTokens: async () => 100,
     analyzeText: async (value) => {

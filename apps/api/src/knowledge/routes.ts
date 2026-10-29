@@ -133,7 +133,7 @@ export function createKnowledgeRouter(database: DatabaseHandle, storage: AssetSt
     const analysisByItem = new Map<string, Record<string, unknown>>();
     if (retrievedItems.length) {
       const marks = retrievedItems.map(() => '?').join(',');
-      const analyses = await database.prepare(`SELECT DISTINCT ON (item_id) item_id,summary,visual_description,ocr_text,transcript,keywords_json,tags_json
+      const analyses = await database.prepare(`SELECT DISTINCT ON (item_id) item_id,summary,visual_description,ocr_text,transcript,keywords_json,tags_json,brands_json,tools_json,people_json,repositories_json
         FROM ai_analysis_results WHERE owner_id=? AND item_id IN (${marks}) ORDER BY item_id,generation DESC`)
         .all(ownerId, ...retrievedItems.map((item) => item.id)) as Array<Record<string, unknown>>;
       for (const analysis of analyses) analysisByItem.set(String(analysis.item_id), analysis);
@@ -144,7 +144,10 @@ export function createKnowledgeRouter(database: DatabaseHandle, storage: AssetSt
         ['media summary', String(analysis.summary ?? '')], ['visual description', String(analysis.visual_description ?? '')],
         ['OCR text', String(analysis.ocr_text ?? '')], ['transcript', String(analysis.transcript ?? '')],
       ];
-      for (const [label, key] of [['keywords', 'keywords_json'], ['topics', 'tags_json']] as const) {
+      for (const [label, key] of [
+        ['keywords', 'keywords_json'], ['topics', 'tags_json'], ['brands', 'brands_json'],
+        ['tools', 'tools_json'], ['people named in text', 'people_json'], ['repositories', 'repositories_json'],
+      ] as const) {
         try {
           const values: unknown = JSON.parse(String(analysis[key] ?? '[]'));
           if (Array.isArray(values)) fields.push([label, values.filter((value): value is string => typeof value === 'string').slice(0, 8).join(', ')]);
