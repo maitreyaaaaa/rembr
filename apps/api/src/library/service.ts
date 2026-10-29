@@ -57,7 +57,8 @@ export function createLibraryService(database: DatabaseHandle, storage: AssetSto
       page.items = await Promise.all(page.items);
       const last = page.rows.at(-1) as Record<string, unknown> | undefined;
       const nextCursor = page.hasMore && last ? cursorEncode({ version: 1, owner: ownerId, fingerprint, sort: query.sort,
-        key: query.sort.startsWith('title_') ? String(last.effective_title).toLowerCase() : String(last.created_at), id: String(last.id) }) : null;
+        key: query.sort === 'relevance' ? JSON.stringify([Number(last.search_score ?? 0), String(last.created_at)])
+          : query.sort.startsWith('title_') ? String(last.effective_title).toLowerCase() : String(last.created_at), id: String(last.id) }) : null;
       return { items: page.items, nextCursor, hasMore: page.hasMore };
     },
     get(ownerId: string, itemId: string) { return repository.get(ownerId, itemId); },

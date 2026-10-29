@@ -3,7 +3,7 @@ import type { DatabaseHandle } from '../db/database.js';
 
 export interface ItemListQuery {
   search: string; type?: 'page' | 'note'; status?: string; tagId?: string; collectionId?: string;
-  sort: 'created_desc' | 'created_asc' | 'title_asc' | 'title_desc'; limit: number;
+  sort: 'relevance' | 'created_desc' | 'created_asc' | 'title_asc' | 'title_desc'; limit: number;
 }
 export interface ItemCursorKey { key: string; id: string }
 type Row = Record<string, unknown>;
@@ -102,34 +102,67 @@ export function createLibraryRepository(database: DatabaseHandle) {
           WHEN processing_jobs.status='completed' THEN 'ready' ELSE saved_items.status END)=?`);
         params.push(query.status);
       }
+      const safeSearch = `%${query.search.replace(/[!%_]/g, '!$&')}%`;
       if (query.search) {
-        clauses.push(`(COALESCE(saved_items.title_override,saved_items.title) LIKE ? ESCAPE '!' OR saved_items.original_url LIKE ? ESCAPE '!'
+        clauses.push(`(lower(COALESCE(saved_items.title_override,saved_items.title)) LIKE lower(?) ESCAPE '!'
+          OR lower(COALESCE(saved_items.description_override,saved_items.description,'')) LIKE lower(?) ESCAPE '!'
+          OR lower(saved_items.original_url) LIKE lower(?) ESCAPE '!'
+          OR lower(COALESCE(extracted_artifacts.text_content,'')) LIKE lower(?) ESCAPE '!'
+          OR EXISTS (SELECT 1 FROM notes WHERE notes.owner_id=saved_items.owner_id AND notes.item_id=saved_items.id AND lower(notes.body) LIKE lower(?) ESCAPE '!')
           OR EXISTS (SELECT 1 FROM ai_analysis_results analysis WHERE analysis.owner_id=saved_items.owner_id
-            AND analysis.item_id=saved_items.id AND (analysis.summary LIKE ? ESCAPE '!' OR analysis.visual_description LIKE ? ESCAPE '!'
-              OR analysis.ocr_text LIKE ? ESCAPE '!' OR analysis.transcript LIKE ? ESCAPE '!'
-              OR analysis.keywords_json LIKE ? ESCAPE '!' OR analysis.tags_json LIKE ? ESCAPE '!')))`);
-        const safe = `%${query.search.replace(/[!%_]/g, '!$&')}%`; params.push(safe, safe, safe, safe, safe, safe, safe, safe);
+            AND analysis.item_id=saved_items.id AND (lower(analysis.summary) LIKE lower(?) ESCAPE '!' OR lower(analysis.visual_description) LIKE lower(?) ESCAPE '!'
+              OR lower(analysis.ocr_text) LIKE lower(?) ESCAPE '!' OR lower(analysis.transcript) LIKE lower(?) ESCAPE '!'
+              OR lower(analysis.keywords_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tags_json) LIKE lower(?) ESCAPE '!')))`);
+        params.push(...Array.from({ length: 11 }, () => safeSearch));
       }
       if (query.tagId) { clauses.push('EXISTS (SELECT 1 FROM item_tags WHERE owner_id=saved_items.owner_id AND item_id=saved_items.id AND tag_id=?)'); params.push(query.tagId); }
       if (query.collectionId) { clauses.push('EXISTS (SELECT 1 FROM collection_items WHERE owner_id=saved_items.owner_id AND item_id=saved_items.id AND collection_id=?)'); params.push(query.collectionId); }
       const orderings: Record<string, string> = {
-        created_desc: 'saved_items.created_at DESC, saved_items.id DESC', created_asc: 'saved_items.created_at ASC, saved_items.id ASC',
-        title_asc: 'lower(COALESCE(saved_items.title_override,saved_items.title)) ASC, saved_items.id ASC',
-        title_desc: 'lower(COALESCE(saved_items.title_override,saved_items.title)) DESC, saved_items.id DESC',
+        relevance: 'search_score DESC, created_at DESC, id DESC',
+        created_desc: 'created_at DESC, id DESC', created_asc: 'created_at ASC, id ASC',
+        title_asc: 'lower(effective_title) ASC, id ASC',
+        title_desc: 'lower(effective_title) DESC, id DESC',
       };
-      if (cursor) {
+      let cursorWhere = '';
+      let cursorParams: unknown[] = [];
+      if (cursor && query.sort === 'relevance') {
+        let key: unknown;
+        try { key = JSON.parse(cursor.key); } catch { key = null; }
+        if (!Array.isArray(key) || typeof key[0] !== 'number' || !Number.isFinite(key[0]) || typeof key[1] !== 'string') {
+          throw new Error('Invalid relevance cursor.');
+        }
+        cursorWhere = 'WHERE (search_score < ? OR (search_score = ? AND (created_at < ? OR (created_at = ? AND id < ?))))';
+        cursorParams = [key[0], key[0], key[1], key[1], cursor.id];
+      } else if (cursor) {
         const titleSort = query.sort.startsWith('title_'); const expression = titleSort ? 'lower(COALESCE(saved_items.title_override,saved_items.title))' : 'saved_items.created_at';
         const direction = query.sort.endsWith('asc') ? '>' : '<';
         clauses.push(`(${expression} ${direction} ? OR (${expression}=? AND saved_items.id ${direction} ?))`); params.push(cursor.key, cursor.key, cursor.id);
       }
-      const rows = await database.prepare(`SELECT saved_items.*, COALESCE(saved_items.title_override,saved_items.title) AS effective_title,
-          COALESCE(saved_items.description_override,saved_items.description) AS effective_description, extracted_artifacts.text_content,
-          processing_jobs.status AS job_status, job_pause_states.pause_cause
-        FROM saved_items LEFT JOIN extracted_artifacts ON extracted_artifacts.item_id=saved_items.id AND extracted_artifacts.owner_id=saved_items.owner_id
-        LEFT JOIN processing_jobs ON processing_jobs.item_id=saved_items.id AND processing_jobs.owner_id=saved_items.owner_id
-        LEFT JOIN job_pause_states ON job_pause_states.job_id=processing_jobs.id AND job_pause_states.owner_id=processing_jobs.owner_id
-        WHERE ${clauses.join(' AND ')} ORDER BY ${orderings[query.sort]} LIMIT ?`)
-        .all(...params, query.limit + 1) as Row[];
+      const scoreExpression = query.sort === 'relevance' ? `
+        (CASE WHEN lower(COALESCE(saved_items.title_override,saved_items.title))=lower(?) THEN 100 ELSE 0 END
+        + CASE WHEN lower(COALESCE(saved_items.title_override,saved_items.title)) LIKE lower(?) ESCAPE '!' THEN 70 ELSE 0 END
+        + CASE WHEN lower(COALESCE(saved_items.description_override,saved_items.description,'')) LIKE lower(?) ESCAPE '!' THEN 40 ELSE 0 END
+        + CASE WHEN lower(saved_items.original_url) LIKE lower(?) ESCAPE '!' THEN 30 ELSE 0 END
+        + CASE WHEN lower(COALESCE(extracted_artifacts.text_content,'')) LIKE lower(?) ESCAPE '!' THEN 20 ELSE 0 END
+        + CASE WHEN EXISTS (SELECT 1 FROM notes WHERE notes.owner_id=saved_items.owner_id AND notes.item_id=saved_items.id AND lower(notes.body) LIKE lower(?) ESCAPE '!') THEN 20 ELSE 0 END
+        + CASE WHEN EXISTS (SELECT 1 FROM ai_analysis_results analysis WHERE analysis.owner_id=saved_items.owner_id AND analysis.item_id=saved_items.id
+            AND (lower(analysis.summary) LIKE lower(?) ESCAPE '!' OR lower(analysis.visual_description) LIKE lower(?) ESCAPE '!'
+              OR lower(analysis.ocr_text) LIKE lower(?) ESCAPE '!' OR lower(analysis.transcript) LIKE lower(?) ESCAPE '!'
+              OR lower(analysis.keywords_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tags_json) LIKE lower(?) ESCAPE '!')) THEN 15 ELSE 0 END)` : 'NULL';
+      const scoreParams = query.sort === 'relevance' ? [query.search, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch] : [];
+      const rows = await database.prepare(`WITH ranked_items AS (
+          SELECT saved_items.*, COALESCE(saved_items.title_override,saved_items.title) AS effective_title,
+            COALESCE(saved_items.description_override,saved_items.description) AS effective_description,
+            extracted_artifacts.text_content, processing_jobs.status AS job_status, job_pause_states.pause_cause,
+            ${scoreExpression} AS search_score
+          FROM saved_items
+          LEFT JOIN extracted_artifacts ON extracted_artifacts.item_id=saved_items.id AND extracted_artifacts.owner_id=saved_items.owner_id
+          LEFT JOIN processing_jobs ON processing_jobs.item_id=saved_items.id AND processing_jobs.owner_id=saved_items.owner_id
+          LEFT JOIN job_pause_states ON job_pause_states.job_id=processing_jobs.id AND job_pause_states.owner_id=processing_jobs.owner_id
+          WHERE ${clauses.join(' AND ')}
+        )
+        SELECT * FROM ranked_items ${cursorWhere} ORDER BY ${orderings[query.sort]} LIMIT ?`)
+        .all(...scoreParams, ...params, ...cursorParams, query.limit + 1) as Row[];
       const pageRows = rows.slice(0, query.limit);
       return { rows: pageRows, items: await decorate(ownerId, pageRows), hasMore: rows.length > query.limit };
     },
