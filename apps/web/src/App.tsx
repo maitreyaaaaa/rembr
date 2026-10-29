@@ -7,6 +7,7 @@ import { MarketingSite } from './MarketingSite.js';
 import { AvatarUpload } from './components/AvatarUpload.js';
 import { PasswordStrengthField } from './components/PasswordStrengthField.js';
 import { Progress } from './components/ui/progress.js';
+import { SmartCollectionsPage } from './components/SmartCollectionsPage.js';
 
 type Status = 'queued' | 'processing' | 'retry_wait' | 'cancel_requested' | 'cancelled' | 'paused' | 'partial' | 'ready' | 'failed';
 interface User { id: string; email: string }
@@ -133,6 +134,8 @@ function AppRoutes() {
       <Route path="notes/:itemId/edit" element={<NoteEditorPage />} />
       <Route path="collections" element={<CollectionsPage />} />
       <Route path="collections/:collectionId" element={<CollectionDetailPage />} />
+      <Route path="smart-collections" element={<SmartCollectionsPage request={api} />} />
+      <Route path="smart-collections/:collectionId" element={<SmartCollectionsPage request={api} />} />
       <Route path="tags" element={<TagsPage />} />
       <Route path="graph" element={<KnowledgeGraphPage />} />
       <Route path="checkup" element={<LibraryCheckupPage />} />
@@ -222,7 +225,7 @@ function ProtectedShell() {
 
 function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promise<void> }) {
   const [logoutBusy, setLogoutBusy] = useState(false);
-  return <header className="phase2-topbar"><Link className="wordmark" to="/app">rembr<span>.</span></Link><nav aria-label="Workspace navigation" className="phase2-nav"><NavLink to="/app" label="Library" /><NavLink to="/app/imports" label="Imports" /><NavLink to="/app/collections" label="Collections" /><NavLink to="/app/tags" label="Tags" /><NavLink to="/app/graph" label="Knowledge graph" /><NavLink to="/app/checkup" label="Library Checkup" /><NavLink to="/app/settings/profile" label="Settings" /></nav><div className="phase2-account"><span>{session.profile?.username ? `@${session.profile.username}` : session.user.email}</span><button type="button" className="quiet-button" disabled={logoutBusy} onClick={() => { setLogoutBusy(true); void onLogout().finally(() => setLogoutBusy(false)); }}>Sign out</button></div></header>;
+  return <header className="phase2-topbar"><Link className="wordmark" to="/app">rembr<span>.</span></Link><nav aria-label="Workspace navigation" className="phase2-nav"><NavLink to="/app" label="Library" /><NavLink to="/app/imports" label="Imports" /><NavLink to="/app/collections" label="Collections" /><NavLink to="/app/smart-collections" label="Smart groups" /><NavLink to="/app/tags" label="Tags" /><NavLink to="/app/graph" label="Knowledge graph" /><NavLink to="/app/checkup" label="Library Checkup" /><NavLink to="/app/settings/profile" label="Settings" /></nav><div className="phase2-account"><span>{session.profile?.username ? `@${session.profile.username}` : session.user.email}</span><button type="button" className="quiet-button" disabled={logoutBusy} onClick={() => { setLogoutBusy(true); void onLogout().finally(() => setLogoutBusy(false)); }}>Sign out</button></div></header>;
 }
 function NavLink({ to, label }: { to: string; label: string }) {
   const location = useLocation(); const active = to === '/app' ? location.pathname === '/app' : location.pathname.startsWith(to);

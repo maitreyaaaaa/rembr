@@ -502,6 +502,15 @@ h1, h2, h3, p { margin-top: 0; }
 .phase2-tab-links { display: flex; gap: 5px; padding: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); }
 .phase2-tab-links a { padding: 8px 11px; border-radius: 7px; color: var(--muted) !important; font-size: 11px; font-weight: 700; text-decoration: none; }
 .phase2-tab-links a.active { background: var(--surface); color: var(--primary) !important; box-shadow: 0 2px 7px rgb(21 24 39 / 8%); }
+.smart-collection-groups { display: grid; gap: 14px; }
+.smart-collection-groups > section > h2 { margin-top: 0; }
+.smart-collection-groups .phase2-collection-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 260px), 1fr)); }
+.smart-collection-groups .phase2-collection-grid > li { min-width: 0; padding: 16px; }
+.smart-collection-groups .phase2-collection-grid h3 { margin: 8px 0; }
+.smart-collection-groups .phase2-collection-grid h3 a { color: var(--text); text-decoration: none; }
+.smart-collection-preview { display: grid; gap: 7px; margin: 14px 0; padding-left: 18px; color: var(--primary); font-size: 11px; }
+.smart-collection-preview li { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.smart-collection-groups .phase2-card-actions { justify-content: flex-start; flex-wrap: wrap; }
 @media (max-width: 760px) {
   .phase2-topbar { grid-template-columns: auto 1fr; gap: 8px 14px; padding: 13px 0; }
   .phase2-nav { grid-column: 1 / -1; grid-row: 2; justify-content: start; flex-wrap: wrap; overflow: visible; }

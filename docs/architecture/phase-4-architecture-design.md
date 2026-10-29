@@ -33,11 +33,13 @@ Implemented locally on this branch: deterministically rank library search result
 
 - Knowledge Graph API and screen: derive bounded item/concept relationships from the signed-in user's domains, tags, collections, and any existing opt-in analysis topics. The SVG is a compact sample; the grouped concept/item list is the complete accessible interaction surface. No new persistence or provider call is required.
 - Library Checkup API and screen: report owner-scoped processing states, unorganized saves, older saves, and stable daily/weekly rediscovery picks. The first version is read-only and does not make outbound link checks or mutate records.
+- Smart Collections API, persistence, and screens: deterministically derive rule/topic/capture/folder/platform groups from up to 2,000 recent owner saves and existing analysis, then persist pin/hide settings and per-item include/exclude corrections. Search and membership reads remain owner-scoped; no provider is called. Rules run on refresh and group open, with text inputs bounded to 2,000 characters per item. Migration `20261029150000_rembr_smart_collections.sql` is local and still needs deployment/database migration evidence.
 - Typecheck, lint, production build, and `git diff --check` pass for these slices. Automated tests and browser review remain unrun.
 
 ## Open evidence and gate
 
 - Confirm current reference behavior and exact required graph, checkup, collection-rule, chat, and summary parity while implementing those slices.
+- The first Smart Collections slice has rule-based categories, persisted user corrections, and group search; richer source-matching rules, selection controls, naming edits, and browser/runtime parity evidence remain open.
 - The current graph/checkup slices are deliberately bounded: link health, reminders, duplicate cleanup, and full graph export remain open parts of source parity.
 - OCR/ASR media-source coverage depends on closing the Phase 3 audio/video media parity gap; unsupported or unavailable sources must remain explicitly partial.
 - Meta API access and real model behavior are not verified here.

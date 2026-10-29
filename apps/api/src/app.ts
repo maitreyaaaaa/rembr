@@ -15,6 +15,7 @@ import { LocalImportStorage, type ImportStorage } from './imports/storage.js';
 import { createJobRouter } from './jobs/routes.js';
 import { createAiRouter } from './ai/routes.js';
 import { createKnowledgeRouter } from './knowledge/routes.js';
+import { createSmartCollectionRouter } from './smart-collections/routes.js';
 import { LocalAssetStorage, type AssetStorage } from './assets/storage.js';
 import { LocalMediaStorage, type MediaStorage } from './media/storage.js';
 import type { DatabaseHandle } from './db/database.js';
@@ -131,6 +132,7 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
   app.use('/api', createAccountRouter(database, assetStorage));
   app.use('/api', createAiRouter(database));
   app.use('/api', createKnowledgeRouter(database, assetStorage));
+  app.use('/api', createSmartCollectionRouter(database, assetStorage));
 
   const requireSignedIn = requireUser(database) as RequestHandler;
   const requireCompletedProfile = createProfileGate(database, assetStorage) as RequestHandler;
