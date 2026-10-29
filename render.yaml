@@ -24,6 +24,8 @@ services:
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+      - key: META_API_KEY
+        sync: false
       - key: OPENROUTER_API_KEY
         sync: false
 
@@ -49,4 +51,6 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: META_API_KEY
         sync: false

@@ -8,8 +8,8 @@ This document is the controlling implementation sequence for rebuilding Rembr fr
 
 - **Phase 1: Passed locally.** See [Phase 1 record](phase-1-record.md); hosted CI and production database behavior are not claimed as verified.
 - **Phase 2: Passed locally.** See [Phase 2 record](phase-2-record.md); hosted CI and hosted database behavior remain unverified.
-- **Phase 3: Implementation in place; gate remains open for live Meta provider verification.** The user directed on 2026-10-29 that API-key authorization and related live checks be completed later, and explicitly authorized Phase 4 to start in parallel. This does not pass Phase 3. Product decisions and prior implementation evidence are recorded in [Phase 3 architecture design](../architecture/phase-3-architecture-design.md).
-- **Phase 4: In progress.** Started on `feat/phase-4-search-knowledge-ai` at the user's direction while the Phase 3 live-provider check remains deferred. See [Phase 4 architecture design](../architecture/phase-4-architecture-design.md).
+- **Phase 3: Implementation in place; live Meta provider verification is now authorized and in progress.** On 2026-10-30 the user confirmed they obtained the Meta API key and asked to complete integration checks. The key is not present in checked local environments, and hosted worker status currently reports it as unconfigured. Both Render services now declare `META_API_KEY`; secure configuration on Render and a synthetic live request remain pending. This does not pass Phase 3. Product decisions and prior implementation evidence are recorded in [Phase 3 architecture design](../architecture/phase-3-architecture-design.md).
+- **Phase 4: In progress.** Started on `feat/phase-4-search-knowledge-ai` at the user's direction while Phase 3 work continued in parallel. The Meta API-key check is now authorized and in progress. See [Phase 4 architecture design](../architecture/phase-4-architecture-design.md).
 
 This is a plan, not evidence that any feature exists or has passed. The IScraper repository remains a read-only reference. Rembr gets a new repository and history, synthetic development data, and its own visual identity. Every feature found in the audited source remains in scope unless the user explicitly approves a change; no phase may quietly drop a capability. Any redesigned behavior or approved scope change must be recorded in the feature matrix and screen/workflow map.
 
@@ -121,7 +121,7 @@ All Phase 2 feature rows and screen states pass, ownership rules agree across UI
 
 ## Phase 3 — Ingestion, durable jobs, and content processing
 
-**Status (2026-10-29):** Implementation is in place and the gate remains open for the deferred Meta API-key authorization and live provider checks. The user explicitly authorized Phase 4 to begin in parallel; this is a sequencing decision and is not evidence that Phase 3 passed. Do not mark Phase 3 complete until its remaining verification is recorded.
+**Status (2026-10-30):** Implementation is in place and the user has authorized live Meta API-key verification. The configured key is still absent from the checked environments; the Render blueprint declares it on both web and worker services. Hosted worker status was `meta_api_configured=false` with a fresh heartbeat, and no enabled AI-analysis consent or queued/processing/retry jobs were present in the production preflight. Do not mark Phase 3 complete until the key is securely configured, a synthetic live request succeeds, and the independent media-parity, storage/concurrency, pause-state, browser, and accessibility gates are resolved.
 
 ### Work
 
