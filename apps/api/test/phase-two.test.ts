@@ -400,6 +400,13 @@ test('Phase 4 synthetic retrieval fixture reports graded ranking metrics through
       VALUES ('retrieval-text-only',?,?, 'Plain page', 'Generic source', 'Amber raincoat archive details.', ?, ?)`)
       .run(owner.user.user.id, textOnlyItem.id, new Date().toISOString(), new Date().toISOString());
 
+    const unicodePage = await createPage(baseUrl, owner.cookie, 'https://fixture.test/unicode');
+    const { item: unicodeItem } = await unicodePage.json() as { item: { id: string } };
+    assert.equal((await fetch(`${baseUrl}/api/items/${unicodeItem.id}`, {
+      method: 'PATCH', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ titleOverride: 'बगीचा योजना', descriptionOverride: 'धूप और वर्षा' }),
+    })).status, 200);
+
     const tieIds: string[] = [];
     for (const path of ['tie-a', 'tie-b']) {
       const tiedPage = await createPage(baseUrl, owner.cookie, `https://fixture.test/${path}`);
@@ -459,6 +466,12 @@ test('Phase 4 synthetic retrieval fixture reports graded ranking metrics through
 
     const textOnly = await fetch(`${baseUrl}/api/items?search=amber%20raincoat`, { headers: { Cookie: owner.cookie } });
     assert.deepEqual((await textOnly.json() as { items: Array<{ id: string }> }).items.map(({ id }) => id), [textOnlyItem.id]);
+    const unicode = await fetch(`${baseUrl}/api/items?search=${encodeURIComponent('बगीचा योजना')}`, { headers: { Cookie: owner.cookie } });
+    assert.deepEqual((await unicode.json() as { items: Array<{ id: string }> }).items.map(({ id }) => id), [unicodeItem.id]);
+    const unicodeAnswer = await fetch(`${baseUrl}/api/knowledge/answer`, {
+      method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ question: 'बगीचा योजना' }),
+    });
+    assert.deepEqual((await unicodeAnswer.json() as { citations: Array<{ id: string }> }).citations.map(({ id }) => id), [unicodeItem.id]);
     const empty = await fetch(`${baseUrl}/api/items?search=zzquasarfixturemissing`, { headers: { Cookie: owner.cookie } });
     const emptyBody = await empty.json() as { items: unknown[]; hasMore: boolean };
     assert.deepEqual(emptyBody.items, []);

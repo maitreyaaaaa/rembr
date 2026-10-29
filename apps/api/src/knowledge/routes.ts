@@ -9,6 +9,7 @@ import { createKnowledgeGraphRepository } from './graph.js';
 import { createObsidianExportRepository } from './obsidian-export.js';
 import { createLibraryLinkHealthRepository } from './link-health.js';
 import { createLibraryService } from '../library/service.js';
+import { tokenizeSearchTerms } from '../library/search-terms.js';
 import { checkPublicPage } from '../items/safe-fetch.js';
 import { createAiSearchPreferenceRepository, AI_SEARCH_DISCLOSURE_VERSION } from './ai-search-preferences.js';
 import { createAiUsageRepository, sparkCostMicroUsd, AiBudgetExceededError } from '../ai/usage.js';
@@ -120,10 +121,10 @@ export function createKnowledgeRouter(database: DatabaseHandle, storage: AssetSt
     const parsed = questionSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: { code: 'invalid_question', message: 'Enter a question up to 120 characters.', requestId: req.requestId } });
     const ownerId = req.user!.id;
-    const terms = parsed.data.question.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+    const terms = tokenizeSearchTerms(parsed.data.question);
     const keywords = terms.filter((term) => !questionFillers.has(term));
     const previousUserQuestions = parsed.data.messages.filter((message) => message.role === 'user').slice(-2).map((message) => message.content);
-    const contextTerms = previousUserQuestions.flatMap((question) => question.toLowerCase().match(/[a-z0-9]+/g) ?? [])
+    const contextTerms = previousUserQuestions.flatMap(tokenizeSearchTerms)
       .filter((term) => !questionFillers.has(term));
     const searchTerms = keywords.length >= 2 ? keywords : [...keywords, ...contextTerms];
     const search = [...new Set(searchTerms)].slice(0, 6).join(' ');

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseHandle } from '../db/database.js';
-import { tokenizeSearchTerms } from '../library/repository.js';
+import { tokenizeSearchTerms } from '../library/search-terms.js';
 
 const ITEM_SCAN_LIMIT = 2_000;
 const MIN_MATCHES = 2;

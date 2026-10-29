@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseHandle } from '../db/database.js';
+import { tokenizeSearchTerms } from './search-terms.js';
 
 export interface ItemListQuery {
   search: string; type?: 'page' | 'note'; status?: string; tagId?: string; collectionId?: string;
@@ -16,7 +17,6 @@ const SEARCH_FIELDS = `lower(COALESCE(saved_items.title_override,saved_items.tit
     AND analysis.item_id=saved_items.id AND (lower(analysis.summary) LIKE lower(?) ESCAPE '!' OR lower(analysis.visual_description) LIKE lower(?) ESCAPE '!'
       OR lower(analysis.ocr_text) LIKE lower(?) ESCAPE '!' OR lower(analysis.transcript) LIKE lower(?) ESCAPE '!'
       OR lower(analysis.keywords_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tags_json) LIKE lower(?) ESCAPE '!'))`;
-const SEARCH_STOP_WORDS = new Set(['a','an','and','are','as','at','be','by','did','do','does','for','from','how','i','in','is','it','me','my','of','on','or','that','the','this','to','was','what','when','where','which','who','why','with','you','your']);
 const SEARCH_CONCEPTS: Record<string, string[]> = {
   security: ['security','secure','soc','soc2','compliance','audit','privacy','control','controls','access','data','protection','certification','certifications'],
   compliance: ['compliance','soc','soc2','audit','privacy','control','controls','policy','policies','certification','certifications'],
@@ -29,11 +29,6 @@ const SEARCH_CONCEPTS: Record<string, string[]> = {
   skill: ['skills','skill','agent','mcp'], skills: ['skills','skill','agent','mcp'], agent: ['skills','skill','agent','mcp'],
   memory: ['memory','openspace'],
 };
-export function tokenizeSearchTerms(value: string): string[] {
-  const tokens = [...new Set(value.toLowerCase().normalize('NFKC').match(/[a-z0-9]+/g) ?? [])];
-  const meaningful = tokens.filter((token) => !SEARCH_STOP_WORDS.has(token));
-  return meaningful.length ? meaningful : tokens.length ? tokens : [value.trim()].filter(Boolean);
-}
 function queryGroups(value: string): string[][] {
   return tokenizeSearchTerms(value).map((token) => SEARCH_CONCEPTS[token] ?? [token]);
 }
