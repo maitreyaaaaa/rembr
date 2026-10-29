@@ -1,7 +1,7 @@
 # Rembr marketing visual system and site storyboard
 
 **Status:** Review draft. This document proposes a direction; it does not authorize a site rebuild or new animation dependency yet.
-**Scope:** Public marketing routes (`/`, `/features`, `/about`, `/contact`) and their handoff to `/app`.
+**Scope:** The complete planned public site and its handoff to `/app`: home, features, about, contact/help, pricing, and legal/privacy routes. Existing implementation currently covers only `/`, `/features`, `/about`, and `/contact`; the roadmap assigns additional public surfaces to later phases.
 **Product evidence checked:** Current marketing component, web app import UI, Phase 3 import design, and Phase 4 implementation notes in this checkout on 2026-10-29.
 
 ## Creative direction
@@ -72,10 +72,11 @@ The page should move from recognition to proof, then give a clear next action. K
 | 2. Recognition | “That post you meant to come back to.” Show a familiar saved-post card as a recognizable content example, then show where it lives in Rembr. Make it clear that Instagram arrives through an export import. | Phone frame with synthetic, clearly fictional post; a small adjacent Rembr import screen. Yellow and orange become the visual bridge. | Phone and library card move by a few pixels at different rates; avoid spinning phone or full-screen scroll pin. |
 | 3. Product proof | “A place for the things you chose to keep.” Show actual Rembr library states: item title/source, notes or tags where present, and import results where relevant. | Transition to a mostly warm-white section; use actual current screenshots or faithful DOM-based product surfaces. | Reveal the selected UI panel once as it enters view. Keep all content in document flow. |
 | 4. The simple loop | Save a public URL or import a supported export → Rembr processes recognized links → return through library search and organization. Explain failure/partial outcomes in plain language. | Three horizontal steps on desktop; stacked readable steps on mobile. Use an orange connector and numbered ink labels. | Subtle connector drawing or number emphasis, triggered once; no scroll-controlled content gate. |
-| 5. Organize and rediscover | “Your library should help you find the thread again.” Show only current, verified features such as tags, collections, Smart Collections, Checkup, reminders, graph, and search. Select two or three visual proof points rather than displaying every feature at once. | One product surface per proof point, built from current UI/source. Let the screenshots carry detail; short copy explains why each matters. | One scroll-linked sequence may connect a saved item to its group and rediscovery view, but the full states remain visible without motion. |
-| 6. Ask your library (conditional) | If the current branch's grounded Q&A and saved-item summaries are approved for public release, show a question tied to cited saved items. Explain optional AI/provider consent in direct language. | A restrained conversation panel with source citations visible; no magical glowing brain or answer without provenance. | Animate the answer and citations as a short response sequence only in a user-controlled demo; do not auto-play a long chat. |
-| 7. Honest boundaries | “Built for what you chose to keep.” Clarify public URL processing and platform-export limits. Note that extraction varies and supported source types are bounded. | High contrast ink on warm paper with an orange rule; accessible, calm, non-defensive. | No parallax here; reading and limitations deserve stillness. |
-| 8. FAQ and close | Answer the actual top questions, then repeat the primary CTA. Mention contact path and current limits; do not invent pricing, testimonials, or service guarantees. | Yellow final panel with ink button and ink text. Warm-paper footer with all routes and app entry. | One small CTA/icon response; no confetti or motion that competes with the final decision. |
+| 5. Organize and rediscover (Phase 4) | “Your library should help you find the thread again.” Show search, tags/collections, Smart Collections, Checkup, reminders, graph, and grounded answers/summaries as the completed product story. Explain that answers cite saved sources and AI enrichment is optional and consent-based. | Select two or three proof points, then link to a complete feature page. Show citations and rediscovery controls in actual product UI. | One scroll-linked sequence may connect a saved item to its group and rediscovery view, but the full states remain visible without motion. |
+| 6. Save from where you find it (Phase 5) | Demonstrate the browser extension and approved connected workflows as explicit user-initiated actions. For automations or publishing, show draft → pending approval → approved → executed/logged, with the human decision visible. | Browser capture frame or workflow panel based on completed Phase 5 UI. Keep “save” and consequential external actions visually distinct. | Small state transition can show a capture or approval decision; never auto-execute in a marketing animation in a way that implies approval is skipped. |
+| 7. Control your account and data (Phase 6) | Show settings, export, deletion, privacy controls, account/security activity, and billing only where the corresponding behavior and live configuration are complete. Explain what each control does in plain language. | An orderly settings/data-control composition with clear labels and confirmation states; no vague security badges. | Keep privacy choices and destructive-action explanations still and readable. |
+| 8. Honest boundaries | “Built for what you chose to keep.” Clarify public URL processing and platform-export limits, supported capture methods, provider/AI behavior, and any remaining limitations. | High contrast ink on warm paper with an orange rule; accessible, calm, non-defensive. | No parallax here; reading and limitations deserve stillness. |
+| 9. FAQ and close | Answer the actual top questions, then repeat the primary CTA. Add pricing only after Phase 6 plan/entitlement configuration is verified; include contact, privacy, and data-control routes. Do not invent testimonials or service guarantees. | Yellow final panel with ink button and ink text. Warm-paper footer with the complete route map and app entry. | One small CTA/icon response; no confetti or motion that competes with the final decision. |
 
 ### Homepage headline options to test in mockups
 
@@ -89,10 +90,25 @@ Start with option 1 for the storyboard. A quick visual comparison of all three c
 
 | Route | Job | Story structure |
 |---|---|---|
-| `/features` | Prove what the product supports now | Short intro → three or four evidence-backed capabilities → clear import/capture explanation → current limits and failure cases → open-library CTA. Group functions by user outcome, not the app's internal navigation labels. |
+| `/features` | Prove what the complete product supports | Short intro → capture/import → organize and rediscover → connected workflows and approval → account/data controls → capability limits and failure cases → open-library CTA. Group functions by user outcome, not the app's internal navigation labels. Build sections as planned while phases advance; publish each claim only when its phase and required live evidence pass. |
 | `/about` | Explain the product point of view | The overload of things worth saving → why a personal, user-chosen library matters → what Rembr currently is and is not → north-star statement. Keep roadmap ambitions labeled as ambitions. |
-| `/contact` | Make feedback straightforward | Short, human intro → clear form and what happens after submit → account-help route. The current form opens an email draft only if configured; do not imply Rembr stores or sends it. |
+| `/contact` and `/help` | Make feedback and support straightforward | Short, human intro → clear contact/help path and expected next step → account-help route. The current contact form opens an email draft only if configured; later support features must match their real service and privacy behavior. |
+| `/pricing` | Explain the available plan and limits | Introduce only the actually configured plans, credits, entitlements, billing cadence, and cancellation/refund terms after Phase 6 verification. Design the page now, but keep unverified values as placeholders in the internal storyboard, never public copy. |
+| `/terms`, `/privacy`, `/security`, `/data-deletion`, `/cookies` | Make product and data practices understandable | Build from Phase 6's actual collection, processing, retention, provider, export, deletion, and billing behavior. Add the required owner/legal review; do not use generic claims or certifications as decoration. |
 | `/app` handoff | Let a visitor act immediately | CTA labels should honestly say “Open your library” or “Create your library” based on auth state; keep the handoff easy to see in every marketing header/footer. |
+
+## Phase-aware marketing and release gate
+
+The site may be designed and assembled before the product phases finish. Treat its full story as the destination Rembr is building toward, while separating production-ready content from future-state design in the working files. Use internal labels such as `planned — Phase 5` on unreleased sections and assets so they cannot be mistaken for current public claims.
+
+| Product phase | Marketing story prepared in advance | Gate before presenting as available |
+|---|---|---|
+| 4 — Search, knowledge, optional AI | Search/retrieval, Smart Collections, Checkup, reminders, Knowledge Graph, summaries, cited answers | Phase 4 gate passes; provider-backed behavior and consent/configuration are described only to the extent actually verified |
+| 5 — Extension and connected workflows | Browser capture, supported integrations, workflow/automation approval lifecycle | Phase 5 security, approval, audit, callback, extension/browser, and end-to-end acceptance evidence passes |
+| 6 — Account, privacy, admin, billing | Export/deletion, privacy controls, support/admin boundaries, pricing and credits if enabled | Phase 6 lifecycle, access, billing, privacy/legal, and live-configuration evidence passes; obtain required owner/legal review |
+| 7–9 — Visual system through release | Full route coverage, accessibility/responsive polish, final demos, release presentation | Whole-product gates and deployment/demo evidence pass; screenshots/video match the release build |
+
+Do not reduce the product's intended feature scope to what happens to be in the current branch. Also do not turn the roadmap into a public promise: the user-facing site is ready for release only after the agreed Phase 0–9 roadmap is complete, each gate has passed, and its claims/assets match the completed product. Pricing, legal terms, certifications, integrations, and provider behavior each need their own evidence/configuration; “all phases are planned” does not make a specific claim true by itself.
 
 ## Motion language
 
@@ -131,14 +147,14 @@ Readwise Reader's current documentation shows established read-later expectation
 
 **Proposed in this draft:** Space Grotesk + DM Sans roles; `#171411` ink; `#FFF9D9` app canvas; `#FFFEF6` reading surface; the homepage story above; limited GSAP/ScrollTrigger use.
 
-**Must confirm before production artwork or public copy:** Instagram direct-save versus export-import framing; primary audience; which Phase 4 features are release-ready and approved for public marketing; whether real product video is available. The Instagram export visual can proceed as a concept without a video, but a real recording will make a final phone mockup more accurate.
+**Resolved by the user:** The eventual marketing scope can include features from Phases 4, 5, and 6, and the site can be prepared before those phases finish. All phases must be complete before the site is released to users. The phase-aware release gate above operationalizes that direction.
+
+**Must confirm before production artwork or final copy:** Instagram direct-save versus export-import framing; primary audience; whether real product video is available. The Instagram export visual can proceed as a concept without a video, but a real recording will make a final phone mockup more accurate.
 
 ## Approval questions
 
 1. **Instagram scene:** Should the storyboard show the currently implemented Instagram export/import flow, a future direct share-to-Rembr idea clearly marked as a concept, or avoid Instagram until direct saving exists?
 2. **Primary audience:** Should the home page speak broadly to people saving useful links, or lead with a sharper audience such as creators, students/researchers, or people collecting inspiration?
-3. **Public feature scope:** May the marketing story include Phase 4 organization, checkup, reminders, graph, summaries, and grounded Q&A, subject to release verification, or should it stay focused on saving and finding for now?
-
 If there is a screen recording of the real Instagram export/import or later retrieval flow, send it before the phone mockup is finalized. It is not needed to review this direction.
 
 ## Approval gate and implementation sequence
@@ -152,4 +168,5 @@ If there is a screen recording of the real Instagram export/import or later retr
 
 - Current project positioning and page map: [positioning and identity](./positioning-and-identity.md), [page map and content](./page-map-and-content.md).
 - Current product design boundary: [Rembr design-system brief](../screens/rembr-design-system-brief.md).
+- Phase ownership and route scope: [phase-gated roadmap](../rebuild-plan/phase-gated-roadmap.md), [screen/workflow phase matrix](../rebuild-plan/screen-workflow-phase-matrix.md).
 - Product capability and verification notes: [Phase 3 architecture](../architecture/phase-3-architecture-design.md), [Phase 4 architecture](../architecture/phase-4-architecture-design.md), and `apps/web/src/MarketingSite.tsx` / `apps/web/src/App.tsx`.
