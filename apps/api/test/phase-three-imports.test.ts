@@ -8,6 +8,8 @@ import { test } from 'node:test';
 import { createApp } from '../src/app.js';
 import { createTestDatabase } from '../src/db/database.js';
 import { createImportService, validateImportFiles } from '../src/imports/service.js';
+import { createImportRepository } from '../src/imports/repository.js';
+import type { ParsedImportItem } from '../src/imports/parser.js';
 import { LocalImportStorage } from '../src/imports/storage.js';
 import { LocalMediaStorage } from '../src/media/storage.js';
 import { processNextJob } from '../src/worker/process-job.js';
@@ -81,6 +83,38 @@ test('Phase 3 import manifests precede chunks, auto-queue parsed items, deduplic
     assert.equal((await database.prepare('SELECT count(*) AS count FROM processing_jobs').get() as { count: number }).count, 1);
     const storedFile = await database.prepare('SELECT storage_key FROM import_upload_files WHERE import_id=?').get(manifest.importId) as { storage_key: string };
     await assert.rejects(readFile(join(importPath, `${storedFile.storage_key}.upload`)));
+  });
+});
+
+test('large import acceptance batches writes and deduplicates repeated URLs across lookup chunks', async () => {
+  await withApi(async (baseUrl, database) => {
+    await register(baseUrl, 'batch-importer@example.test', 'batch_importer');
+    const account = await database.prepare('SELECT id FROM users WHERE email=?').get('batch-importer@example.test') as { id: string } | undefined;
+    assert.ok(account);
+
+    const repository = createImportRepository(database);
+    const manifest = await repository.create(account.id, 'large-request', 'large-import-key', [{ name: 'saved_posts.json', mime: 'application/json', size: 1, chunks: 1 }]);
+    await database.prepare(`UPDATE imports SET status='staged' WHERE owner_id=? AND id=?`).run(account.id, manifest.id);
+    await database.prepare(`UPDATE import_upload_files SET state='staged' WHERE owner_id=? AND import_id=?`).run(account.id, manifest.id);
+    const lease = await repository.claimForParsing(account.id, manifest.id);
+    assert.ok(lease);
+    const fileRows = await repository.files(account.id, manifest.id);
+    const items: ParsedImportItem[] = Array.from({ length: 501 }, (_unused, index) => {
+      const sourceIndex = index === 500 ? 0 : index;
+      const url = `https://www.instagram.com/p/BATCH${sourceIndex}/`;
+      return {
+        platform: 'instagram', url, sourceId: `BATCH${sourceIndex}`, title: `Saved post ${sourceIndex}`, description: '', collection: 'Saved posts',
+        metadata: { sourceFile: 'saved_posts.json', hashtags: [`tag${sourceIndex}`], collections: ['Saved posts'] },
+      };
+    });
+
+    const result = await repository.accept(account.id, manifest.id, lease, fileRows.map((file) => ({ id: String(file.id), key: String(file.storage_key), name: String(file.original_name) })), items);
+    assert.deepEqual(result, { status: 'queued', parsedCount: 501, newCount: 500, duplicateCount: 1, skippedCount: 0, failedCount: 0 });
+    assert.equal(Number((await database.prepare('SELECT count(*) AS count FROM saved_items WHERE owner_id=?').get(account.id) as { count: number }).count), 500);
+    assert.equal(Number((await database.prepare('SELECT count(*) AS count FROM processing_jobs WHERE import_id=?').get(manifest.id) as { count: number }).count), 500);
+    assert.equal(Number((await database.prepare(`SELECT count(*) AS count FROM import_entries WHERE import_id=? AND status='duplicate'`).get(manifest.id) as { count: number }).count), 1);
+    assert.equal(Number((await database.prepare('SELECT count(*) AS count FROM item_tags WHERE owner_id=?').get(account.id) as { count: number }).count), 500);
+    assert.equal(Number((await database.prepare('SELECT count(*) AS count FROM collection_items WHERE owner_id=?').get(account.id) as { count: number }).count), 500);
   });
 });
 

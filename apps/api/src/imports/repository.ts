@@ -3,6 +3,30 @@ import { basename } from 'node:path';
 import type { DatabaseHandle } from '../db/database.js';
 import type { ParsedImportItem } from './parser.js';
 
+const ACCEPT_BATCH_SIZE = 250;
+const LOOKUP_BATCH_SIZE = 400;
+type SqlRow = unknown[];
+
+async function insertRows(database: DatabaseHandle, table: string, columns: string[], rows: SqlRow[], conflict = ''): Promise<void> {
+  for (let offset = 0; offset < rows.length; offset += ACCEPT_BATCH_SIZE) {
+    const batch = rows.slice(offset, offset + ACCEPT_BATCH_SIZE);
+    const values = batch.map(() => `(${columns.map(() => '?').join(',')})`).join(',');
+    await database.prepare(`INSERT INTO ${table} (${columns.join(',')}) VALUES ${values} ${conflict}`).run(...batch.flat());
+  }
+}
+
+async function lookupIds(database: DatabaseHandle, table: 'tags' | 'collections', ownerId: string, names: string[]): Promise<Map<string, string>> {
+  const ids = new Map<string, string>();
+  for (let offset = 0; offset < names.length; offset += LOOKUP_BATCH_SIZE) {
+    const batch = names.slice(offset, offset + LOOKUP_BATCH_SIZE);
+    if (!batch.length) continue;
+    const rows = await database.prepare(`SELECT id,normalized_name FROM ${table} WHERE owner_id=? AND normalized_name IN (${batch.map(() => '?').join(',')})`)
+      .all(ownerId, ...batch) as Array<{ id: string; normalized_name: string }>;
+    for (const row of rows) ids.set(row.normalized_name, row.id);
+  }
+  return ids;
+}
+
 export interface ImportFileInput { name: string; mime: string; size: number; chunks: number }
 export class ImportRepositoryError extends Error {
   constructor(readonly code: string) { super(code); this.name = 'ImportRepositoryError'; }
@@ -172,52 +196,82 @@ export function createImportRepository(database: DatabaseHandle) {
     accept(ownerId: string, importId: string, leaseToken: string, files: Array<{ id: string; key: string; name: string }>, items: ParsedImportItem[], failures: Array<{ fileId: string; code: string }> = []) {
       const now = new Date().toISOString();
       const transaction = database.transaction(async () => {
-        const state = await database.prepare('SELECT status,lease_token FROM imports WHERE owner_id=? AND id=?').get(ownerId, importId) as { status: string; lease_token: string | null } | undefined;
+        const state = await database.prepare('SELECT status,lease_token,request_id FROM imports WHERE owner_id=? AND id=?').get(ownerId, importId) as { status: string; lease_token: string | null; request_id: string | null } | undefined;
         if (!state || state.status !== 'parsing' || state.lease_token !== leaseToken) throw new ImportRepositoryError('import_not_available');
         const sourcePlatforms = [...new Set(items.map((item) => item.platform))];
         const source = sourcePlatforms.length === 1 ? sourcePlatforms[0]! : sourcePlatforms.length ? 'mixed' : 'unknown';
         let newCount = 0; let duplicateCount = 0;
-        const addEntry = database.prepare(`INSERT INTO import_entries
-          (id,owner_id,import_id,upload_file_id,item_id,job_id,source_platform,source_url,source_id,title,source_metadata_json,status,error_code,created_at)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`);
+        const fileIdsByName = new Map(files.map((file) => [file.name, file.id]));
+        const fileIds = new Set(files.map((file) => file.id));
+        const entryRows: SqlRow[] = [];
+        const savedItemRows: SqlRow[] = [];
+        const jobRows: SqlRow[] = [];
+        const tagNames = new Map<string, string>();
+        const collectionNames = new Map<string, string>();
+        const tagLinks: Array<{ itemId: string; normalized: string }> = [];
+        const collectionLinks: Array<{ itemId: string; normalized: string }> = [];
+        const itemIdsByUrl = new Map<string, string>();
+
+        for (let offset = 0; offset < items.length; offset += LOOKUP_BATCH_SIZE) {
+          const urls = [...new Set(items.slice(offset, offset + LOOKUP_BATCH_SIZE).map((item) => item.url))];
+          if (!urls.length) continue;
+          const existing = await database.prepare(`SELECT id,canonical_url FROM saved_items WHERE owner_id=? AND canonical_url IN (${urls.map(() => '?').join(',')})`)
+            .all(ownerId, ...urls) as Array<{ id: string; canonical_url: string }>;
+          for (const item of existing) itemIdsByUrl.set(item.canonical_url, item.id);
+        }
+
         for (const failure of failures) {
-          const uploadFile = files.find((file) => file.id === failure.fileId);
-          await addEntry.run(randomUUID(), ownerId, importId, failure.fileId, null, null, 'unknown', null, null, '', '{}', 'failed', failure.code, now);
-          if (!uploadFile) throw new ImportRepositoryError('upload_file_not_found');
+          if (!fileIds.has(failure.fileId)) throw new ImportRepositoryError('upload_file_not_found');
+          entryRows.push([randomUUID(), ownerId, importId, failure.fileId, null, null, 'unknown', null, null, '', '{}', 'failed', failure.code, now]);
         }
         for (const entry of items) {
-          const uploadFileId = files.find((file) => file.name === entry.metadata.sourceFile)?.id ?? null;
-          const existing = await database.prepare('SELECT id FROM saved_items WHERE owner_id=? AND canonical_url=?').get(ownerId, entry.url) as { id: string } | undefined;
-          if (existing) {
-            await addEntry.run(randomUUID(), ownerId, importId, uploadFileId, existing.id, null, entry.platform, entry.url, entry.sourceId, entry.title, JSON.stringify(entry.metadata), 'duplicate', null, now);
+          const uploadFileId = fileIdsByName.get(String(entry.metadata.sourceFile ?? '')) ?? null;
+          const existingItemId = itemIdsByUrl.get(entry.url);
+          if (existingItemId) {
+            entryRows.push([randomUUID(), ownerId, importId, uploadFileId, existingItemId, null, entry.platform, entry.url, entry.sourceId, entry.title, JSON.stringify(entry.metadata), 'duplicate', null, now]);
             duplicateCount += 1; continue;
           }
-          const itemId = randomUUID(); const jobId = randomUUID(); const correlationId = String((await this.owned(ownerId, importId))?.request_id ?? importId);
+          const itemId = randomUUID(); const jobId = randomUUID(); const correlationId = String(state.request_id ?? importId);
           const hashtags = Array.isArray(entry.metadata.hashtags) ? entry.metadata.hashtags : [];
-          await database.prepare(`INSERT INTO saved_items (id,owner_id,original_url,canonical_url,title,description,status,created_at,updated_at,source_platform,source_id,source_metadata_json)
-            VALUES (?,?,?,?,?,?,'queued',?,?,?,?,?)`).run(itemId, ownerId, entry.url, entry.url, entry.title, entry.description, now, now, entry.platform, entry.sourceId, JSON.stringify(entry.metadata));
-          await database.prepare(`INSERT INTO processing_jobs (id,owner_id,item_id,import_id,correlation_id,status,available_at,created_at,updated_at)
-            VALUES (?,?,?,?,?,'queued',?,?,?)`).run(jobId, ownerId, itemId, importId, correlationId, now, now, now);
-          await addEntry.run(randomUUID(), ownerId, importId, uploadFileId, itemId, jobId, entry.platform, entry.url, entry.sourceId, entry.title, JSON.stringify(entry.metadata), 'queued', null, now);
+          savedItemRows.push([itemId, ownerId, entry.url, entry.url, entry.title, entry.description, now, now, entry.platform, entry.sourceId, JSON.stringify(entry.metadata)]);
+          jobRows.push([jobId, ownerId, itemId, importId, correlationId, now, now, now]);
+          entryRows.push([randomUUID(), ownerId, importId, uploadFileId, itemId, jobId, entry.platform, entry.url, entry.sourceId, entry.title, JSON.stringify(entry.metadata), 'queued', null, now]);
+          itemIdsByUrl.set(entry.url, itemId);
           for (const rawTag of hashtags.slice(0, 20)) {
             const name = String(rawTag).trim().slice(0, 40); const normalized = name.toLowerCase(); if (!normalized) continue;
-            await database.prepare(`INSERT INTO tags (id,owner_id,normalized_name,display_name,created_at,updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT DO NOTHING`)
-              .run(randomUUID(), ownerId, normalized, name, now, now);
-            const tag = await database.prepare('SELECT id FROM tags WHERE owner_id=? AND normalized_name=?').get(ownerId, normalized) as { id: string } | undefined;
-            if (tag) await database.prepare('INSERT INTO item_tags (owner_id,item_id,tag_id,created_at) VALUES (?,?,?,?) ON CONFLICT DO NOTHING').run(ownerId, itemId, tag.id, now);
+            if (!tagNames.has(normalized)) tagNames.set(normalized, name);
+            tagLinks.push({ itemId, normalized });
           }
           const collections = Array.isArray(entry.metadata.collections) ? entry.metadata.collections : entry.collection ? [entry.collection] : [];
           for (const collectionName of collections.slice(0, 20)) {
             const name = String(collectionName).trim().slice(0, 80); const normalized = name.toLowerCase();
             if (normalized) {
-              await database.prepare(`INSERT INTO collections (id,owner_id,name,normalized_name,created_at,updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT DO NOTHING`)
-                .run(randomUUID(), ownerId, name, normalized, now, now);
-              const collection = await database.prepare('SELECT id FROM collections WHERE owner_id=? AND normalized_name=?').get(ownerId, normalized) as { id: string } | undefined;
-              if (collection) await database.prepare('INSERT INTO collection_items (owner_id,collection_id,item_id,created_at) VALUES (?,?,?,?) ON CONFLICT DO NOTHING').run(ownerId, collection.id, itemId, now);
+              if (!collectionNames.has(normalized)) collectionNames.set(normalized, name);
+              collectionLinks.push({ itemId, normalized });
             }
           }
           newCount += 1;
         }
+
+        await insertRows(database, 'saved_items', ['id','owner_id','original_url','canonical_url','title','description','status','created_at','updated_at','source_platform','source_id','source_metadata_json'], savedItemRows.map((row) => [...row.slice(0, 6), 'queued', ...row.slice(6)]));
+        await insertRows(database, 'processing_jobs', ['id','owner_id','item_id','import_id','correlation_id','status','available_at','created_at','updated_at'], jobRows.map((row) => [...row.slice(0, 5), 'queued', ...row.slice(5)]));
+        await insertRows(database, 'import_entries', ['id','owner_id','import_id','upload_file_id','item_id','job_id','source_platform','source_url','source_id','title','source_metadata_json','status','error_code','created_at'], entryRows);
+
+        if (tagNames.size) {
+          const tagRows = [...tagNames].map(([normalized, display]) => [randomUUID(), ownerId, normalized, display, now, now]);
+          await insertRows(database, 'tags', ['id','owner_id','normalized_name','display_name','created_at','updated_at'], tagRows, 'ON CONFLICT DO NOTHING');
+          const tagIds = await lookupIds(database, 'tags', ownerId, [...tagNames.keys()]);
+          const links = tagLinks.flatMap(({ itemId, normalized }) => tagIds.has(normalized) ? [[ownerId, itemId, tagIds.get(normalized)!, now]] : []);
+          await insertRows(database, 'item_tags', ['owner_id','item_id','tag_id','created_at'], links, 'ON CONFLICT DO NOTHING');
+        }
+        if (collectionNames.size) {
+          const collectionRows = [...collectionNames].map(([normalized, name]) => [randomUUID(), ownerId, name, normalized, now, now]);
+          await insertRows(database, 'collections', ['id','owner_id','name','normalized_name','created_at','updated_at'], collectionRows, 'ON CONFLICT DO NOTHING');
+          const collectionIds = await lookupIds(database, 'collections', ownerId, [...collectionNames.keys()]);
+          const links = collectionLinks.flatMap(({ itemId, normalized }) => collectionIds.has(normalized) ? [[ownerId, collectionIds.get(normalized)!, itemId, now]] : []);
+          await insertRows(database, 'collection_items', ['owner_id','collection_id','item_id','created_at'], links, 'ON CONFLICT DO NOTHING');
+        }
+
         const parsedCount = items.length;
         const failedCount = failures.length;
         const status = failedCount ? (newCount || duplicateCount ? 'partial' : 'failed') : newCount ? 'queued' : parsedCount ? 'completed' : 'failed';
