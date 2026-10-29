@@ -476,6 +476,7 @@ h1, h2, h3, p { margin-top: 0; }
 .phase2-collection-grid > li > p:not(.eyebrow) { min-height: 36px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .phase2-card-actions { justify-content: end; }
 .phase2-detail-grid { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(240px, .8fr); align-items: start; gap: 14px; }
+.phase2-detail-grid > * { min-width: 0; }
 .phase2-preserve-text { color: #454b5b; font-size: 13px; line-height: 1.8; white-space: pre-wrap; overflow-wrap: anywhere; }
 .phase2-status-line { padding: 9px 0; border-bottom: 1px solid var(--line); }
 .phase2-link-list { display: grid; gap: 9px; margin: 0; padding-left: 18px; color: var(--primary); font-size: 12px; overflow-wrap: anywhere; }
