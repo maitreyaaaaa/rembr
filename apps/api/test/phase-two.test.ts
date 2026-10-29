@@ -218,6 +218,44 @@ test('Phase 4 synthetic retrieval fixture reports graded ranking metrics through
   });
 });
 
+test('Smart Collections support owner-scoped renames and manual membership corrections', async () => {
+  await withApi(async (baseUrl) => {
+    const owner = await register(baseUrl, 'smart-owner@example.test');
+    const other = await register(baseUrl, 'smart-other@example.test');
+    await profile(baseUrl, owner.cookie, 'smart_owner');
+    await profile(baseUrl, other.cookie, 'smart_other');
+    const ids: string[] = [];
+    for (const [index, description] of ['A Figma dashboard design system.', 'A second dashboard and interface design system.', 'Unrelated reading list.'].entries()) {
+      const created = await createPage(baseUrl, owner.cookie, `https://smart-fixture.test/${index}`);
+      const { item } = await created.json() as { item: { id: string } };
+      ids.push(item.id);
+      assert.equal((await fetch(`${baseUrl}/api/items/${item.id}`, { method: 'PATCH', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ titleOverride: `Fixture ${index}`, descriptionOverride: description }) })).status, 200);
+    }
+
+    const list = await fetch(`${baseUrl}/api/smart-collections`, { headers: { Cookie: owner.cookie } });
+    assert.equal(list.status, 200);
+    const collections = (await list.json() as { collections: Array<{ id: string; slug: string; name: string }> }).collections;
+    const uiGroup = collections.find(({ slug }) => slug === 'ui-inspiration');
+    assert.ok(uiGroup);
+    const rename = await fetch(`${baseUrl}/api/smart-collections/${uiGroup.id}`, { method: 'PATCH', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Interface references' }) });
+    assert.equal(rename.status, 200);
+    assert.equal((await rename.json() as { collection: { name: string } }).collection.name, 'Interface references');
+
+    const include = await fetch(`${baseUrl}/api/smart-collections/${uiGroup.id}/items/${ids[2]}/override`, { method: 'PUT', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'include' }) });
+    assert.equal(include.status, 200);
+    let grouped = await fetch(`${baseUrl}/api/smart-collections/${uiGroup.id}/items?limit=100`, { headers: { Cookie: owner.cookie } });
+    assert.ok((await grouped.json() as { items: Array<{ id: string }> }).items.some(({ id }) => id === ids[2]));
+
+    const exclude = await fetch(`${baseUrl}/api/smart-collections/${uiGroup.id}/items/${ids[0]}/override`, { method: 'PUT', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'exclude' }) });
+    assert.equal(exclude.status, 200);
+    grouped = await fetch(`${baseUrl}/api/smart-collections/${uiGroup.id}/items?limit=100`, { headers: { Cookie: owner.cookie } });
+    assert.equal((await grouped.json() as { items: Array<{ id: string }> }).items.some(({ id }) => id === ids[0]), false);
+
+    const foreign = await fetch(`${baseUrl}/api/smart-collections/${uiGroup.id}/items`, { headers: { Cookie: other.cookie } });
+    assert.equal(foreign.status, 404);
+  });
+});
+
 test('notes accept bounded image assets, enforce owner reads, and cascade with their item', async () => {
   await withApi(async (baseUrl, database) => {
     const owner = await register(baseUrl, 'note-owner@example.test');
