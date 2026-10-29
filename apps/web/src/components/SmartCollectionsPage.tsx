@@ -140,9 +140,9 @@ export function SmartCollectionsPage({ request }: { request: Request }) {
   }
   if (collectionId) return <>
     <div className="phase2-back"><Link to="/app/smart-collections">← All smart collections</Link></div>
-    {detail && <PageHeading eyebrow={detail.collection.name} title={detail.collection.name} description={detail.collection.description} actions={<Link className="quiet-button" to="/app/smart-collections">All smart collections</Link>} />}
+    {detail && <PageHeading title={detail.collection.name} description={detail.collection.description} actions={<Link className="quiet-button" to="/app/smart-collections">All smart collections</Link>} />}
     <section className="phase2-panel">
-      <form className="phase2-filter-grid" onSubmit={submitSearch}><label>Search this group<input type="search" maxLength={120} value={groupSearchDraft} onChange={(event) => setGroupSearchDraft(event.target.value)} placeholder="Title, note, page text, or topic" /></label><button className="quiet-button" type="submit">Search group</button><div><p className="eyebrow">Matching saves</p><strong>{detail?.collection.itemCount ?? '—'}</strong></div></form>
+      <form className="phase2-filter-grid" onSubmit={submitSearch}><label>Search this group<input type="search" maxLength={120} value={groupSearchDraft} onChange={(event) => setGroupSearchDraft(event.target.value)} placeholder="Title, note, page text, or topic" /></label><button className="quiet-button" type="submit">Search group</button><div><p className="eyebrow">Matching saves</p><strong>{detail?.collection.itemCount ?? 0}</strong></div></form>
       <p className="phase2-helper">Matches are based on saved page text, your notes, existing tags, folders, and analysis. No new AI analysis is run.</p>
     </section>
     <section className="phase2-panel" aria-labelledby="add-save-heading">
@@ -171,6 +171,6 @@ export function SmartCollectionsPage({ request }: { request: Request }) {
   </>;
 }
 
-function PageHeading({ eyebrow, title, description, actions }: { eyebrow: string; title: string; description: string; actions?: ReactNode }) {
-  return <div className="phase2-page-heading"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p>{description}</p></div>{actions && <div className="phase2-heading-actions">{actions}</div>}</div>;
+function PageHeading({ title, description, actions }: { title: string; description: string; actions?: ReactNode }) {
+  return <div className="phase2-page-heading"><div><h1>{title}</h1><p>{description}</p></div>{actions && <div className="phase2-heading-actions">{actions}</div>}</div>;
 }

@@ -29,15 +29,18 @@ Rembr is a personal library for things a person chooses to keep and find again. 
 **Secondary action:** learn what the current product supports or send product feedback.
 
 **Core message:** “Keep the good stuff. Find it when you need it.”  
-**Supporting message:** “Pages, ideas, and useful threads—kept with their context, ready when you need them.”
+**Supporting message:** “Save a page, add context, and find it again later.”
 
 ## Voice
 
-- Warm, direct, and lightly playful. The metaphor is a small treat or a calm reading shelf; never childish or sugary at the expense of clarity.
-- Lead with the user's task and the implemented outcome.
-- Say “public page,” “readable copy,” and “source link” when those details matter.
+- Plainspoken in the product and warm with restraint in marketing. Let the headline carry personality; keep actions, forms, settings, and errors literal.
+- Start with the user's task or the result they want. Use the same concrete words in the heading, control, and follow-up state.
+- Add a description only when it explains the product, next step, or a limitation. Eyebrows and kicker labels are occasional navigation aids, not a default above headings.
 - State product limits plainly. Do not use “all your web,” “never lose anything,” “works everywhere,” “private by design,” or unverified performance/security claims.
-- Do not invent pricing, testimonials, supported-site counts, usage figures, availability promises, or team contact details.
+- Do not use guilt, false urgency, invented social proof, pricing, testimonials, supported-site counts, usage figures, availability promises, or team contact details.
+- For SEO, use the language of real saving and retrieval tasks naturally. Give each route a unique, accurate title and description. Do not stuff keywords or add search-only sections.
+
+See [voice and copy guidelines](./voice-and-copy-guidelines.md) for UI patterns, research basis, and review checklist.
 
 ## Marketing visual system: Bright archive
 
@@ -81,6 +84,7 @@ The contact page requires `VITE_CONTACT_EMAIL` in the web build environment for 
 
 ## Related docs
 
+- [Voice and copy guidelines](./voice-and-copy-guidelines.md)
 - [Marketing page map and content](./page-map-and-content.md)
 - [Application typography decision](../../screens/rembr-design-system-brief.md)
 - [Current screen specifications](../../screens/ui-surface-and-screen-specifications.md)

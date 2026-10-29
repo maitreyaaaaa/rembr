@@ -2,6 +2,7 @@
 
 **Status:** Current visual refresh implemented 2026-10-29
 **Design source:** [Rembr marketing positioning and identity](./positioning-and-identity.md) and [visual system and site storyboard](./visual-system-and-site-storyboard.md).
+**Copy standard:** [Voice and copy guidelines](./voice-and-copy-guidelines.md).
 
 ## Public routes
 
@@ -30,6 +31,12 @@ Do not include the Instagram phone scene or future concept in this pass; the use
 - **Features:** group capabilities by user outcome: save, organize, find again, and stay in control. Distinguish current behavior from planned release capabilities wherever necessary. Claims must match completed phase evidence at launch.
 - **About:** explain the value of a personal library without promising roadmap dates or unverified behavior.
 - **Contact:** collect email, category, and message in the visitor's browser. With a configured address, submission opens a prefilled local `mailto:` draft; it does not send automatically or persist the message. Without configuration, the action is disabled and the address is reported as unavailable.
+
+## Copy and search guidance
+
+- Lead with the visitor's task or the outcome they want. Use one clear page heading; keep a short description only when it adds context.
+- Use search phrases such as “save web pages,” “saved links,” and “personal library” naturally in distinct titles and descriptions. Search demand has not been measured yet.
+- Keep feature and app wording consistent. The shared voice and interface patterns are in [voice and copy guidelines](./voice-and-copy-guidelines.md).
 
 ## Motion and visual behavior
 

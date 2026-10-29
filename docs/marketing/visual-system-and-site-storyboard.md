@@ -121,7 +121,7 @@ Motion should make the save → organize → rediscover story easier to follow. 
 |---|---|---|
 | Hero entrance | One composed sequence for headline, CTA, and page illustration | 500–800 ms total; no long stagger; content is visible if JS or animation fails |
 | Scroll reveal | Bring a section's illustration or product surface into focus once | Opacity/transform; trigger once; modest 12–24 px travel; never hide entire text sections by default |
-| Micro interaction | Button press, card hover/focus, FAQ open/close | Fast, tactile, and consistent; honor keyboard focus and touch input |
+| Micro interaction | Button press, keyboard focus, FAQ open/close | Fast and consistent; do not add cursor-follow or pointer-reactive decoration |
 | Story parallax | A decorative background shape and product frame move slightly at different rates | Keep movement subtle and optional; no important text moves independently; disable on small viewports and reduced-motion preference |
 | Product demo | User starts a short capture/import/rediscovery animation | Provide pause/replay; include captions or readable labels; respect reduced motion; never make autoplay the only proof |
 
@@ -150,9 +150,9 @@ Readwise Reader's current documentation shows established read-later expectation
 
 The user deferred the Instagram scene and future concept for later. No Instagram-specific artwork is part of the current site.
 
-## Approval questions
+## Audience and voice
 
-The current audience framing remains broad: people who want to keep useful things and find them again. More focused campaign pages can be added later if audience evidence supports them.
+The audience framing remains broad: people who want to keep useful things and find them again. More focused campaign pages can be added if user and search evidence supports them. Copy follows the [Rembr voice and copy guidelines](./voice-and-copy-guidelines.md): direct in the app, warm with restraint in marketing, with labels and descriptions used only when they help.
 
 ## Approval gate and implementation sequence
 
@@ -163,6 +163,7 @@ The current audience framing remains broad: people who want to keep useful thing
 ## Sources
 
 - Current project positioning and page map: [positioning and identity](./positioning-and-identity.md), [page map and content](./page-map-and-content.md).
+- Writing and SEO standard: [voice and copy guidelines](./voice-and-copy-guidelines.md).
 - Current product design boundary: [Rembr design-system brief](../screens/rembr-design-system-brief.md).
 - Phase ownership and route scope: [phase-gated roadmap](../rebuild-plan/phase-gated-roadmap.md), [screen/workflow phase matrix](../rebuild-plan/screen-workflow-phase-matrix.md).
 - Product capability and verification notes: [Phase 3 architecture](../architecture/phase-3-architecture-design.md), [Phase 4 architecture](../architecture/phase-4-architecture-design.md), and `apps/web/src/MarketingSite.tsx` / `apps/web/src/App.tsx`.
