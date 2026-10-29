@@ -50,6 +50,9 @@ export async function claimNextJob(database: DatabaseHandle, now = new Date()): 
     await database.prepare(`UPDATE saved_items SET status='failed',error_code='worker_interrupted',updated_at=?
       WHERE status='processing' AND id IN (SELECT item_id FROM processing_jobs WHERE status='failed' AND error_code='worker_interrupted')`)
       .run(timestamp);
+    await database.prepare(`UPDATE import_entries SET status='failed',error_code='worker_interrupted'
+      WHERE job_id IN (SELECT id FROM processing_jobs WHERE status='failed' AND error_code='worker_interrupted' AND updated_at=?)`)
+      .run(timestamp);
     const exhaustedImports = await database.prepare(`SELECT DISTINCT owner_id,import_id FROM processing_jobs
       WHERE status='failed' AND error_code='worker_interrupted' AND import_id IS NOT NULL AND updated_at=?`)
       .all(timestamp) as Array<{ owner_id: string; import_id: string }>;
@@ -60,6 +63,8 @@ export async function claimNextJob(database: DatabaseHandle, now = new Date()): 
     for (const job of abandonedCancels) {
       await database.prepare(`UPDATE processing_jobs SET status='cancelled',error_code='cancelled',lease_token=NULL,lease_expires_at=NULL,updated_at=? WHERE id=? AND owner_id=?`)
         .run(timestamp, job.id, job.owner_id);
+      await database.prepare(`UPDATE import_entries SET status='cancelled',error_code='cancelled' WHERE owner_id=? AND import_id=? AND job_id=?`)
+        .run(job.owner_id, job.import_id, job.id);
       await database.prepare(`UPDATE saved_items SET status='failed',error_code='cancelled',updated_at=? WHERE id=? AND owner_id=?`)
         .run(timestamp, job.item_id, job.owner_id);
       await database.prepare(`UPDATE job_attempts SET status='cancelled',error_code='cancelled',finished_at=? WHERE owner_id=? AND job_id=? AND generation=? AND attempt_number=? AND status='running'`)
@@ -81,6 +86,8 @@ export async function claimNextJob(database: DatabaseHandle, now = new Date()): 
       WHERE id=? AND owner_id=? AND item_id=?`)
       .run(attempts, leaseToken, new Date(now.getTime() + LEASE_MS).toISOString(), timestamp, timestamp, job.id, job.owner_id, job.item_id);
     if (changed.changes !== 1) return undefined;
+    await database.prepare(`UPDATE import_entries SET status='processing',error_code=NULL WHERE owner_id=? AND import_id=? AND job_id=?`)
+      .run(job.owner_id, job.import_id, job.id);
     await database.prepare(`INSERT INTO job_attempts (id,owner_id,job_id,generation,attempt_number,status,correlation_id,started_at)
       VALUES (?,?,?,?,?,'running',?,?)`).run(randomUUID(), job.owner_id, job.id, job.generation, attempts, job.correlation_id, timestamp);
     await database.prepare(`UPDATE saved_items SET status='processing',error_code=NULL,updated_at=? WHERE id=? AND owner_id=?`)
@@ -99,6 +106,8 @@ async function cancelOwnedAttempt(database: DatabaseHandle, job: ClaimedJob, now
       lease_expires_at=NULL,updated_at=? WHERE id=? AND owner_id=? AND item_id=? AND status='cancel_requested' AND lease_token=?`)
     .run(now, job.id, job.owner_id, job.item_id, job.lease_token);
   if (result.changes !== 1) return false;
+  if (job.import_id) await database.prepare(`UPDATE import_entries SET status='cancelled',error_code='cancelled' WHERE owner_id=? AND import_id=? AND job_id=?`)
+    .run(job.owner_id, job.import_id, job.id);
   await database.prepare(`UPDATE saved_items SET status='failed',error_code='cancelled',updated_at=? WHERE id=? AND owner_id=?`)
     .run(now, job.item_id, job.owner_id);
   await database.prepare(`UPDATE job_attempts SET status='cancelled',error_code='cancelled',finished_at=?
@@ -178,6 +187,8 @@ export async function processNextJob(database: DatabaseHandle, fetchPage: PageFe
       const finalStatus = mediaFailed ? 'partial' : 'completed';
       await database.prepare(`UPDATE processing_jobs SET status=?,lease_token=NULL,lease_expires_at=NULL,heartbeat_at=?,error_code=?,updated_at=?
         WHERE id=? AND owner_id=? AND lease_token=? AND status='processing'`).run(finalStatus, now, mediaFailed ? 'media_partial' : null, now, job.id, job.owner_id, job.lease_token);
+      await database.prepare(`UPDATE import_entries SET status='saved',error_code=? WHERE owner_id=? AND import_id=? AND job_id=?`)
+        .run(mediaFailed ? 'media_partial' : null, job.owner_id, job.import_id, job.id);
       await database.prepare(`UPDATE job_attempts SET status=?,error_code=?,finished_at=? WHERE owner_id=? AND job_id=? AND generation=? AND attempt_number=? AND status='running'`)
         .run(finalStatus, mediaFailed ? 'media_partial' : null, now, job.owner_id, job.id, job.generation, job.attempts);
       await finishImportIfIdle(database, job.owner_id, job.import_id, now);
@@ -199,6 +210,8 @@ export async function processNextJob(database: DatabaseHandle, fetchPage: PageFe
         WHERE id=? AND owner_id=? AND lease_token=?`).run(retry ? 'retry_wait' : 'failed', retry ? availableAt : now, code, now, job.id, job.owner_id, job.lease_token);
       await database.prepare(`UPDATE saved_items SET status=?,error_code=?,updated_at=? WHERE id=? AND owner_id=?`)
         .run(retry ? 'queued' : 'failed', retry ? null : code, now, job.item_id, job.owner_id);
+      await database.prepare(`UPDATE import_entries SET status=?,error_code=? WHERE owner_id=? AND import_id=? AND job_id=?`)
+        .run(retry ? 'queued' : 'failed', retry ? null : code, job.owner_id, job.import_id, job.id);
       await database.prepare(`UPDATE job_attempts SET status='failed',error_code=?,finished_at=?
         WHERE owner_id=? AND job_id=? AND generation=? AND attempt_number=? AND status='running'`)
         .run(code, now, job.owner_id, job.id, job.generation, job.attempts);

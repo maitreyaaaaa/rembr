@@ -167,11 +167,19 @@ export function createImportRepository(database: DatabaseHandle) {
         const changed = await database.prepare(`UPDATE processing_jobs SET status='cancelled',error_code='cancelled',
             lease_token=NULL,lease_expires_at=NULL,updated_at=?
           WHERE owner_id=? AND import_id=? AND status IN ('queued','retry_wait')`).run(now, ownerId, importId);
+        await database.prepare(`UPDATE import_entries SET status='cancelled',error_code='cancelled'
+          WHERE owner_id=? AND import_id=? AND job_id IN (SELECT id FROM processing_jobs
+            WHERE owner_id=? AND import_id=? AND status='cancelled' AND error_code='cancelled')`)
+          .run(ownerId, importId, ownerId, importId);
         await database.prepare(`UPDATE saved_items SET status='failed',error_code='cancelled',updated_at=?
           WHERE owner_id=? AND id IN (SELECT item_id FROM processing_jobs WHERE owner_id=? AND import_id=? AND status='cancelled' AND error_code='cancelled')`)
           .run(now, ownerId, ownerId, importId);
         await database.prepare(`UPDATE processing_jobs SET status='cancel_requested',updated_at=?
           WHERE owner_id=? AND import_id=? AND status='processing'`).run(now, ownerId, importId);
+        await database.prepare(`UPDATE import_entries SET status='processing'
+          WHERE owner_id=? AND import_id=? AND job_id IN (SELECT id FROM processing_jobs
+            WHERE owner_id=? AND import_id=? AND status='cancel_requested')`)
+          .run(ownerId, importId, ownerId, importId);
         await database.prepare(`DELETE FROM job_pause_states WHERE owner_id=? AND job_id IN
           (SELECT id FROM processing_jobs WHERE owner_id=? AND import_id=? AND status='cancelled')`).run(ownerId, ownerId, importId);
         const aiActive = await database.prepare(`SELECT id,status FROM ai_analysis_jobs WHERE owner_id=? AND import_id=?

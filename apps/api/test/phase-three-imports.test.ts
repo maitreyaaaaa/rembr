@@ -185,28 +185,40 @@ test('owner can stop import jobs and remove only import-created items while dupl
     });
     await repository.accept(account.id, manifest.id, 'cleanup-lease', files.map((file) => ({ id: String(file.id), key: String(file.storage_key), name: String(file.original_name) })), [
       parsed('https://www.instagram.com/p/EXISTING/', 'EXISTING', 0),
-      parsed('https://www.instagram.com/reel/NEWITEM/', 'NEWITEM', 1),
-      parsed('https://www.instagram.com/reel/ACTIVE/', 'ACTIVE', 2),
+      parsed('https://www.instagram.com/reel/ACTIVE/', 'ACTIVE', 1),
+      parsed('https://www.instagram.com/reel/NEWITEM/', 'NEWITEM', 2),
+      parsed('https://www.instagram.com/reel/QUEUED/', 'QUEUED', 3),
     ]);
-    await database.prepare(`UPDATE processing_jobs SET status='processing',lease_token='leased-for-cancel-test',lease_expires_at=?
-      WHERE import_id=? AND item_id IN (SELECT id FROM saved_items WHERE original_url LIKE '%/ACTIVE/')`)
-      .run(new Date(Date.now() + 60_000).toISOString(), manifest.id);
+    await database.prepare(`UPDATE processing_jobs SET status='completed',updated_at=?
+      WHERE import_id=? AND item_id IN (SELECT id FROM saved_items WHERE original_url LIKE '%/NEWITEM/')`).run(now, manifest.id);
+    await database.prepare(`UPDATE saved_items SET status='ready' WHERE owner_id=? AND original_url LIKE '%/NEWITEM/'`).run(account.id);
+    await database.prepare(`UPDATE import_entries SET status='saved' WHERE owner_id=? AND import_id=? AND source_id='NEWITEM'`).run(account.id, manifest.id);
+    let releaseFetch!: (value: { finalUrl: string; contentType: string; html: string }) => void;
+    let signalStarted!: () => void;
+    const started = new Promise<void>((resolve) => { signalStarted = resolve; });
+    const processing = processNextJob(database, async () => {
+      signalStarted();
+      return await new Promise((resolve) => { releaseFetch = resolve; });
+    });
+    await started;
     const wrongOwner = await fetch(`${baseUrl}/api/imports/${manifest.id}/jobs/cancel`, { method: 'POST', headers: { Cookie: otherCookie } });
     assert.equal(wrongOwner.status, 404);
     const canceled = await fetch(`${baseUrl}/api/imports/${manifest.id}/jobs/cancel`, { method: 'POST', headers: { Cookie: ownerCookie } });
     assert.equal(canceled.status, 200);
     assert.deepEqual(await canceled.json(), { importId: manifest.id, cancelled: 1, active: 1 });
+    assert.equal(Number((await database.prepare(`SELECT count(*) AS count FROM import_entries WHERE import_id=? AND status='cancelled'`).get(manifest.id) as { count: number }).count), 1);
     const prematureDiscard = await fetch(`${baseUrl}/api/imports/${manifest.id}/discard-created-items`, { method: 'POST', headers: { Cookie: ownerCookie } });
     assert.equal(prematureDiscard.status, 409);
-    await database.prepare(`UPDATE processing_jobs SET status='cancelled',error_code='cancelled',lease_token=NULL,lease_expires_at=NULL
-      WHERE import_id=? AND status='cancel_requested'`).run(manifest.id);
-    await database.prepare(`UPDATE imports SET status='partial' WHERE owner_id=? AND id=?`).run(account.id, manifest.id);
+    releaseFetch({ finalUrl: 'https://www.instagram.com/reel/ACTIVE/', contentType: 'text/html', html: '<main>canceled capture</main>' });
+    assert.ok(await processing);
+    assert.equal(Number((await database.prepare(`SELECT count(*) AS count FROM import_entries WHERE import_id=? AND status='cancelled'`).get(manifest.id) as { count: number }).count), 2);
     const discarded = await fetch(`${baseUrl}/api/imports/${manifest.id}/discard-created-items`, { method: 'POST', headers: { Cookie: ownerCookie } });
     assert.equal(discarded.status, 200);
-    assert.deepEqual(await discarded.json(), { importId: manifest.id, deleted: 2, duplicatesPreserved: true });
+    assert.deepEqual(await discarded.json(), { importId: manifest.id, deleted: 3, duplicatesPreserved: true });
     assert.equal(Number((await database.prepare('SELECT count(*) AS count FROM saved_items WHERE owner_id=? AND id=?').get(account.id, duplicateId) as { count: number }).count), 1);
     assert.equal(Number((await database.prepare('SELECT count(*) AS count FROM saved_items WHERE owner_id=? AND original_url=?').get(account.id, 'https://www.instagram.com/reel/NEWITEM/') as { count: number }).count), 0);
     assert.equal(Number((await database.prepare('SELECT count(*) AS count FROM saved_items WHERE owner_id=? AND original_url=?').get(account.id, 'https://www.instagram.com/reel/ACTIVE/') as { count: number }).count), 0);
+    assert.equal(Number((await database.prepare('SELECT count(*) AS count FROM saved_items WHERE owner_id=? AND original_url=?').get(account.id, 'https://www.instagram.com/reel/QUEUED/') as { count: number }).count), 0);
     const hostileDiscard = await fetch(`${baseUrl}/api/imports/${manifest.id}/discard-created-items`, { method: 'POST', headers: { Cookie: otherCookie } });
     assert.equal(hostileDiscard.status, 404);
   });
@@ -302,6 +314,7 @@ test('partial parser failures remain visible after queued work succeeds and exha
     assert.equal((await database.prepare('SELECT status FROM imports WHERE id=?').get(manifest.importId) as { status: string }).status, 'partial');
     assert.ok(await processNextJob(database, async () => ({ finalUrl: 'https://www.pinterest.com/pin/7654321/', contentType: 'text/html', html: '<main>saved pin text</main>' })));
     assert.equal((await database.prepare('SELECT status FROM imports WHERE id=?').get(manifest.importId) as { status: string }).status, 'partial');
+    assert.equal((await database.prepare(`SELECT status FROM import_entries WHERE import_id=? AND source_url='https://www.pinterest.com/pin/7654321/'`).get(manifest.importId) as { status: string }).status, 'saved');
 
     const job = await database.prepare('SELECT id,item_id FROM processing_jobs WHERE import_id=?').get(manifest.importId) as { id: string; item_id: string };
     const expired = new Date(Date.now() - 60_000).toISOString();
