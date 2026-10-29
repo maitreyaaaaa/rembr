@@ -363,9 +363,11 @@ test('grounded library answers cite matching OCR and media analysis without expo
 });
 
 test('Phase 4 synthetic retrieval fixture reports graded ranking metrics through the API', async () => {
-  await withApi(async (baseUrl) => {
+  await withApi(async (baseUrl, database) => {
     const owner = await register(baseUrl, 'retrieval-eval@example.test');
+    const other = await register(baseUrl, 'retrieval-eval-other@example.test');
     await profile(baseUrl, owner.cookie, 'retrieval_eval');
+    await profile(baseUrl, other.cookie, 'retrieval_eval_other');
     const fixtures = [
       { key: 'F1', url: 'https://fixture.test/f1', title: 'Design system', description: '', grade: 3 },
       { key: 'F2', url: 'https://fixture.test/f2', title: 'Design system checklist', description: '', grade: 3 },
@@ -392,6 +394,48 @@ test('Phase 4 synthetic retrieval fixture reports graded ranking metrics through
     const grades = new Map(fixtures.map(({ key, grade }) => [ids[key]!, grade]));
     grades.set(ids.F5, 2);
 
+    const textOnlyPage = await createPage(baseUrl, owner.cookie, 'https://fixture.test/text-only');
+    const { item: textOnlyItem } = await textOnlyPage.json() as { item: { id: string } };
+    await database.prepare(`INSERT INTO extracted_artifacts (id,owner_id,item_id,title,description,text_content,fetched_at,created_at)
+      VALUES ('retrieval-text-only',?,?, 'Plain page', 'Generic source', 'Amber raincoat archive details.', ?, ?)`)
+      .run(owner.user.user.id, textOnlyItem.id, new Date().toISOString(), new Date().toISOString());
+
+    const tieIds: string[] = [];
+    for (const path of ['tie-a', 'tie-b']) {
+      const tiedPage = await createPage(baseUrl, owner.cookie, `https://fixture.test/${path}`);
+      const { item } = await tiedPage.json() as { item: { id: string } };
+      tieIds.push(item.id);
+      assert.equal((await fetch(`${baseUrl}/api/items/${item.id}`, {
+        method: 'PATCH', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ titleOverride: 'Tie anchor', descriptionOverride: 'Equal relevance fixture' }),
+      })).status, 200);
+    }
+    await database.prepare('UPDATE saved_items SET created_at=? WHERE owner_id=? AND id IN (?,?)')
+      .run('2026-10-01T00:00:00.000Z', owner.user.user.id, ...tieIds);
+
+    const tagCreated = await fetch(`${baseUrl}/api/tags`, {
+      method: 'POST', headers: { Cookie: owner.cookie, Origin: origin, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Retrieval fixture' }),
+    });
+    assert.equal(tagCreated.status, 201);
+    const tagId = (await tagCreated.json() as { tag: { id: string } }).tag.id;
+    assert.equal((await fetch(`${baseUrl}/api/items/${ids.F3}/tags/${tagId}`, { method: 'PUT', headers: { Cookie: owner.cookie, Origin: origin } })).status, 204);
+
+    const collectionCreated = await fetch(`${baseUrl}/api/collections`, {
+      method: 'POST', headers: { Cookie: owner.cookie, Origin: origin, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'Retrieval fixture' }),
+    });
+    assert.equal(collectionCreated.status, 201);
+    const collectionId = (await collectionCreated.json() as { collection: { id: string } }).collection.id;
+    assert.equal((await fetch(`${baseUrl}/api/collections/${collectionId}/items/${ids.F6}`, { method: 'PUT', headers: { Cookie: owner.cookie, Origin: origin } })).status, 204);
+
+    const foreignPage = await createPage(baseUrl, other.cookie, 'https://fixture.test/foreign');
+    const { item: foreignItem } = await foreignPage.json() as { item: { id: string } };
+    assert.equal((await fetch(`${baseUrl}/api/items/${foreignItem.id}`, {
+      method: 'PATCH', headers: { Cookie: other.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ titleOverride: 'Design system', descriptionOverride: 'Foreign owner fixture' }),
+    })).status, 200);
+
     const response = await fetch(`${baseUrl}/api/items?search=design%20system&matchMode=terms&sort=relevance`, { headers: { Cookie: owner.cookie } });
     assert.equal(response.status, 200);
     const ranked = (await response.json() as { items: Array<{ id: string }> }).items.map(({ id }) => id);
@@ -405,6 +449,24 @@ test('Phase 4 synthetic retrieval fixture reports graded ranking metrics through
     assert.deepEqual(ranked, [ids.F1, ids.F2, ids.F3, ids.F6, ids.F5, ids.F4]);
     assert.equal(reciprocalRank, 1);
     assert.equal(ndcg, 1);
+
+    const typeFiltered = await fetch(`${baseUrl}/api/items?search=design%20system&type=note`, { headers: { Cookie: owner.cookie } });
+    assert.deepEqual((await typeFiltered.json() as { items: Array<{ id: string }> }).items.map(({ id }) => id), [ids.F5]);
+    const tagFiltered = await fetch(`${baseUrl}/api/items?search=design%20system&tagId=${encodeURIComponent(tagId)}`, { headers: { Cookie: owner.cookie } });
+    assert.deepEqual((await tagFiltered.json() as { items: Array<{ id: string }> }).items.map(({ id }) => id), [ids.F3]);
+    const collectionFiltered = await fetch(`${baseUrl}/api/items?search=design%20system&collectionId=${encodeURIComponent(collectionId)}`, { headers: { Cookie: owner.cookie } });
+    assert.deepEqual((await collectionFiltered.json() as { items: Array<{ id: string }> }).items.map(({ id }) => id), [ids.F6]);
+
+    const textOnly = await fetch(`${baseUrl}/api/items?search=amber%20raincoat`, { headers: { Cookie: owner.cookie } });
+    assert.deepEqual((await textOnly.json() as { items: Array<{ id: string }> }).items.map(({ id }) => id), [textOnlyItem.id]);
+    const empty = await fetch(`${baseUrl}/api/items?search=zzquasarfixturemissing`, { headers: { Cookie: owner.cookie } });
+    const emptyBody = await empty.json() as { items: unknown[]; hasMore: boolean };
+    assert.deepEqual(emptyBody.items, []);
+    assert.equal(emptyBody.hasMore, false);
+
+    const tied = await fetch(`${baseUrl}/api/items?search=tie%20anchor&sort=relevance`, { headers: { Cookie: owner.cookie } });
+    const tiedIds = (await tied.json() as { items: Array<{ id: string }> }).items.map(({ id }) => id);
+    assert.deepEqual(tiedIds, [...tieIds].sort().reverse());
   });
 });
 
