@@ -30,7 +30,14 @@ export class SupabaseObjectStore {
       headers: this.headers(),
     });
     if (lookup.ok) return;
-    if (lookup.status !== 404) throw new Error(`supabase_storage_bucket_check_${lookup.status}`);
+
+    // Supabase Storage can wrap a missing-bucket response as HTTP 400 while
+    // preserving the actionable `NoSuchBucket` code in its JSON response.
+    const error = await lookup.clone().json().catch(() => null) as { code?: unknown } | null;
+    if (lookup.status !== 404 && error?.code !== 'NoSuchBucket') {
+      throw new Error(`supabase_storage_bucket_check_${lookup.status}`);
+    }
+
     const response = await fetch(this.endpoint('bucket'), {
       method: 'POST',
       headers: this.headers({ 'content-type': 'application/json' }),
