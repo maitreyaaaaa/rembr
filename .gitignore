@@ -17,6 +17,7 @@ data/assets/
 # Tool output
 .DS_Store
 *.log
+supabase/.temp/
 
 .vercel
 .env*

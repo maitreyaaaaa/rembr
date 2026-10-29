@@ -14,6 +14,8 @@ export type EmbeddingPurpose = 'query' | 'document';
 export interface EmbeddingVector {
   model: string;
   values: readonly number[];
+  /** Provider-reported input tokens used to reserve and settle shared AI spend. */
+  inputTokens?: number;
 }
 
 /** Adapter contract only; callers must still handle credentials, timeouts, and spend. */

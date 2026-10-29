@@ -95,6 +95,15 @@ export function createLibraryService(database: DatabaseHandle, storage: AssetSto
       return { searchEventId: input.searchEventId, itemId: input.itemId, rating: input.rating, updatedAt: now };
     },
     get(ownerId: string, itemId: string) { return repository.get(ownerId, itemId); },
+    async getMany(ownerId: string, itemIds: readonly string[]) {
+      const uniqueIds = [...new Set(itemIds)];
+      const items = await Promise.all(uniqueIds.map((itemId) => repository.get(ownerId, itemId)));
+      const byId = new Map(items.filter((item): item is NonNullable<typeof item> => Boolean(item)).map((item) => [item.id, item]));
+      return itemIds.flatMap((itemId) => {
+        const item = byId.get(itemId);
+        return item ? [item] : [];
+      });
+    },
     update(ownerId: string, itemId: string, changes: { titleOverride?: string | null; descriptionOverride?: string | null }) {
       if (Object.keys(changes).length === 0) throw new LibraryServiceError('invalid_note', 'Provide an item field to update.');
       return repository.update(ownerId, itemId, changes);

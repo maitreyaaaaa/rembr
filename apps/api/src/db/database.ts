@@ -175,7 +175,8 @@ const migrationDirectory = resolve(dirname(fileURLToPath(import.meta.url)), '../
 
 export async function createTestDatabase(): Promise<DatabaseHandle> {
   const { PGlite } = await import('@electric-sql/pglite');
-  const embedded = new PGlite();
+  const { vector } = await import('@electric-sql/pglite-pgvector');
+  const embedded = new PGlite({ extensions: { vector } });
   for (const migration of readdirSync(migrationDirectory).filter((name) => name.endsWith('.sql')).sort()) {
     await embedded.exec(readFileSync(resolve(migrationDirectory, migration), 'utf8'));
   }

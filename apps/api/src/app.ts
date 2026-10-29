@@ -23,6 +23,9 @@ import { LocalMediaStorage, type MediaStorage } from './media/storage.js';
 import type { DatabaseHandle } from './db/database.js';
 import { CaptureError, checkPublicPage, validatePublicUrl } from './items/safe-fetch.js';
 import { createLibraryService } from './library/service.js';
+import { createOpenRouterEmbeddingProvider } from './library/openrouter-embedding-provider.js';
+import { createSemanticSearchRouter } from './library/semantic-routes.js';
+import type { EmbeddingProvider } from './library/semantic-embeddings.js';
 import { countPasswordCodePoints, hashNewPassword, validateNewPassword, verifyPassword } from './auth/passwords.js';
 
 const emailSchema = z.string().trim().email().max(254).transform((email) => email.toLowerCase());
@@ -35,12 +38,14 @@ function errorResponse(code: string, message: string, requestId?: string) {
   return { error: { code, message, ...(requestId ? { requestId } : {}) } };
 }
 
-export function createApp(database: DatabaseHandle, options: { validateUrl?: typeof validatePublicUrl; checkLink?: typeof checkPublicPage; assetDirectory?: string; assetStorage?: AssetStorage; importDirectory?: string; importStorage?: ImportStorage; mediaDirectory?: string; mediaStorage?: MediaStorage; answerModel?: { countTextInputTokens(prompt: string): Promise<number>; analyzeText(prompt: string): Promise<{ text: string; inputTokens: number; outputTokens: number }> }; imageSearchModel?: VisualSearchModel; providerAvailable?: () => Promise<boolean> } = {}) {
+export function createApp(database: DatabaseHandle, options: { validateUrl?: typeof validatePublicUrl; checkLink?: typeof checkPublicPage; assetDirectory?: string; assetStorage?: AssetStorage; importDirectory?: string; importStorage?: ImportStorage; mediaDirectory?: string; mediaStorage?: MediaStorage; answerModel?: { countTextInputTokens(prompt: string): Promise<number>; analyzeText(prompt: string): Promise<{ text: string; inputTokens: number; outputTokens: number }> }; imageSearchModel?: VisualSearchModel; providerAvailable?: () => Promise<boolean>; semanticEmbeddingProvider?: EmbeddingProvider } = {}) {
   const app = express();
   const assetStorage = options.assetStorage ?? new LocalAssetStorage(options.assetDirectory ?? config.assetDirectory);
   const importStorage = options.importStorage ?? new LocalImportStorage(options.importDirectory ?? config.importDirectory);
   const mediaStorage = options.mediaStorage ?? new LocalMediaStorage(options.mediaDirectory ?? config.mediaDirectory);
   const library = createLibraryService(database, assetStorage, mediaStorage);
+  const semanticEmbeddingProvider = options.semanticEmbeddingProvider
+    ?? (config.openRouterApiKey ? createOpenRouterEmbeddingProvider(config.openRouterApiKey) : undefined);
   const validateUrl = options.validateUrl ?? validatePublicUrl;
   app.disable('x-powered-by');
   app.use(helmet());
@@ -133,6 +138,7 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
 
   app.use('/api', createAccountRouter(database, assetStorage));
   app.use('/api', createAiRouter(database));
+  app.use('/api', createSemanticSearchRouter({ database, assetStorage, library, provider: semanticEmbeddingProvider }));
   const answerClient = config.META_API_KEY ? createMetaModelClient({ apiKey: config.META_API_KEY }) : undefined;
   const providerAvailable = options.providerAvailable ?? (async () => {
     if (!options.answerModel && !answerClient) return false;
