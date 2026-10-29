@@ -72,7 +72,7 @@ test('Instagram JSON maps the current label_values export shape and record times
 test('Instagram JSON repairs UTF-8 captions misdecoded as Latin-1 without changing ordinary Unicode', () => {
   const bytes = Buffer.from(JSON.stringify([{ media: [], label_values: [
     { label: 'URL', href: 'https://www.instagram.com/p/MOJIBAKE01/' },
-    { label: 'Caption', value: 'I\u00e2\u0080\u0099ll send you \u00f0\u009f\u0098\u0080 — Café 東京' },
+    { label: 'Caption', value: 'I\u00e2\u0080\u0099ll send you \u00f0\u009f\u0098\u0080 — Caf\u00c3\u00a9 東京' },
   ] }]));
   const [item] = parsePlatformExports([{ name: 'saved_posts.json', bytes }]);
   assert.equal(item?.title, 'I’ll send you 😀 — Café 東京');

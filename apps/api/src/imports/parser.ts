@@ -188,7 +188,7 @@ function hashtags(value: string): string[] {
  * accented text and invalid sequences untouched.
  */
 function repairInstagramUtf8Mojibake(value: string): string {
-  if (!/[\u0080-\u009f]/.test(value)) return value;
+  if (!/[\u00c2-\u00f4][\u0080-\u00bf]/.test(value)) return value;
   return value.replace(/[\u0080-\u00ff]{2,}/g, (run) => {
     try { return new TextDecoder('utf-8', { fatal: true }).decode(Buffer.from(run, 'latin1')); }
     catch { return run; }
