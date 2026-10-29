@@ -18,6 +18,7 @@ This documentation reconstructs IScraper's current product and implementation so
 
 - Marketing positioning, identity, claims and product boundaries: [marketing/positioning-and-identity.md](marketing/positioning-and-identity.md)
 - Marketing page map, routes and content acceptance: [marketing/page-map-and-content.md](marketing/page-map-and-content.md)
+- Proposed marketing visual system, motion language, and full-site storyboard: [marketing/visual-system-and-site-storyboard.md](marketing/visual-system-and-site-storyboard.md)
 
 - Complete tracked-file coverage ledger: [source-audit/source-coverage-ledger.csv](source-audit/source-coverage-ledger.csv)
 - Product, decisions, and source history: [history/cross-source-context.md](history/cross-source-context.md)
