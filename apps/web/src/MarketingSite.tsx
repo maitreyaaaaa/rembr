@@ -24,12 +24,12 @@ function Arrow({ diagonal = false }: { diagonal?: boolean }) {
   return <span aria-hidden="true" className={diagonal ? 'arrow-mark arrow-mark-diagonal' : 'arrow-mark'}>{diagonal ? '↗' : '→'}</span>;
 }
 
-const sourcePlatforms: Array<{ name: string; logo: string; background: string; darkMark?: boolean }> = [
-  { name: 'Instagram', logo: '/platforms/instagram.svg', background: '#fff9d9' },
-  { name: 'Pinterest', logo: '/platforms/pinterest.svg', background: '#e60023' },
+const sourcePlatforms: Array<{ name: string; logo: string; background: string }> = [
+  { name: 'Instagram', logo: '/platforms/instagram-download.webp', background: '#fff9d9' },
+  { name: 'Pinterest', logo: '/platforms/pinterest-download.png', background: '#ff0000' },
   { name: 'Facebook', logo: '/platforms/facebook.svg', background: '#1877f2' },
-  { name: 'LinkedIn', logo: '/platforms/linkedin.svg', background: '#0a66c2' },
-  { name: 'X', logo: '/platforms/x.svg', background: '#fff', darkMark: true },
+  { name: 'LinkedIn', logo: '/platforms/linkedin-download.png', background: '#fff9d9' },
+  { name: 'X', logo: '/platforms/x-download.png', background: '#fff' },
 ];
 
 function RotatingPlatformLogo() {
@@ -45,7 +45,7 @@ function RotatingPlatformLogo() {
   const platform = sourcePlatforms[activeIndex]!;
   return <span className="platform-ticker" role="img" aria-label={`Platform examples: ${sourcePlatforms.map(({ name }) => name).join(', ')}`}>
     <span className="platform-ticker-icon" key={platform.name} style={{ background: platform.background }}>
-      <img className={platform.darkMark ? 'platform-logo platform-logo-dark' : 'platform-logo'} src={platform.logo} alt="" />
+      <img className="platform-logo" src={platform.logo} alt="" />
     </span>
   </span>;
 }
