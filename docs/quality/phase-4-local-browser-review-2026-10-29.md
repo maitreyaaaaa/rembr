@@ -18,6 +18,27 @@
 
 ## Remaining review
 
-- No screen reader session was run. Settings switches were checked for accessible names but were not toggled by keyboard in this review.
-- Other Phase 4 screens and states, reduced-motion behavior, full keyboard journeys, production-size graph/export behavior, hosted migrations, and real provider behavior remain unreviewed here.
+- No screen reader session was run. Settings switches were checked for accessible names but were not toggled by keyboard in the first review.
+- Reduced-motion behavior, import/note-edit/tag/settings-profile screens, production-size graph/export behavior, hosted migrations, and real provider behavior remain unreviewed here.
 - The graph fixture’s “Waiting to process” statuses are expected because no worker was running; they are synthetic local state.
+
+## Follow-up route and keyboard review
+
+- Follow-up source: `feat/phase-4-search-knowledge-ai` after `b92d3e3`, with the graph scroll-focus fix described below. Edge headless `156.0.4314.50`; axe-core `4.14.0` was installed from the local npm cache. The existing Vite server was reused; a temporary API used current migrations and an in-memory PGlite database.
+- Synthetic fixture: one ready page, one failed page, one note, a tag, a manual collection, and a due reminder under one synthetic account. Provider availability was disabled. No hosted database, live model, or external page fetch was used.
+- At 390×844 and 1440×900, reviewed `/app` (Library), `/app/collections`, `/app/smart-collections`, `/app/checkup`, `/app/graph`, a ready page detail, and a failed page detail. Every route rendered without an alert. Document scroll width did not exceed the viewport; on desktop the browser's reserved scrollbar reduced the document width below `innerWidth`.
+- On mobile, Tab traversal reached the visible links, actions, filters, and item controls on each reviewed route with visible focus at each checked focusable stop. On Connections it now reaches a named “Scrollable graph map” region; browser arrow keys can scroll that focused region. No link probe, export, retry, AI request, or data-changing action was triggered.
+- axe-core scanned WCAG 2.0/2.1 A and AA tags at both viewports. Results after the graph fix:
+
+| Route | Passed rules, 390px / 1440px | Violations, 390px / 1440px | Incomplete contrast nodes, 390px / 1440px |
+| --- | ---: | ---: | ---: |
+| Library | 23 / 23 | 0 / 0 | 5 / 5 |
+| Collections | 22 / 22 | 0 / 0 | 2 / 2 |
+| Smart Collections | 22 / 22 | 0 / 0 | 4 / 4 |
+| Checkup | 23 / 23 | 0 / 0 | 1 / 1 |
+| Connections | 27 / 26 | 0 / 0 | 6 / 6 |
+| Ready item detail | 22 / 22 | 0 / 0 | 1 / 1 |
+| Failed item detail | 21 / 21 | 0 / 0 | 1 / 1 |
+
+- The first mobile Connections scan found axe rule `scrollable-region-focusable` on the graph map's horizontal scroller. The scroller now has `role="region"`, the accessible name “Scrollable graph map”, `tabIndex={0}`, and a visible `:focus-visible` outline. A focused rerun at both viewports found zero violations. Contrast nodes remain indeterminate on decorative arrows, pseudo-element button backgrounds, status markers, and SVG text; these are not reported as passes.
+- The temporary API, browser profile, screenshots, axe install, and review scripts were removed after inspection. The user-owned Vite server on port 5173 was left running.
