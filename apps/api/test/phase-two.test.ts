@@ -438,12 +438,26 @@ test('Smart Collections support owner-scoped renames and manual membership corre
     const include = await fetch(`${baseUrl}/api/smart-collections/${uiGroup.id}/items/${ids[2]}/override`, { method: 'PUT', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'include' }) });
     assert.equal(include.status, 200);
     let grouped = await fetch(`${baseUrl}/api/smart-collections/${uiGroup.id}/items?limit=100`, { headers: { Cookie: owner.cookie } });
-    assert.ok((await grouped.json() as { items: Array<{ id: string }> }).items.some(({ id }) => id === ids[2]));
+    assert.equal((await grouped.json() as { items: Array<{ id: string; overrideAction: string | null }> }).items.find(({ id }) => id === ids[2])?.overrideAction, 'include');
+
+    const changed = await fetch(`${baseUrl}/api/items/${ids[1]}`, { method: 'PATCH', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ descriptionOverride: 'Unrelated now.' }) });
+    assert.equal(changed.status, 200);
 
     const exclude = await fetch(`${baseUrl}/api/smart-collections/${uiGroup.id}/items/${ids[0]}/override`, { method: 'PUT', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'exclude' }) });
     assert.equal(exclude.status, 200);
     grouped = await fetch(`${baseUrl}/api/smart-collections/${uiGroup.id}/items?limit=100`, { headers: { Cookie: owner.cookie } });
-    assert.equal((await grouped.json() as { items: Array<{ id: string }> }).items.some(({ id }) => id === ids[0]), false);
+    let groupedBody = await grouped.json() as { items: Array<{ id: string }>; excludedItems: Array<{ id: string }> };
+    assert.equal(groupedBody.items.some(({ id }) => id === ids[0]), false);
+    assert.ok(groupedBody.excludedItems.some(({ id }) => id === ids[0]));
+
+    const stillListed = await fetch(`${baseUrl}/api/smart-collections`, { headers: { Cookie: owner.cookie } });
+    assert.ok((await stillListed.json() as { collections: Array<{ id: string }> }).collections.some(({ id }) => id === uiGroup.id));
+    const restore = await fetch(`${baseUrl}/api/smart-collections/${uiGroup.id}/items/${ids[0]}/override`, { method: 'PUT', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'reset' }) });
+    assert.equal(restore.status, 200);
+    grouped = await fetch(`${baseUrl}/api/smart-collections/${uiGroup.id}/items?limit=100`, { headers: { Cookie: owner.cookie } });
+    groupedBody = await grouped.json() as { items: Array<{ id: string }>; excludedItems: Array<{ id: string }> };
+    assert.ok(groupedBody.items.some(({ id }) => id === ids[0]));
+    assert.equal(groupedBody.excludedItems.some(({ id }) => id === ids[0]), false);
 
     const foreign = await fetch(`${baseUrl}/api/smart-collections/${uiGroup.id}/items`, { headers: { Cookie: other.cookie } });
     assert.equal(foreign.status, 404);

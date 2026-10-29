@@ -19,7 +19,7 @@ const CATEGORY_RULES = [
 
 type SourceType = 'rule' | 'capture' | 'topic' | 'collection' | 'platform';
 type SmartItem = { id: string; title: string; description: string; url: string; text: string; note: string; analysisText: string; status: string; kind: string; platform: string; createdAt: string; tags: string[]; collections: string[]; analysisTags: string[]; keywords: string[] };
-type CandidateItem = { item: SmartItem; confidence: number; reason: string };
+type CandidateItem = { item: SmartItem; confidence: number; reason: string; overrideAction?: 'include' | 'exclude' };
 type Candidate = { slug: string; name: string; description: string; sourceType: SourceType; folderGroup: string; matchSignals: Set<string>; items: Map<string, CandidateItem> };
 type CollectionRow = { id: string; owner_id: string; slug: string; name: string; description: string; source_type: SourceType; pinned: boolean | number; hidden: boolean | number; generation_metadata: string; created_at: string; updated_at: string };
 type OverrideRow = { collection_id: string; item_id: string; action: 'include' | 'exclude'; reason: string };
@@ -95,9 +95,7 @@ function candidatesFrom(items: SmartItem[]): Candidate[] {
   }
 
   return [...candidates.values()]
-    .filter((candidate) => candidate.items.size >= MIN_MATCHES)
     .sort((left, right) => right.items.size - left.items.size || left.name.localeCompare(right.name))
-    .slice(0, MAX_COLLECTIONS);
 }
 
 interface Cursor { owner: string; collection: string; search: string; offset: number }
@@ -159,7 +157,9 @@ export function createSmartCollectionService(database: DatabaseHandle) {
 
   async function generate(ownerId: string) {
     const loaded = await loadItems(ownerId);
-    const candidates = candidatesFrom(loaded.items);
+    const allCandidates = candidatesFrom(loaded.items);
+    const candidates = allCandidates.filter((candidate) => candidate.items.size >= MIN_MATCHES).slice(0, MAX_COLLECTIONS);
+    const candidateBySlug = new Map(allCandidates.map((candidate) => [candidate.slug, candidate]));
     const now = new Date().toISOString();
     for (const candidate of candidates) {
       const metadata = JSON.stringify({ generatedName: candidate.name, folderGroup: candidate.folderGroup, matchSignals: unique([...candidate.matchSignals]) });
@@ -169,36 +169,50 @@ export function createSmartCollectionService(database: DatabaseHandle) {
         .run(randomUUID(), ownerId, candidate.slug, candidate.name, candidate.description, candidate.sourceType, metadata, now, now);
     }
     const slugs = candidates.map((candidate) => candidate.slug);
-    if (!slugs.length) return { candidates: [], truncated: loaded.truncated };
-    const marks = slugs.map(() => '?').join(',');
+    const generatedCollections = slugs.length ? `slug IN (${slugs.map(() => '?').join(',')}) OR ` : '';
     const records = await database.prepare(`SELECT id,owner_id,slug,name,description,source_type,pinned,hidden,generation_metadata,created_at,updated_at
-      FROM smart_collections WHERE owner_id=? AND slug IN (${marks})`).all(ownerId, ...slugs) as CollectionRow[];
-    const overrides = await database.prepare(`SELECT collection_id,item_id,action,reason FROM smart_collection_item_overrides
-      WHERE owner_id=? AND collection_id IN (${records.map(() => '?').join(',')})`).all(ownerId, ...records.map((entry) => entry.id)) as OverrideRow[];
+      FROM smart_collections WHERE owner_id=? AND (${generatedCollections}id IN (
+        SELECT collection_id FROM smart_collection_item_overrides WHERE owner_id=?))`)
+      .all(ownerId, ...slugs, ownerId) as CollectionRow[];
+    const overrides = records.length ? await database.prepare(`SELECT collection_id,item_id,action,reason FROM smart_collection_item_overrides
+      WHERE owner_id=? AND collection_id IN (${records.map(() => '?').join(',')})`).all(ownerId, ...records.map((entry) => entry.id)) as OverrideRow[] : [];
     const byId = new Map(loaded.items.map((item) => [item.id, item]));
-    const result = candidates.map((candidate) => {
-      const record = records.find((entry) => entry.slug === candidate.slug)!;
+    const result = records.map((record) => {
+      const metadata = safeMetadata(record.generation_metadata);
+      const candidate = candidateBySlug.get(record.slug) ?? {
+        slug: record.slug, name: record.name, description: record.description, sourceType: record.source_type,
+        folderGroup: typeof metadata.folderGroup === 'string' ? metadata.folderGroup : 'Smart folders',
+        matchSignals: new Set(strings(metadata.matchSignals)), items: new Map<string, CandidateItem>(),
+      };
       const correctionRows = overrides.filter((entry) => entry.collection_id === record.id);
       const correctionByItem = new Map(correctionRows.map((entry) => [entry.item_id, entry]));
       const active = new Map<string, CandidateItem>();
+      const excluded = new Map<string, CandidateItem>();
       for (const [itemId, match] of candidate.items) {
-        if (correctionByItem.get(itemId)?.action === 'exclude') continue;
-        active.set(itemId, match);
+        const correction = correctionByItem.get(itemId);
+        if (correction?.action === 'exclude') excluded.set(itemId, { ...match, reason: correction.reason || 'Removed by you.', overrideAction: 'exclude' });
+        else if (correction?.action === 'include') active.set(itemId, { ...match, reason: correction.reason || 'Added by you.', overrideAction: 'include' });
+        else active.set(itemId, match);
       }
       for (const correction of correctionRows) {
-        if (correction.action !== 'include' || active.has(correction.item_id)) continue;
         const item = byId.get(correction.item_id);
-        if (item) active.set(item.id, { item, confidence: 1, reason: correction.reason || 'Added by you.' });
+        if (!item) continue;
+        if (correction.action === 'include' && !active.has(correction.item_id)) {
+          active.set(item.id, { item, confidence: 1, reason: correction.reason || 'Added by you.', overrideAction: 'include' });
+        }
+        if (correction.action === 'exclude' && !excluded.has(correction.item_id)) {
+          excluded.set(item.id, { item, confidence: 0, reason: correction.reason || 'Removed by you.', overrideAction: 'exclude' });
+        }
       }
       const matches = [...active.values()].sort((left, right) => right.confidence - left.confidence || right.item.createdAt.localeCompare(left.item.createdAt));
-      const metadata = safeMetadata(record.generation_metadata);
+      const excludedMatches = [...excluded.values()].sort((left, right) => right.item.createdAt.localeCompare(left.item.createdAt));
       return {
         id: record.id, slug: record.slug, name: record.name, description: record.description,
         sourceType: record.source_type, pinned: Boolean(record.pinned), hidden: Boolean(record.hidden),
         folderGroup: typeof metadata.folderGroup === 'string' ? metadata.folderGroup : 'Smart folders',
         matchSignals: unique([...strings(metadata.matchSignals), ...matches.slice(0, 6).map((entry) => entry.reason)], 8),
         itemCount: matches.length, previewItems: matches.slice(0, 3).map(({ item }) => item),
-        createdAt: record.created_at, updatedAt: record.updated_at, matchedItems: matches,
+        createdAt: record.created_at, updatedAt: record.updated_at, matchedItems: matches, excludedItems: excludedMatches,
       };
     });
     result.sort((left, right) => Number(right.pinned) - Number(left.pinned) || right.itemCount - left.itemCount || right.updatedAt.localeCompare(left.updatedAt) || left.name.localeCompare(right.name));
@@ -208,7 +222,7 @@ export function createSmartCollectionService(database: DatabaseHandle) {
   return {
     async list(ownerId: string, includeHidden = false) {
       const { candidates, truncated } = await generate(ownerId);
-      const visible = candidates.filter((entry) => includeHidden || !entry.hidden).map(({ matchedItems: _matchedItems, ...entry }) => entry);
+      const visible = candidates.filter((entry) => includeHidden || !entry.hidden).map(({ matchedItems: _matchedItems, excludedItems: _excludedItems, ...entry }) => entry);
       return { collections: visible, truncated, generatedAt: new Date().toISOString() };
     },
     async listItems(ownerId: string, collectionId: string, search: string, limit: number, rawCursor?: string) {
@@ -222,7 +236,13 @@ export function createSmartCollectionService(database: DatabaseHandle) {
       const filtered = collection.matchedItems.filter(({ item }) => matchesSearch(item, fingerprint));
       const page = filtered.slice(offset, offset + limit);
       const nextCursor = offset + page.length < filtered.length ? encodeCursor({ ...expected, offset: offset + page.length }) : null;
-      return { collection: { id: collection.id, name: collection.name, description: collection.description, itemCount: filtered.length }, items: page.map(({ item, confidence, reason }) => ({ ...item, matchConfidence: confidence, matchReason: reason })), nextCursor, hasMore: nextCursor !== null, truncated };
+      const excludedItems = collection.excludedItems.filter(({ item }) => matchesSearch(item, fingerprint));
+      return {
+        collection: { id: collection.id, name: collection.name, description: collection.description, itemCount: filtered.length },
+        items: page.map(({ item, confidence, reason, overrideAction }) => ({ ...item, matchConfidence: confidence, matchReason: reason, overrideAction: overrideAction ?? null })),
+        excludedItems: excludedItems.slice(0, limit).map(({ item, confidence, reason, overrideAction }) => ({ ...item, matchConfidence: confidence, matchReason: reason, overrideAction })),
+        excludedHasMore: excludedItems.length > limit, nextCursor, hasMore: nextCursor !== null, truncated,
+      };
     },
     async update(ownerId: string, collectionId: string, input: { name?: string; pinned?: boolean; hidden?: boolean }) {
       const fields: string[] = []; const values: unknown[] = [];
