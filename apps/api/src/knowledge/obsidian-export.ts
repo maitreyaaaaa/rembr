@@ -13,11 +13,15 @@ export type ExportItem = {
   summary: string;
   keywords: string[];
   analysisTags: string[];
+  brands: string[];
+  tools: string[];
+  people: string[];
+  repositories: string[];
 };
 
 export type ExportRelation = { itemId: string; id: string; name: string };
 
-type ExportConcept = { id: string; type: 'tag' | 'collection' | 'topic' | 'domain'; label: string; itemIds: string[] };
+type ExportConcept = { id: string; type: 'tag' | 'collection' | 'topic' | 'domain' | 'brand' | 'tool' | 'person' | 'repository'; label: string; itemIds: string[] };
 
 function safeFileName(value: string): string {
   return value.normalize('NFKC').replace(/[<>:"/\\|?*#^]/g, ' ').replace(/\p{Cc}/gu, ' ').replaceAll('[', ' ').replaceAll(']', ' ')
@@ -79,6 +83,10 @@ export function buildObsidianExport(items: ExportItem[], tags: ExportRelation[],
     } catch { /* Keep malformed historical URLs in the item note, without a domain node. */ }
     for (const label of item.analysisTags) addConcept(item.id, 'topic', label);
     for (const label of item.keywords) addConcept(item.id, 'topic', label);
+    for (const label of item.brands) addConcept(item.id, 'brand', label);
+    for (const label of item.tools) addConcept(item.id, 'tool', label);
+    for (const label of item.people) addConcept(item.id, 'person', label);
+    for (const label of item.repositories) addConcept(item.id, 'repository', label);
   }
 
   const itemPaths = new Map(items.map((item) => [item.id, `IScraper Items/${fileStem(item.title, item.id)}`]));
@@ -156,17 +164,19 @@ export function createObsidianExportRepository(database: DatabaseHandle) {
           saved_items.status, saved_items.created_at AS "createdAt",
           COALESCE(notes.body, '') AS note,
           COALESCE(analysis.summary, '') AS summary,
-          analysis.keywords_json AS keywords_json, analysis.tags_json AS tags_json
+          analysis.keywords_json AS keywords_json, analysis.tags_json AS tags_json,
+          analysis.brands_json AS brands_json, analysis.tools_json AS tools_json,
+          analysis.people_json AS people_json, analysis.repositories_json AS repositories_json
         FROM saved_items
         LEFT JOIN notes ON notes.owner_id=saved_items.owner_id AND notes.item_id=saved_items.id
         LEFT JOIN LATERAL (
-          SELECT summary, keywords_json, tags_json FROM ai_analysis_results
+          SELECT summary, keywords_json, tags_json, brands_json, tools_json, people_json, repositories_json FROM ai_analysis_results
           WHERE owner_id=saved_items.owner_id AND item_id=saved_items.id
           ORDER BY generation DESC LIMIT 1
         ) analysis ON TRUE
         WHERE saved_items.owner_id=?
-        ORDER BY saved_items.created_at, saved_items.id`).all(ownerId) as Array<Omit<ExportItem, 'keywords' | 'analysisTags'> & { keywords_json: string | null; tags_json: string | null }>;
-      const items: ExportItem[] = rows.map((row) => ({ ...row, keywords: listFromJson(row.keywords_json), analysisTags: listFromJson(row.tags_json) }));
+        ORDER BY saved_items.created_at, saved_items.id`).all(ownerId) as Array<Omit<ExportItem, 'keywords' | 'analysisTags' | 'brands' | 'tools' | 'people' | 'repositories'> & { keywords_json: string | null; tags_json: string | null; brands_json: string | null; tools_json: string | null; people_json: string | null; repositories_json: string | null }>;
+      const items: ExportItem[] = rows.map((row) => ({ ...row, keywords: listFromJson(row.keywords_json), analysisTags: listFromJson(row.tags_json), brands: listFromJson(row.brands_json), tools: listFromJson(row.tools_json), people: listFromJson(row.people_json), repositories: listFromJson(row.repositories_json) }));
       const tagRelations: ExportRelation[] = [];
       const collectionRelations: ExportRelation[] = [];
       for (let offset = 0; offset < items.length; offset += 500) {

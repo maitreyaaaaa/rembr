@@ -5,9 +5,9 @@ const CONCEPT_LIMIT = 80;
 const GROUP_ITEM_LIMIT = 25;
 const LINK_LIMIT = 1_000;
 
-type ItemRow = { id: string; title: string; url: string; status: string; created_at: string; keywords_json: string | null; tags_json: string | null };
+type ItemRow = { id: string; title: string; url: string; status: string; created_at: string; keywords_json: string | null; tags_json: string | null; brands_json: string | null; tools_json: string | null; people_json: string | null; repositories_json: string | null };
 type RelationRow = { item_id: string; id: string; name: string };
-type ConceptType = 'tag' | 'collection' | 'topic' | 'domain';
+type ConceptType = 'tag' | 'collection' | 'topic' | 'domain' | 'brand' | 'tool' | 'person' | 'repository';
 type GraphItem = { id: string; title: string; status: string; createdAt: string };
 type GraphConcept = { id: string; type: ConceptType; label: string; itemCount: number; items: GraphItem[] };
 
@@ -58,6 +58,10 @@ export function buildKnowledgeGraph(input: {
     if (domain) add(row.id, 'domain', domain);
     for (const label of stringsFromJson(row.tags_json)) add(row.id, 'topic', label);
     for (const label of stringsFromJson(row.keywords_json)) add(row.id, 'topic', label);
+    for (const label of stringsFromJson(row.brands_json)) add(row.id, 'brand', label);
+    for (const label of stringsFromJson(row.tools_json)) add(row.id, 'tool', label);
+    for (const label of stringsFromJson(row.people_json)) add(row.id, 'person', label);
+    for (const label of stringsFromJson(row.repositories_json)) add(row.id, 'repository', label);
   }
 
   const concepts = new Map<string, GraphConcept>();
@@ -102,7 +106,19 @@ export function createKnowledgeGraphRepository(database: DatabaseHandle) {
             ORDER BY analysis.generation DESC LIMIT 1) AS keywords_json,
           (SELECT analysis.tags_json FROM ai_analysis_results analysis
             WHERE analysis.owner_id=saved_items.owner_id AND analysis.item_id=saved_items.id
-            ORDER BY analysis.generation DESC LIMIT 1) AS tags_json
+            ORDER BY analysis.generation DESC LIMIT 1) AS tags_json,
+          (SELECT analysis.brands_json FROM ai_analysis_results analysis
+            WHERE analysis.owner_id=saved_items.owner_id AND analysis.item_id=saved_items.id
+            ORDER BY analysis.generation DESC LIMIT 1) AS brands_json,
+          (SELECT analysis.tools_json FROM ai_analysis_results analysis
+            WHERE analysis.owner_id=saved_items.owner_id AND analysis.item_id=saved_items.id
+            ORDER BY analysis.generation DESC LIMIT 1) AS tools_json,
+          (SELECT analysis.people_json FROM ai_analysis_results analysis
+            WHERE analysis.owner_id=saved_items.owner_id AND analysis.item_id=saved_items.id
+            ORDER BY analysis.generation DESC LIMIT 1) AS people_json,
+          (SELECT analysis.repositories_json FROM ai_analysis_results analysis
+            WHERE analysis.owner_id=saved_items.owner_id AND analysis.item_id=saved_items.id
+            ORDER BY analysis.generation DESC LIMIT 1) AS repositories_json
         FROM saved_items
         WHERE saved_items.owner_id=?
         ORDER BY saved_items.created_at DESC, saved_items.id DESC LIMIT ?`).all(ownerId, ITEM_LIMIT) as ItemRow[];

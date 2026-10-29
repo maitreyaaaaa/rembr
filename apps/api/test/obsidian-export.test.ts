@@ -36,11 +36,14 @@ async function register(baseUrl: string, email: string) {
 
 test('Obsidian export builder creates all item and concept notes with stable collision-safe paths', () => {
   const { graph, files } = buildObsidianExport([
-    { id: 'item-1', title: '../Same Name', url: 'https://example.com/a', description: 'First save', status: 'ready', createdAt: '2026-01-01', note: 'Personal note', summary: 'Summary one', keywords: ['Systems'], analysisTags: [] },
-    { id: 'item-2', title: '../Same Name', url: 'https://example.com/b', description: '', status: 'ready', createdAt: '2026-01-02', note: '', summary: '', keywords: [], analysisTags: [] },
+    { id: 'item-1', title: '../Same Name', url: 'https://example.com/a', description: 'First save', status: 'ready', createdAt: '2026-01-01', note: 'Personal note', summary: 'Summary one', keywords: ['Systems'], analysisTags: [], brands: ['Acme'], tools: ['Figma'], people: ['Ada Lovelace'], repositories: ['rembr/core'] },
+    { id: 'item-2', title: '../Same Name', url: 'https://example.com/b', description: '', status: 'ready', createdAt: '2026-01-02', note: '', summary: '', keywords: [], analysisTags: [], brands: [], tools: [], people: [], repositories: [] },
   ], [{ itemId: 'item-1', id: 'tag-1', name: 'Research' }], [{ itemId: 'item-1', id: 'collection-1', name: 'Reading' }]);
   assert.equal(graph.stats.indexedItems, 2);
-  assert.equal(graph.stats.conceptNodes, 4); // domain, topic, tag, collection
+  assert.equal(graph.stats.conceptNodes, 8); // domain, topic, tag, collection, and four typed entities
+  assert.deepEqual(graph.nodes.filter((node) => ['brand', 'tool', 'person', 'repository'].includes(node.type)).map((node) => [node.type, node.label]).sort(), [
+    ['brand', 'Acme'], ['person', 'Ada Lovelace'], ['repository', 'rembr/core'], ['tool', 'Figma'],
+  ]);
   assert.equal(files.filter((file) => file.path.startsWith('IScraper Items/')).length, 2);
   assert.equal(new Set(files.map((file) => file.path)).size, files.length);
   assert.ok(files.every((file) => !file.path.includes('../')));

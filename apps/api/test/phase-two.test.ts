@@ -590,6 +590,12 @@ test('Smart Collections rules use existing summary, visual, OCR, and transcript 
       assert.equal(entityCollection?.itemCount, 2);
       assert.equal(entityCollection?.folderGroup, group);
     }
+    const graphResponse = await fetch(`${baseUrl}/api/knowledge/graph`, { headers: { Cookie: owner.cookie } });
+    const graph = (await graphResponse.json() as { graph: { groups: Array<{ type: string; label: string; items: Array<{ id: string }> }> } }).graph;
+    for (const [type, label] of [['brand', 'Acme'], ['tool', 'Figma'], ['person', 'Ada Lovelace'], ['repository', 'rembr/core']]) {
+      const entity = graph.groups.find((group) => group.type === type && group.label === label);
+      assert.deepEqual(entity?.items.map(({ id }) => id).sort(), ids.slice(0, 2).sort());
+    }
     const entitySearch = await fetch(`${baseUrl}/api/items?search=Acme`, { headers: { Cookie: owner.cookie } });
     assert.deepEqual((await entitySearch.json() as { items: Array<{ id: string }> }).items.map(({ id }) => id).sort(), ids.slice(0, 2).sort());
     const detail = await fetch(`${baseUrl}/api/ai/items/${encodeURIComponent(ids[0]!)}`, { headers: { Cookie: owner.cookie } });
