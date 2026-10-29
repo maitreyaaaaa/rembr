@@ -122,6 +122,23 @@ test('item list filters, keyset pagination, metadata overrides and organization 
     assert.equal(edited.title, 'My headline');
     assert.equal(edited.description, 'My note');
     assert.equal(edited.text, '');
+    await fetch(`${baseUrl}/api/items/${firstItem.id}`, { method: 'PATCH', headers: { Cookie: first.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ titleOverride: 'Design inspiration', descriptionOverride: 'A reliable system for teams' }) });
+    const termSearch = await fetch(`${baseUrl}/api/items?search=design%20system&matchMode=terms&sort=relevance`, { headers: { Cookie: first.cookie } });
+    const termSearchBody = await termSearch.json() as { items: Array<{ id: string }>; searchEventId: string };
+    assert.deepEqual(termSearchBody.items.map((item) => item.id), [firstItem.id]);
+    assert.ok(termSearchBody.searchEventId);
+    const phraseSearch = await fetch(`${baseUrl}/api/items?search=design%20system&matchMode=phrase&sort=relevance`, { headers: { Cookie: first.cookie } });
+    assert.deepEqual((await phraseSearch.json() as { items: unknown[] }).items, []);
+    const feedback = await fetch(`${baseUrl}/api/search/feedback`, { method: 'POST', headers: { Cookie: first.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ searchEventId: termSearchBody.searchEventId, itemId: firstItem.id, rating: 'helpful' }) });
+    assert.equal(feedback.status, 201);
+    const foreignFeedback = await fetch(`${baseUrl}/api/search/feedback`, { method: 'POST', headers: { Cookie: second.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ searchEventId: termSearchBody.searchEventId, itemId: firstItem.id, rating: 'helpful' }) });
+    assert.equal(foreignFeedback.status, 404);
+    const evidence = await fetch(`${baseUrl}/api/knowledge/answer`, { method: 'POST', headers: { Cookie: first.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ question: 'reliable system' }) });
+    const evidenceBody = await evidence.json() as { citations: Array<{ id: string; snippet: string }>; resultIds: string[]; mode: string };
+    assert.equal(evidence.status, 200);
+    assert.equal(evidenceBody.mode, 'lexical-excerpts');
+    assert.deepEqual(evidenceBody.resultIds, [firstItem.id]);
+    assert.match(evidenceBody.citations[0]!.snippet, /reliable system/);
     const foreign = await fetch(`${baseUrl}/api/items/${firstItem.id}`, { headers: { Cookie: second.cookie } });
     assert.equal(foreign.status, 404);
     const foreignSearch = await fetch(`${baseUrl}/api/items?search=example.com`, { headers: { Cookie: second.cookie } });
@@ -215,10 +232,10 @@ test('Postgres schema starts with the complete empty Rembr model', async () => {
   try {
     const result = await database.prepare(`SELECT count(*) AS count FROM information_schema.tables
       WHERE table_schema='public' AND table_type='BASE TABLE'`).get() as { count: string };
-    assert.equal(Number(result.count), 31);
+    assert.equal(Number(result.count), 36);
     const rls = await database.prepare(`SELECT count(*) AS count FROM pg_class c
       JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='r' AND c.relrowsecurity`).get() as { count: string };
-    assert.equal(Number(rls.count), 31);
+    assert.equal(Number(rls.count), 36);
     const mediaAnalysisTables = await database.prepare(`SELECT count(*) AS count FROM information_schema.tables
       WHERE table_schema='public' AND table_name IN ('ai_analysis_preferences','ai_worker_status','ai_analysis_jobs','ai_analysis_results','ai_import_usage','ai_monthly_usage','ai_usage_reservations')`).get() as { count: string };
     assert.equal(Number(mediaAnalysisTables.count), 7);

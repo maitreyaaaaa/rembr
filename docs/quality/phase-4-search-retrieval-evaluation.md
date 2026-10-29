@@ -4,6 +4,8 @@
 
 This is a small, deterministic sanity fixture for the current lexical scoring rule. It is a hand-calculated specification, not an executed quality benchmark and not evidence of query latency. The fixture contains no customer data. A runnable test and a larger labeled query set remain future work.
 
+The API suite has now exercised a synthetic owner fixture for cross-field multi-term matching, exact-phrase exclusion, owner-bound feedback, and cited evidence retrieval. This verifies those specific paths, not ranking quality across a representative corpus.
+
 ## Current rule
 
 For normal library search, every meaningful query term must appear in at least one searchable field. Terms may be distributed across fields. Stop words are removed from the filter. The relevance score adds one point bucket per field match and per matching term:

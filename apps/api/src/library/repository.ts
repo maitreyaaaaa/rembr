@@ -172,7 +172,8 @@ export function createLibraryRepository(database: DatabaseHandle) {
           + CASE WHEN EXISTS (SELECT 1 FROM ai_analysis_results analysis WHERE analysis.owner_id=saved_items.owner_id AND analysis.item_id=saved_items.id
               AND (lower(analysis.summary) LIKE lower(?) ESCAPE '!' OR lower(analysis.visual_description) LIKE lower(?) ESCAPE '!'
                 OR lower(analysis.ocr_text) LIKE lower(?) ESCAPE '!' OR lower(analysis.transcript) LIKE lower(?) ESCAPE '!'
-                OR lower(analysis.keywords_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tags_json) LIKE lower(?) ESCAPE '!')) THEN 8 ELSE 0 END)`).join(' ')}` : 'NULL';
+                OR lower(analysis.keywords_json) LIKE lower(?) ESCAPE '!' OR lower(analysis.tags_json) LIKE lower(?) ESCAPE '!')) THEN 8 ELSE 0 END)`).join(' ')}
+        )` : 'NULL';
       const scoreParams = query.sort === 'relevance' && query.search.trim() ? [query.search, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch, safeSearch,
         ...(query.matchMode === 'phrase' ? [] : queryTerms(query.search).flatMap((term) => Array.from({ length: 11 }, () => `%${term.replace(/[!%_]/g, '!$&')}%`)))] : [];
       const rows = await database.prepare(`WITH ranked_items AS (
