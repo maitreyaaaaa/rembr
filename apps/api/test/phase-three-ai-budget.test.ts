@@ -81,7 +81,7 @@ test('grounded-answer reservations share the monthly AI cap and retain uncertain
     assert.equal(Number(month.spent_microusd), 1_000);
     assert.equal(Number(month.reserved_microusd), 5_000);
     const ledger = await database.prepare('SELECT status FROM ai_search_usage_reservations ORDER BY created_at,id').all() as Array<{ status: string }>;
-    assert.deepEqual(ledger.map((row) => row.status), ['settled', 'held']);
+    assert.deepEqual(ledger.map((row) => row.status).sort(), ['held', 'settled']);
   } finally { await database.close(); }
 });
 

@@ -1,6 +1,6 @@
 import type { DatabaseHandle } from '../db/database.js';
 
-export const AI_SEARCH_DISCLOSURE_VERSION = '2026-10-29-v1';
+export const AI_SEARCH_DISCLOSURE_VERSION = '2026-10-29-v2';
 
 export function createAiSearchPreferenceRepository(database: DatabaseHandle) {
   return {
@@ -10,7 +10,7 @@ export function createAiSearchPreferenceRepository(database: DatabaseHandle) {
         enabled: boolean | number; consent_version: string | null; consented_at: string | null;
         disabled_at: string | null; updated_at: string;
       } | undefined;
-      return { enabled: Boolean(row?.enabled), consentVersion: row?.consent_version ?? null,
+      return { enabled: Boolean(row?.enabled && row.consent_version === AI_SEARCH_DISCLOSURE_VERSION), consentVersion: row?.consent_version ?? null,
         consentedAt: row?.consented_at ?? null, disabledAt: row?.disabled_at ?? null,
         updatedAt: row?.updated_at ?? null, providerAvailable };
     },
