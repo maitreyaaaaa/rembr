@@ -167,7 +167,16 @@ function AppRoutes() {
   return <BrowserRouter><Routes>
     <Route path="/" element={<MarketingSite />} />
     <Route path="/features" element={<MarketingSite />} />
+    <Route path="/about" element={<MarketingSite />} />
     <Route path="/contact" element={<MarketingSite />} />
+    <Route path="/help" element={<MarketingSite />} />
+    <Route path="/how-to-use" element={<MarketingSite />} />
+    <Route path="/pricing" element={<MarketingSite />} />
+    <Route path="/terms" element={<MarketingSite />} />
+    <Route path="/privacy" element={<MarketingSite />} />
+    <Route path="/security" element={<MarketingSite />} />
+    <Route path="/data-deletion" element={<MarketingSite />} />
+    <Route path="/cookies" element={<MarketingSite />} />
     <Route path="/login" element={<AuthPage />} />
     <Route path="/app/setup/profile" element={<SetupRoute />} />
     <Route path="/app/setup/onboarding" element={<Navigate to="/app" replace />} />

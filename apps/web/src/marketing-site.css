@@ -369,3 +369,34 @@ a:hover .arrow-mark, button:hover .arrow-mark { transform: translate(3px,-2px); 
   .platform-ticker-icon { animation: none; }
   .marketing-site *, .marketing-site *::before, .marketing-site *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+.footer-policy-links { display: flex; flex-wrap: wrap; gap: 18px; margin: 30px 0 16px; padding-top: 20px; border-top: 1px solid rgb(255 255 255 / 24%); }
+.footer-policy-links a { color: var(--paper); font-size: 10px; text-decoration: none; }
+.footer-policy-links a:hover { color: var(--sun); }
+.public-info-main { max-width: 1120px; }
+.public-info-main .subpage-hero { min-height: 440px; }
+.public-info-section { margin: 0 0 75px; }
+.public-info-section > h2 { margin: 0 0 24px; font-size: clamp(37px,5vw,62px); }
+.public-info-cards { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 14px; }
+.public-info-cards article { min-height: 190px; padding: clamp(22px,4vw,38px); border: 1px solid var(--ink); background: var(--paper-deep); }
+.public-info-cards h3, .public-info-steps h3 { margin: 0 0 13px; font-size: clamp(22px,2.6vw,30px); }
+.public-info-cards p, .public-info-steps p, .public-info-callout p { max-width: 660px; margin: 0; color: var(--muted); font-size: 14px; line-height: 1.75; }
+.public-info-cards a, .public-info-steps a, .public-info-main .faq-list a { text-decoration-thickness: 1px; text-underline-offset: 3px; }
+.public-info-steps { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+.public-info-steps li { display: grid; grid-template-columns: 90px 1fr; gap: 22px; padding: 30px 10px 34px; border-bottom: 1px solid var(--line); }
+.public-info-step-number { color: var(--orange); font-family: var(--font-display); font-size: 38px; font-weight: 700; }
+.public-info-callout { margin: 0 0 70px; padding: clamp(28px,6vw,65px); background: var(--sun); }
+.public-info-callout h2 { margin: 0 0 14px; font-size: clamp(32px,4vw,50px); }
+.public-info-callout .button { margin-top: 25px; }
+.public-info-main .faq-list { border-top: 1px solid var(--line); }
+.public-info-main .faq-list details { border-bottom: 1px solid var(--line); }
+.public-info-main .faq-list summary { min-height: 70px; }
+
+@media (max-width: 680px) {
+  .public-info-main .subpage-hero { min-height: 385px; }
+  .public-info-cards { grid-template-columns: 1fr; }
+  .public-info-cards article { min-height: 0; }
+  .public-info-steps li { grid-template-columns: 52px 1fr; gap: 14px; padding: 25px 2px; }
+  .public-info-step-number { font-size: 28px; }
+  .footer-policy-links { gap: 13px; }
+}

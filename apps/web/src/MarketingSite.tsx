@@ -3,17 +3,22 @@ import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { useGSAP } from '@gsap/react';
 
-type Page = 'home' | 'features' | 'about' | 'contact';
+type Page = 'home' | 'features' | 'about' | 'contact' | 'help' | 'how-to-use' | 'pricing' | 'terms' | 'privacy' | 'security' | 'data-deletion' | 'cookies' | 'not-found';
 
 const contactEmail = import.meta.env.VITE_CONTACT_EMAIL?.trim();
 
 gsap.registerPlugin(ScrollTrigger, useGSAP);
 
 function pageForPath(path: string): Page {
-  if (path.startsWith('/features')) return 'features';
-  if (path.startsWith('/about')) return 'about';
-  if (path.startsWith('/contact')) return 'contact';
-  return 'home';
+  const pages: Record<string, Page> = {
+    '/': 'home', '/features': 'features', '/about': 'about', '/contact': 'contact',
+    '/help': 'help', '/how-to-use': 'how-to-use', '/pricing': 'pricing',
+    '/terms': 'terms', '/privacy': 'privacy', '/security': 'security',
+    '/data-deletion': 'data-deletion', '/cookies': 'cookies',
+  };
+  const exactPage = pages[path.replace(/\/$/, '') || '/'];
+  if (exactPage) return exactPage;
+  return 'not-found';
 }
 
 function Brand() {
@@ -66,6 +71,8 @@ function SiteHeader({ page }: { page: Page }) {
       <nav id="site-nav" className={menuOpen ? 'site-nav is-open' : 'site-nav'} aria-label="Main navigation">
         <a aria-current={page === 'features' ? 'page' : undefined} href="/features" onClick={() => setMenuOpen(false)}>The library</a>
         <a aria-current={page === 'about' ? 'page' : undefined} href="/about" onClick={() => setMenuOpen(false)}>Our point of view</a>
+        <a aria-current={page === 'help' ? 'page' : undefined} href="/help" onClick={() => setMenuOpen(false)}>Help</a>
+        <a aria-current={page === 'pricing' ? 'page' : undefined} href="/pricing" onClick={() => setMenuOpen(false)}>Pricing</a>
         <a aria-current={page === 'contact' ? 'page' : undefined} href="/contact" onClick={() => setMenuOpen(false)}>Say hello</a>
         <a className="nav-cta" href="/app" onClick={() => setMenuOpen(false)}>Open Rembr <Arrow diagonal/></a>
       </nav>
@@ -77,10 +84,11 @@ function SiteFooter() {
   return <footer className="site-footer">
     <div className="footer-main">
       <div className="footer-brand-block"><Brand/><p>A little more room for what matters.</p></div>
-      <div className="footer-link-group"><span>EXPLORE</span><a href="/features">The library</a><a href="/about">Our point of view</a><a href="/contact">Say hello</a></div>
-      <div className="footer-link-group"><span>YOUR SPACE</span><a href="/app">Open Rembr</a><a href="/app?tab=settings">Account & settings</a></div>
+      <div className="footer-link-group"><span>EXPLORE</span><a href="/features">The library</a><a href="/how-to-use">How to use Rembr</a><a href="/help">Help</a><a href="/pricing">Pricing</a><a href="/about">Our point of view</a><a href="/contact">Say hello</a></div>
+      <div className="footer-link-group"><span>YOUR SPACE</span><a href="/app">Open Rembr</a><a href="/app/settings/profile">Account & settings</a></div>
     </div>
     <div className="footer-bottom"><span>© {new Date().getFullYear()} Rembr</span><span>Keep what catches you. Find it when it matters.</span><a href="#top">Back to top ↑</a></div>
+    <nav className="footer-policy-links" aria-label="Policies"><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/security">Security</a><a href="/data-deletion">Data deletion</a><a href="/cookies">Cookies</a></nav>
   </footer>;
 }
 
@@ -236,17 +244,109 @@ function ContactPage() {
   </main>;
 }
 
+const howToSteps = [
+  { title: 'Bring in a link or export', body: <>Use <a href="/app/add">Add</a> to save a public URL, or upload an export in <a href="/app/imports">Imports</a>. Review the files you select before submitting.</> },
+  { title: 'Add your context', body: <>Open an item to edit details, write a note, assign tags, or add it to a collection. Your notes stay attached to the saved item.</> },
+  { title: 'Find it again', body: <>Search your library or browse tags and collections. Open a result to revisit its saved details and original source link.</> },
+  { title: 'Manage your account', body: <>Settings includes profile and privacy controls, account data information, export requests, and account deletion. AI processing has separate controls and remains optional.</> },
+];
+
+function HelpPage() {
+  return <main id="top" className="subpage-main public-info-main">
+    <PageHero title={<>A little help<br/>finding your</>} accent="way around." description="Answers about bringing saved posts into Rembr, organizing them, and managing your account."/>
+    <section className="public-info-section" aria-labelledby="help-title"><h2 id="help-title">Common questions</h2><div className="faq-list">
+      <details><summary>How do I bring in saved posts?<span aria-hidden="true">+</span></summary><p>Open <a href="/app/imports">Imports</a> and upload a supported export file you requested from a platform. You can also <a href="/app/add">save a public link</a> directly.</p></details>
+      <details><summary>Where can I find something I saved?<span aria-hidden="true">+</span></summary><p>Use library search or browse tags and collections. Open an item to see its source link and notes.</p></details>
+      <details><summary>Can Rembr access private posts?<span aria-hidden="true">+</span></summary><p>Rembr imports files that you choose to upload and saves links you submit. A saved link does not grant access to content its source platform keeps private.</p></details>
+      <details><summary>How do I export or delete account data?<span aria-hidden="true">+</span></summary><p>Open <a href="/app/settings/profile">Settings</a> to review account data, request an export, or start deletion. Deletion may need processing before it completes.</p></details>
+      <details><summary>Why is an imported item incomplete?<span aria-hidden="true">+</span></summary><p>Export formats and websites vary. Rembr may not retrieve every post or media file, but the source link remains available when provided.</p></details>
+    </div></section>
+    <section className="public-info-callout"><h2>Still looking for an answer?</h2><p>Contact opens a message draft in your email app; it does not send or store your message.</p><a className="button button-ink" href="/contact">Contact Rembr <Arrow diagonal/></a></section>
+  </main>;
+}
+
+function HowToUsePage() {
+  return <main id="top" className="subpage-main public-info-main">
+    <PageHero title={<>Save it now.<br/>Find it</>} accent="when it matters." description="A practical guide to importing, organizing, and finding things in your Rembr library."/>
+    <section className="public-info-section" aria-labelledby="how-to-title"><h2 id="how-to-title">Your library, step by step</h2><ol className="public-info-steps">{howToSteps.map(({ title, body }, index) => <li key={title}><span className="public-info-step-number">{String(index + 1).padStart(2, '0')}</span><div><h3>{title}</h3><p>{body}</p></div></li>)}</ol></section>
+    <section className="feature-limit"><p>Browser extensions and connected workflows are deferred. Save a link directly in Rembr or import a supported platform export.</p><a href="/help">Read help <Arrow diagonal/></a></section>
+  </main>;
+}
+
+type InfoSection = { title: string; body: ReactNode };
+type InfoContent = { title: ReactNode; accent: string; description: string; heading: string; sections: InfoSection[] };
+
+const publicInfo: Partial<Record<Page, InfoContent>> = {
+  pricing: { title: <>A place for<br/>what you</>, accent: 'keep.', description: 'Rembr billing and paid plans are not enabled yet. There are no paid plans available to purchase right now.', heading: 'Current availability', sections: [
+    { title: 'No checkout is available', body: <>Use the Rembr features currently enabled in your account. Plan details will appear here if billing is approved and made available.</> },
+    { title: 'Credits are not for sale', body: <>Credit purchases and paid entitlements are disabled. This page does not create a purchase or credit balance.</> },
+    { title: 'Need help?', body: <>Visit <a href="/help">Help</a> or use <a href="/contact">Contact Rembr</a>.</> },
+  ] },
+  terms: { title: <>Using Rembr<br/>with care</>, accent: 'and context.', description: 'These service notes describe current product boundaries. They are not a complete set of contractual terms.', heading: 'Service notes', sections: [
+    { title: 'Your library', body: <>Rembr helps organize links, imported records, and notes you choose to add. You are responsible for having permission to upload and use the material you provide.</> },
+    { title: 'Third-party services', body: <>Source platforms control their services, content, and access rules. Rembr cannot guarantee that a link will remain available or that every page can be retrieved.</> },
+    { title: 'Connected workflows', body: <>Browser extensions and connected workflows are deferred and are not currently available through Rembr.</> },
+    { title: 'Questions', body: <>Visit <a href="/help">Help</a> or <a href="/contact">Contact Rembr</a>.</> },
+  ] },
+  privacy: { title: <>Your library.<br/>Your</>, accent: 'choices.', description: 'A plain-language summary of account data and privacy controls currently available in Rembr.', heading: 'Data and controls', sections: [
+    { title: 'Information in your account', body: <>Rembr stores account and profile details, saved items, imports, notes, and related organization data needed to provide your library. The account data map in Settings shows categories and counts Rembr can report.</> },
+    { title: 'Optional processing', body: <>AI-assisted features have separate opt-in controls. When enabled and used, relevant text or images may be sent to the provider described in Settings. You can turn these controls off.</> },
+    { title: 'Export and deletion', body: <>Settings lets you request an export or account deletion. Some cleanup is processed asynchronously. See <a href="/data-deletion">Data deletion</a> for current details.</> },
+    { title: 'Retention and providers', body: <>Session, activity, and export cleanup have configured limits. Retention for backups, deletion audit records, and some provider-held copies is still being finalized; this page does not promise their immediate removal.</> },
+  ] },
+  security: { title: <>Built around<br/>careful</>, accent: 'boundaries.', description: 'Rembr applies account checks and operational safeguards to protect private library data.', heading: 'How access is handled', sections: [
+    { title: 'Private account access', body: <>Account and library operations are scoped to the signed-in owner. Administrative support tools use limited roles and record privileged actions.</> },
+    { title: 'Private files', body: <>Account exports and uploaded assets use private storage paths with owner checks. Export downloads are time-limited.</> },
+    { title: 'Report a concern', body: <>If you think your account may be at risk, sign out of shared devices, update your credentials, and contact Rembr. Do not include passwords or secret keys.</> },
+    { title: 'Verification status', body: <>Hosted database, storage, and browser checks remain part of the release gate; this page does not claim those checks have passed.</> },
+  ] },
+  'data-deletion': { title: <>Your data.<br/>Your</>, accent: 'decision.', description: 'Review account data, request an export, or start account deletion from Settings.', heading: 'Requesting deletion', sections: [
+    { title: 'Start from Settings', body: <>Open <a href="/app/settings/profile">Settings</a> and use the account deletion controls. A pending request freezes account activity.</> },
+    { title: 'Cancel or continue', body: <>You can cancel a pending request where the control is available. Approved deletion is processed in steps and can be retried if storage cleanup fails.</> },
+    { title: 'Removal boundaries', body: <>The workflow removes account-owned records and associated stored files it can identify. Retention for some audit records, backups, and provider-held copies remains subject to their policies and is still being finalized.</> },
+    { title: 'Need assistance?', body: <>Visit <a href="/help">Help</a> or <a href="/contact">Contact Rembr</a>.</> },
+  ] },
+  cookies: { title: <>A small note<br/>about</>, accent: 'cookies.', description: 'Rembr uses a session cookie to recognize your signed-in account.', heading: 'Browser storage', sections: [
+    { title: 'Signed-in session', body: <>The server sets an HttpOnly session cookie and expires sessions after their configured lifetime. The browser does not expose the cookie to page scripts.</> },
+    { title: 'Manage browser data', body: <>You can clear cookies and site data in your browser. Clearing the Rembr session cookie signs you out.</> },
+    { title: 'Other cookies', body: <>The current application code does not set analytics or advertising cookies. This statement should be checked against the deployed configuration before release.</> },
+  ] },
+};
+
+function InfoPage({ page }: { page: Page }) {
+  const content = publicInfo[page];
+  if (!content) return null;
+  return <main id="top" className="subpage-main public-info-main">
+    <PageHero title={content.title} accent={content.accent} description={content.description}/>
+    <section className="public-info-section" aria-labelledby="public-info-heading"><h2 id="public-info-heading">{content.heading}</h2><div className="public-info-cards">{content.sections.map(({ title, body }) => <article key={title}><h3>{title}</h3><p>{body}</p></article>)}</div></section>
+    <section className="public-info-callout"><h2>Manage your Rembr account</h2><p>Open Settings to review available controls and current account information.</p><a className="button button-ink" href="/app/settings/profile">Open Settings <Arrow diagonal/></a></section>
+  </main>;
+}
+
+function NotFoundPage() {
+  return <main id="top" className="subpage-main public-info-main"><PageHero title={<>That page<br/>isn't</>} accent="here." description="The link may have moved, or the address may be mistyped."/><section className="public-info-callout"><h2>Find your way back</h2><p>Visit the Rembr home page or browse the library guide.</p><a className="button button-ink" href="/">Rembr home <Arrow diagonal/></a></section></main>;
+}
+
 export function MarketingSite() {
   const page = pageForPath(window.location.pathname);
   const siteRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const titles: Record<Page, string> = { home: 'Rembr: Keep Instagram, Pinterest & X (Twitter) saves', features: 'Bring your saved posts together | Rembr', about: 'Why Rembr keeps your saved posts together | Rembr', contact: 'Contact Rembr | Questions and feedback' };
+    const titles: Record<Page, string> = { home: 'Rembr: Keep Instagram, Pinterest & X (Twitter) saves', features: 'Bring your saved posts together | Rembr', about: 'Why Rembr keeps your saved posts together | Rembr', contact: 'Contact Rembr | Questions and feedback', help: 'Help with Rembr | Imports, library and account', 'how-to-use': 'How to use Rembr | Save, organize and find', pricing: 'Pricing and availability | Rembr', terms: 'Service terms and scope | Rembr', privacy: 'Privacy and account data | Rembr', security: 'Security at Rembr', 'data-deletion': 'Account data export and deletion | Rembr', cookies: 'Cookies and browser storage | Rembr', 'not-found': 'Page not found | Rembr' };
     const descriptions: Record<Page, string> = {
       home: 'Import saved Instagram, Pinterest, and X (Twitter) posts into one library. Save links from Facebook, LinkedIn, and across the web, then add notes and find them again.',
       features: 'Bring saved posts in from Instagram, Pinterest, and X. Save other links, add context, and search your library.',
       about: 'Rembr brings your saved posts and links into one place. Keep the source, add context, and find them again.',
       contact: 'Contact Rembr with a question, account issue, or product feedback.',
+      help: 'Get help with Rembr imports, saved items, account settings, exports, and deletion.',
+      'how-to-use': 'Learn how to import, organize, search, and manage your Rembr library.',
+      pricing: 'See current Rembr pricing and billing availability.',
+      terms: 'Read service scope notes for Rembr and third-party source links.',
+      privacy: 'Learn about Rembr account data, optional processing, export, and deletion controls.',
+      security: 'Learn how Rembr scopes account access and handles private files.',
+      'data-deletion': 'Learn how to request an export or account deletion in Rembr.',
+      cookies: 'Learn about Rembr session cookies and browser storage.',
+      'not-found': 'The requested Rembr page could not be found.',
     };
     document.title = titles[page];
     document.querySelector('meta[name="description"]')?.setAttribute('content', descriptions[page]);
@@ -294,9 +394,9 @@ export function MarketingSite() {
     return () => media.revert();
   }, { scope: siteRef });
 
-  return <div ref={siteRef} className="marketing-site" id="top">
+  return <div ref={siteRef} className="marketing-site">
     <SiteHeader page={page}/>
-    {page === 'features' ? <FeaturesPage/> : page === 'about' ? <AboutPage/> : page === 'contact' ? <ContactPage/> : <HomePage/>}
+    {page === 'features' ? <FeaturesPage/> : page === 'about' ? <AboutPage/> : page === 'contact' ? <ContactPage/> : page === 'help' ? <HelpPage/> : page === 'how-to-use' ? <HowToUsePage/> : page === 'home' ? <HomePage/> : page === 'not-found' ? <NotFoundPage/> : <InfoPage page={page}/>}
     <SiteFooter/>
   </div>;
 }
