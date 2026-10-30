@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { writeFile } from 'node:fs/promises';
+import { access, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { extractPage } from '../src/items/extract.js';
 import { detectSupportedMediaMime } from '../src/media/storage.js';
@@ -190,4 +190,39 @@ test('temporary analysis rejects non-MP4 video with a bad signature before invok
     assert.equal(resolution.skippedCount, 1);
     assert.equal(transcodeCalls, 0);
   } finally { await resolution.cleanup(); }
+});
+
+test('temporary analysis propagates cancellation through page, media, and ffmpeg work', async () => {
+  const controller = new AbortController();
+  let markFfmpegStarted!: () => void;
+  let temporaryDirectory = '';
+  const ffmpegStarted = new Promise<void>((resolve) => { markFfmpegStarted = resolve; });
+  const abortReason = new Error('analysis_cancelled');
+  const pending = resolveTemporaryAnalysisMedia('https://www.instagram.com/p/example/', {
+    signal: controller.signal,
+    fetchPage: async (_url, options) => {
+      assert.equal(options?.signal, controller.signal);
+      return { finalUrl: 'https://www.instagram.com/p/example/', contentType: 'text/html', html: '<video src="https://cdn.example/clip.mp4"></video>' };
+    },
+    fetchMedia: async (url, directory, options) => {
+      assert.equal(options?.signal, controller.signal);
+      temporaryDirectory = directory;
+      const path = join(directory, 'source-video-mp4');
+      const bytes = Buffer.alloc(12); bytes.write('ftyp', 4, 'ascii');
+      await writeFile(path, bytes);
+      return { finalUrl: url, mime: 'video/mp4', path, byteSize: bytes.length };
+    },
+    runFfmpeg: async (_inputPath, _outputPattern, _duration, signal) => {
+      assert.equal(signal, controller.signal);
+      markFfmpegStarted();
+      await new Promise<void>((_resolve, reject) => {
+        if (signal?.aborted) { reject(signal.reason); return; }
+        signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+      });
+    },
+  });
+  await ffmpegStarted;
+  controller.abort(abortReason);
+  await assert.rejects(pending, (error: unknown) => error === abortReason);
+  await assert.rejects(access(temporaryDirectory));
 });

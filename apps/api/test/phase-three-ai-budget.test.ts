@@ -7,7 +7,7 @@ import { createTestDatabase } from '../src/db/database.js';
 import { AiBudgetExceededError, createAiUsageRepository, MONTHLY_AI_CAP_MICROUSD, sparkCostMicroUsd, utcMonthStart, voiceCostMicroUsd } from '../src/ai/usage.js';
 import { AI_DISCLOSURE_VERSION, createAiPreferenceRepository } from '../src/ai/preferences.js';
 import { MetaApiError } from '../src/ai/meta-client.js';
-import { processNextAiJob, type AiModelClient } from '../src/ai/worker.js';
+import { processNextAiJob, resolveAiMediaWithOwnerLease, type AiJob, type AiMediaLeaseRunner, type AiModelClient } from '../src/ai/worker.js';
 
 async function seedImport(database: Awaited<ReturnType<typeof createTestDatabase>>, importId: string, jobId: string, now: string) {
   await database.prepare(`INSERT INTO users (id,email,password_hash,created_at) VALUES ('budget-user','budget@example.test','x',?) ON CONFLICT(id) DO NOTHING`).run(now);
@@ -18,6 +18,25 @@ async function seedImport(database: Awaited<ReturnType<typeof createTestDatabase
   await database.prepare(`INSERT INTO ai_analysis_jobs (id,owner_id,import_id,item_id,status,available_at,created_at,updated_at)
     VALUES (?,'budget-user',?,?,'queued',?,?,?)`).run(jobId, importId, `item-${importId}`, now, now, now);
 }
+
+test('AI media temp files are cleaned when an owner lease is lost just after resolution', async () => {
+  const database = await createTestDatabase();
+  let cleanupCalls = 0;
+  const job: AiJob = {
+    id: 'lease-loss-job', owner_id: 'owner', import_id: 'lease-loss-import', item_id: 'lease-loss-item', generation: 1,
+    attempts: 1, original_url: 'https://www.instagram.com/p/example/', title: null, description: null, text_content: null, lease_token: 'token',
+  };
+  const loseLease: AiMediaLeaseRunner = async (_database, _ownerId, operation) => {
+    await operation(new AbortController().signal);
+    throw new Error('work_lease_lost');
+  };
+  try {
+    await assert.rejects(resolveAiMediaWithOwnerLease(database, 'owner', job, async () => ({
+      files: [], cleanup: async () => { cleanupCalls += 1; },
+    }), loseLease), /work_lease_lost/);
+    assert.equal(cleanupCalls, 1);
+  } finally { await database.close(); }
+});
 
 test('AI usage prices Spark tokens and Voice seconds in integer microdollars', () => {
   assert.equal(sparkCostMicroUsd(100, 10), 168);
@@ -183,17 +202,27 @@ test('AI worker reserves before analysis, settles actual usage, and persists str
     const client: AiModelClient = {
       countTextInputTokens: async () => 12,
       analyzeText: async () => ({ text: '{"summary":"A sunset.","visual_description":"Orange sky over water.","keywords":["sunset"],"tags":["travel"],"brands":["Acme"],"tools":["Figma"],"people":["Ada Lovelace"],"repositories":["rembr/core"]}', inputTokens: 12, outputTokens: 20 }),
-      countImageInputTokens: async () => [100],
+      countImageInputTokens: async (_prompt, _images, signal) => {
+        calls.push('count-images');
+        assert.ok(signal);
+        assert.equal((await database.prepare('SELECT count(*) AS count FROM account_owner_work_leases WHERE owner_id=? AND expires_at>?')
+          .get('budget-user', now.toISOString()) as { count: number }).count, 1);
+        return [100];
+      },
       countVideoInputTokens: async () => 100,
       analyzeImages: async () => { calls.push('images'); return [{ text: '{"summary":"A sunset.","visual_description":"Orange sky over water.","ocr_text":"","keywords":["sunset","orange sky"],"tags":["travel"],"brands":["Acme","Acme Labs"],"tools":["Figma"],"people":["ADA LOVELACE"],"repositories":["rembr/core"]}', inputTokens: 100, outputTokens: 20 }]; },
       analyzeVideo: async () => ({ text: '', inputTokens: 0, outputTokens: 0 }),
       transcribeWav: async () => ({ transcript: '', audioDurationMs: 0, sessionId: 'x' }),
     };
-    const jobId = await processNextAiJob(database, client, async () => ({
-      files: [{ path, mime: 'image/jpeg', byteSize: 3, kind: 'image' }], cleanup: async () => { calls.push('cleanup'); await rm(path, { force: true }); },
-    }), true, now);
+    const jobId = await processNextAiJob(database, client, async (_job, signal) => {
+      calls.push('resolver');
+      assert.ok(signal);
+      assert.equal((await database.prepare('SELECT count(*) AS count FROM account_owner_work_leases WHERE owner_id=? AND expires_at>?')
+        .get('budget-user', now.toISOString()) as { count: number }).count, 1);
+      return { files: [{ path, mime: 'image/jpeg', byteSize: 3, kind: 'image' }], cleanup: async () => { calls.push('cleanup'); await rm(path, { force: true }); } };
+    }, true, now);
     assert.equal(jobId, 'media-job');
-    assert.deepEqual(calls, ['images', 'cleanup']);
+    assert.deepEqual(calls, ['resolver', 'count-images', 'images', 'cleanup']);
     const result = await database.prepare(`SELECT summary,visual_description,keywords_json,tags_json,brands_json,tools_json,people_json,repositories_json,billed_microusd,status FROM ai_analysis_results WHERE item_id='item-media-import'`).get() as {
       summary: string; visual_description: string; keywords_json: string; tags_json: string; brands_json: string; tools_json: string; people_json: string; repositories_json: string; billed_microusd: string; status: string;
     };

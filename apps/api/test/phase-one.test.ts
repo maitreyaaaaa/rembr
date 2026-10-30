@@ -10,7 +10,8 @@ import { config } from '../src/config.js';
 import { createTestDatabase } from '../src/db/database.js';
 import { extractPage } from '../src/items/extract.js';
 import { createItemRepository } from '../src/items/repository.js';
-import { CaptureError, fetchPublicMedia, fetchPublicPage, validatePublicUrl } from '../src/items/safe-fetch.js';
+import { CaptureError, createPrivateMediaTempDirectory, fetchPublicMedia, fetchPublicMediaToTemp, fetchPublicPage,
+  removePrivateMediaTempDirectory, validatePublicUrl } from '../src/items/safe-fetch.js';
 import { claimNextJob, processNextJob } from '../src/worker/process-job.js';
 
 const origin = 'http://127.0.0.1:5173';
@@ -313,6 +314,42 @@ test('bounded fetch rejects compressed, unsupported, and oversized responses', a
         (error: unknown) => error instanceof CaptureError && error.code === code, path);
     }
   } finally {
+    server.close();
+    await once(server, 'close');
+  }
+});
+
+test('page and media HTTP requests stop promptly when their caller aborts', async () => {
+  const pendingRequests: Array<() => void> = [];
+  const server = createServer((request, response) => {
+    pendingRequests.shift()?.();
+    response.writeHead(200, { 'content-type': request.url === '/media' ? 'video/mp4' : 'text/html', 'transfer-encoding': 'chunked' });
+    response.write('<main>partial</main>');
+  });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const address = server.address() as AddressInfo;
+  const validateLocalTestTarget = async (input: string) => ({ url: new URL(input), address: '127.0.0.1', family: 4 as const });
+  const waitForRequest = () => new Promise<void>((resolve) => pendingRequests.push(resolve));
+  let mediaDirectory: string | undefined;
+  try {
+    const pageController = new AbortController();
+    const pageRequest = fetchPublicPage(`http://127.0.0.1:${address.port}/page`, { validateUrl: validateLocalTestTarget, signal: pageController.signal });
+    await waitForRequest();
+    pageController.abort(new Error('page_cancelled'));
+    await assert.rejects(pageRequest);
+
+    mediaDirectory = await createPrivateMediaTempDirectory();
+    const mediaController = new AbortController();
+    const mediaRequest = fetchPublicMediaToTemp(`http://127.0.0.1:${address.port}/media`, mediaDirectory, {
+      validateUrl: validateLocalTestTarget, signal: mediaController.signal,
+    });
+    await waitForRequest();
+    mediaController.abort(new Error('media_cancelled'));
+    await assert.rejects(mediaRequest);
+  } finally {
+    if (mediaDirectory) await removePrivateMediaTempDirectory(mediaDirectory);
+    server.closeAllConnections();
     server.close();
     await once(server, 'close');
   }

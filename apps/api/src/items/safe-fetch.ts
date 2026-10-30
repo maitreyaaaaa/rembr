@@ -81,7 +81,8 @@ export interface ResponsePayload {
   body: string;
 }
 
-function requestAtPinnedAddress(target: ValidatedUrl, maxBytes: number, method: 'GET' | 'HEAD' = 'GET', probeOnly = false, timeoutMs = 10_000): Promise<ResponsePayload> {
+function requestAtPinnedAddress(target: ValidatedUrl, maxBytes: number, method: 'GET' | 'HEAD' = 'GET', probeOnly = false, timeoutMs = 10_000,
+  signal?: AbortSignal): Promise<ResponsePayload> {
   return new Promise((resolve, reject) => {
     const isHttps = target.url.protocol === 'https:';
     const requestFn = isHttps ? httpsRequest : httpRequest;
@@ -103,6 +104,7 @@ function requestAtPinnedAddress(target: ValidatedUrl, maxBytes: number, method: 
       ...(isHttps && !isIP(hostname) ? { servername: hostname } : {}),
       timeout: timeoutMs,
       maxHeaderSize: 16_384,
+      ...(signal ? { signal } : {}),
     }, (response) => {
       const statusCode = response.statusCode ?? 0;
       const location = response.headers.location;
@@ -178,15 +180,18 @@ export async function fetchPublicPage(
   input: string,
   options: {
     validateUrl?: typeof validatePublicUrl;
-    requestPage?: (target: ValidatedUrl, maxBytes: number) => Promise<ResponsePayload>;
+    requestPage?: (target: ValidatedUrl, maxBytes: number, signal?: AbortSignal) => Promise<ResponsePayload>;
+    signal?: AbortSignal;
   } = {},
 ): Promise<{ finalUrl: string; contentType: string; html: string }> {
   const validateUrl = options.validateUrl ?? validatePublicUrl;
-  const requestPage = options.requestPage ?? requestAtPinnedAddress;
+  const requestPage = options.requestPage ?? ((target, maxBytes, signal) => requestAtPinnedAddress(target, maxBytes, 'GET', false, 10_000, signal));
   let current = input;
   for (let redirect = 0; redirect <= config.MAX_CAPTURE_REDIRECTS; redirect += 1) {
+    if (options.signal?.aborted) throw options.signal.reason ?? new Error('operation_aborted');
     const target = await validateUrl(current);
-    const response = await requestPage(target, config.MAX_CAPTURE_BYTES);
+    if (options.signal?.aborted) throw options.signal.reason ?? new Error('operation_aborted');
+    const response = await requestPage(target, config.MAX_CAPTURE_BYTES, options.signal);
     if (response.statusCode >= 300 && response.statusCode < 400 && response.location) {
       if (redirect === config.MAX_CAPTURE_REDIRECTS) {
         throw new CaptureError('too_many_redirects', 'This page redirects too many times to save safely.');
@@ -320,7 +325,7 @@ export async function fetchPublicMedia(
 
 interface StreamingMediaResponse { statusCode: number; location: string | undefined; contentType: string; bytesWritten: number }
 
-function streamMediaAtPinnedAddress(target: ValidatedUrl, maxBytes: number, destination: string): Promise<StreamingMediaResponse> {
+function streamMediaAtPinnedAddress(target: ValidatedUrl, maxBytes: number, destination: string, signal?: AbortSignal): Promise<StreamingMediaResponse> {
   return new Promise((resolve, reject) => {
     const isHttps = target.url.protocol === 'https:'; const requestFn = isHttps ? httpsRequest : httpRequest;
     const hostname = target.url.hostname.replace(/^\[|\]$/g, '');
@@ -328,6 +333,7 @@ function streamMediaAtPinnedAddress(target: ValidatedUrl, maxBytes: number, dest
       method: 'GET', headers: { accept: 'image/jpeg,image/png,image/webp,image/gif,audio/mpeg,audio/mp4,audio/ogg,audio/wav,audio/webm,video/mp4,video/webm,video/ogg', 'accept-encoding': 'identity', 'user-agent': 'RembrBot/0.1 (+user-requested page capture)' },
       lookup: (_host, options, callback) => options.all ? callback(null, [{ address: target.address, family: target.family }]) : callback(null, target.address, target.family),
       ...(isHttps && !isIP(hostname) ? { servername: hostname } : {}), timeout: 15_000, maxHeaderSize: 16_384,
+      ...(signal ? { signal } : {}),
     }, (response) => {
       const statusCode = response.statusCode ?? 0; const location = response.headers.location;
       const contentType = String(response.headers['content-type'] ?? '').split(';')[0]?.trim().toLowerCase() ?? '';
@@ -360,14 +366,15 @@ export async function createPrivateMediaTempDirectory(): Promise<string> {
 export async function fetchPublicMediaToTemp(
   input: string,
   directory: string,
-  options: { validateUrl?: typeof validatePublicUrl; maxBytes?: number } = {},
+  options: { validateUrl?: typeof validatePublicUrl; maxBytes?: number; signal?: AbortSignal } = {},
 ): Promise<{ finalUrl: string; mime: string; path: string; byteSize: number }> {
   const validateUrl = options.validateUrl ?? validatePublicUrl;
   const maxBytes = Math.max(1, Math.min(options.maxBytes ?? MAX_MEDIA_BYTES, MAX_VIDEO_MEDIA_BYTES));
   const path = join(directory, randomUUID()); let current = input;
   try {
     for (let redirect = 0; redirect <= config.MAX_CAPTURE_REDIRECTS; redirect += 1) {
-      const target = await validateUrl(current); const response = await streamMediaAtPinnedAddress(target, maxBytes, path);
+      if (options.signal?.aborted) throw options.signal.reason ?? new Error('operation_aborted');
+      const target = await validateUrl(current); const response = await streamMediaAtPinnedAddress(target, maxBytes, path, options.signal);
       if (response.statusCode >= 300 && response.statusCode < 400 && response.location) {
         if (redirect === config.MAX_CAPTURE_REDIRECTS) throw new CaptureError('too_many_redirects', 'This media URL redirects too many times to download safely.');
         try { current = new URL(response.location, target.url).toString(); }

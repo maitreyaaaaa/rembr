@@ -21,9 +21,10 @@ const dataExports = createAccountDataExportService(database, exportStorage, crea
 const accountDeletions = createAccountDeletionService(database);
 const mediaProcessor: MediaProcessor = { fetchMedia: fetchPublicMedia, storage: mediaStorage };
 const metaClient = createMetaModelClient({ apiKey: config.META_API_KEY });
-const aiMediaResolver = async (job: { original_url: string }) => {
-  try { return await resolveTemporaryAnalysisMedia(job.original_url); }
-  catch {
+const aiMediaResolver = async (job: { original_url: string }, signal?: AbortSignal) => {
+  try { return await resolveTemporaryAnalysisMedia(job.original_url, { signal }); }
+  catch (error) {
+    if (signal?.aborted) throw signal.reason ?? error;
     // Text-only analysis can still produce a clearly partial note when public media is unavailable.
     return { files: [], cleanup: async () => undefined };
   }

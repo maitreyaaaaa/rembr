@@ -66,15 +66,40 @@ test('image analysis uses Muse Spark Responses API, inline data URLs, output bou
 test('input-token preflight uses the exact Responses payload and reports input_tokens', async () => {
   let requestUrl = '';
   let requestBody: Record<string, unknown> | undefined;
+  let requestSignal: AbortSignal | null | undefined;
   const client = createMetaModelClient({ apiKey: 'test-key', fetcher: async (input, init) => {
     requestUrl = String(input);
     requestBody = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    requestSignal = init?.signal;
     return jsonResponse({ input_tokens: 321 });
   } });
   const count = await client.countImageInputTokens('Describe this.', [{ mime: 'image/jpeg', bytes: Buffer.from([0xff, 0xd8, 0xff]) }]);
   assert.equal(requestUrl, 'https://api.meta.ai/v1/responses/input_tokens');
   assert.equal(requestBody?.model, 'muse-spark-1.3');
+  assert.ok(requestSignal);
   assert.deepEqual(count, [321]);
+});
+
+test('input-token preflight passes owner cancellation through to the provider request', async () => {
+  let requestSignal: AbortSignal | null | undefined;
+  let markRequestStarted!: () => void;
+  const requestStarted = new Promise<void>((resolve) => { markRequestStarted = resolve; });
+  const client = createMetaModelClient({ apiKey: 'test-key', fetcher: async (_input, init) => {
+    requestSignal = init?.signal;
+    markRequestStarted();
+    await new Promise<void>((_resolve, reject) => {
+      if (init?.signal?.aborted) { reject(init.signal.reason); return; }
+      init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+    });
+    return jsonResponse({ input_tokens: 321 });
+  } });
+  const controller = new AbortController();
+  const count = client.countImageInputTokens('Describe this.', [{ mime: 'image/jpeg', bytes: Buffer.from([0xff, 0xd8, 0xff]) }], controller.signal);
+  await requestStarted;
+  controller.abort(new Error('caller_cancelled'));
+  await assert.rejects(count, MetaApiError);
+  assert.ok(requestSignal);
+  assert.equal(requestSignal.aborted, true);
 });
 
 test('image analysis groups large carousels into multiple requests', async () => {

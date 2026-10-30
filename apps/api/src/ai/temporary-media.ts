@@ -32,29 +32,45 @@ const AUDIO_CHUNK_SECONDS = 600;
 export const MAX_ANALYSIS_AUDIO_SECONDS_PER_POST = MAX_AUDIO_CHUNKS * AUDIO_CHUNK_SECONDS;
 const MAX_AUDIO_CHUNK_BYTES = 32 * 1024 * 1024;
 
-type FfmpegRunner = (inputPath: string, outputPattern: string, maxDurationSeconds: number) => Promise<void>;
+type FfmpegRunner = (inputPath: string, outputPattern: string, maxDurationSeconds: number, signal?: AbortSignal) => Promise<void>;
 
-const runFfmpeg: FfmpegRunner = async (inputPath, outputPattern, maxDurationSeconds) => {
+function throwIfAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) throw signal.reason ?? new Error('operation_aborted');
+}
+
+const runFfmpeg: FfmpegRunner = async (inputPath, outputPattern, maxDurationSeconds, signal) => {
   await new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) { reject(signal.reason ?? new Error('operation_aborted')); return; }
     const child = spawn(config.ffmpegPath, [
       '-nostdin', '-hide_banner', '-loglevel', 'error', '-y', '-i', inputPath,
       '-vn', '-ac', '1', '-ar', '16000', '-acodec', 'pcm_s16le', '-t', String(maxDurationSeconds),
       '-f', 'segment', '-segment_time', String(AUDIO_CHUNK_SECONDS), '-reset_timestamps', '1', '-segment_format', 'wav', outputPattern,
     ], { stdio: 'ignore', windowsHide: true });
-    const timeout = setTimeout(() => child.kill('SIGKILL'), 180_000);
-    child.once('error', () => { clearTimeout(timeout); reject(new Error('ffmpeg_unavailable')); });
-    child.once('close', (code) => {
+    let timedOut = false;
+    const cleanup = () => {
       clearTimeout(timeout);
-      if (code === 0) resolve(); else reject(new Error('ffmpeg_failed'));
+      signal?.removeEventListener('abort', abort);
+    };
+    const abort = () => { child.kill('SIGKILL'); };
+    const timeout = setTimeout(() => { timedOut = true; child.kill('SIGKILL'); }, 180_000);
+    signal?.addEventListener('abort', abort, { once: true });
+    child.once('error', (error) => { cleanup(); reject(signal?.aborted ? signal.reason ?? error : new Error('ffmpeg_unavailable')); });
+    child.once('close', (code) => {
+      cleanup();
+      if (signal?.aborted) reject(signal.reason ?? new Error('operation_aborted'));
+      else if (timedOut) reject(new Error('ffmpeg_timeout'));
+      else if (code === 0) resolve(); else reject(new Error('ffmpeg_failed'));
     });
   });
 };
 
 async function extractAudioChunks(inputPath: string, directory: string, outputPrefix: string, maxDurationSeconds: number,
-  run: FfmpegRunner = runFfmpeg): Promise<Array<TemporaryAnalysisMediaFile & { kind: 'wav'; durationSeconds: number }>> {
+  run: FfmpegRunner = runFfmpeg, signal?: AbortSignal): Promise<Array<TemporaryAnalysisMediaFile & { kind: 'wav'; durationSeconds: number }>> {
   if (maxDurationSeconds <= 0) return [];
   const outputPattern = join(directory, `${outputPrefix}-%03d.wav`);
-  await run(inputPath, outputPattern, maxDurationSeconds);
+  throwIfAborted(signal);
+  await run(inputPath, outputPattern, maxDurationSeconds, signal);
+  throwIfAborted(signal);
   const names = (await readdir(directory)).filter((name) => name.startsWith(`${outputPrefix}-`) && /^\d{3}\.wav$/.test(name.slice(outputPrefix.length + 1)))
     .sort().slice(0, Math.min(MAX_AUDIO_CHUNKS, Math.ceil(maxDurationSeconds / AUDIO_CHUNK_SECONDS)));
   const files: Array<TemporaryAnalysisMediaFile & { kind: 'wav'; durationSeconds: number }> = [];
@@ -108,11 +124,14 @@ export async function resolveTemporaryAnalysisMedia(
     fetchPage?: typeof fetchPublicPage;
     fetchMedia?: typeof fetchPublicMediaToTemp;
     runFfmpeg?: FfmpegRunner;
+    signal?: AbortSignal;
   } = {},
 ): Promise<TemporaryAnalysisMedia> {
   const fetchPage = options.fetchPage ?? fetchPublicPage;
   const fetchMedia = options.fetchMedia ?? fetchPublicMediaToTemp;
-  const page = await fetchPage(pageUrl);
+  throwIfAborted(options.signal);
+  const page = await fetchPage(pageUrl, { signal: options.signal });
+  throwIfAborted(options.signal);
   const extracted = extractPage(page.html, page.finalUrl);
   const directory = await createPrivateMediaTempDirectory();
   const files: TemporaryAnalysisMediaFile[] = [];
@@ -120,48 +139,56 @@ export async function resolveTemporaryAnalysisMedia(
   let analyzedAudioSeconds = 0;
   let skippedCount = 0;
   try {
+    throwIfAborted(options.signal);
     for (const mediaUrl of extracted.imageUrls.slice(0, MAX_ANALYSIS_IMAGES_PER_POST)) {
       try {
+        throwIfAborted(options.signal);
         const remaining = MAX_ANALYSIS_IMAGE_BYTES_PER_POST - imageBytes;
         if (remaining <= 0) { skippedCount += 1; continue; }
-        const asset = await fetchMedia(mediaUrl, directory, { maxBytes: Math.min(MAX_MEDIA_BYTES, remaining) });
+        const asset = await fetchMedia(mediaUrl, directory, { maxBytes: Math.min(MAX_MEDIA_BYTES, remaining), signal: options.signal });
+        throwIfAborted(options.signal);
         if (!SUPPORTED_IMAGE_MIMES.has(asset.mime) || !await signatureMatches(asset.path, asset.mime)) { skippedCount += 1; continue; }
         imageBytes += asset.byteSize;
         files.push({ path: asset.path, mime: asset.mime, byteSize: asset.byteSize, kind: 'image' });
-      } catch { skippedCount += 1; }
+      } catch { throwIfAborted(options.signal); skippedCount += 1; }
     }
     for (const mediaUrl of extracted.videoUrls.slice(0, 1)) {
       try {
-        const asset = await fetchMedia(mediaUrl, directory, { maxBytes: MAX_VIDEO_MEDIA_BYTES });
+        throwIfAborted(options.signal);
+        const asset = await fetchMedia(mediaUrl, directory, { maxBytes: MAX_VIDEO_MEDIA_BYTES, signal: options.signal });
+        throwIfAborted(options.signal);
         if (!['video/mp4', 'video/webm', 'video/ogg'].includes(asset.mime) || !await signatureMatches(asset.path, asset.mime)) { skippedCount += 1; continue; }
         // The visual provider contract accepts validated MP4 only. Other formats
         // stay local and are used solely as bounded ffmpeg input for transcription.
         if (asset.mime === 'video/mp4') files.push({ path: asset.path, mime: asset.mime, byteSize: asset.byteSize, kind: 'video' });
         else skippedCount += 1; // Visual analysis is skipped, even when audio transcription succeeds.
         try {
-          const audioFiles = await extractAudioChunks(asset.path, directory, 'rembr-video-audio', MAX_ANALYSIS_AUDIO_SECONDS_PER_POST, options.runFfmpeg);
+          const audioFiles = await extractAudioChunks(asset.path, directory, 'rembr-video-audio', MAX_ANALYSIS_AUDIO_SECONDS_PER_POST, options.runFfmpeg, options.signal);
           files.push(...audioFiles);
           analyzedAudioSeconds += audioFiles.reduce((total, file) => total + file.durationSeconds, 0);
           if (audioFiles.length === MAX_AUDIO_CHUNKS && audioFiles.at(-1)!.durationSeconds > AUDIO_CHUNK_SECONDS - 1) skippedCount += 1;
           if (!audioFiles.length) skippedCount += 1;
-        } catch { skippedCount += 1; } // Keep visual video analysis even when worker audio extraction is unavailable.
-      } catch { skippedCount += 1; }
+        } catch { throwIfAborted(options.signal); skippedCount += 1; } // Keep visual video analysis even when worker audio extraction is unavailable.
+      } catch { throwIfAborted(options.signal); skippedCount += 1; }
     }
     for (const mediaUrl of extracted.audioUrls.slice(0, 1)) {
       try {
+        throwIfAborted(options.signal);
         const remainingAudioSeconds = MAX_ANALYSIS_AUDIO_SECONDS_PER_POST - analyzedAudioSeconds;
         if (remainingAudioSeconds <= 0) { skippedCount += 1; continue; }
-        const asset = await fetchMedia(mediaUrl, directory, { maxBytes: MAX_VIDEO_MEDIA_BYTES });
+        const asset = await fetchMedia(mediaUrl, directory, { maxBytes: MAX_VIDEO_MEDIA_BYTES, signal: options.signal });
+        throwIfAborted(options.signal);
         if (!SUPPORTED_AUDIO_MIMES.has(asset.mime) || !await signatureMatches(asset.path, asset.mime)) { skippedCount += 1; continue; }
         try {
-          const audioFiles = await extractAudioChunks(asset.path, directory, 'rembr-direct-audio', remainingAudioSeconds, options.runFfmpeg);
+          const audioFiles = await extractAudioChunks(asset.path, directory, 'rembr-direct-audio', remainingAudioSeconds, options.runFfmpeg, options.signal);
           files.push(...audioFiles);
           analyzedAudioSeconds += audioFiles.reduce((total, file) => total + file.durationSeconds, 0);
           if (audioFiles.length === MAX_AUDIO_CHUNKS && audioFiles.at(-1)!.durationSeconds > AUDIO_CHUNK_SECONDS - 1) skippedCount += 1;
           if (!audioFiles.length) skippedCount += 1;
-        } catch { skippedCount += 1; }
-      } catch { skippedCount += 1; }
+        } catch { throwIfAborted(options.signal); skippedCount += 1; }
+      } catch { throwIfAborted(options.signal); skippedCount += 1; }
     }
+    throwIfAborted(options.signal);
     return { files, skippedCount, cleanup: () => removePrivateMediaTempDirectory(directory) };
   } catch (error) {
     await removePrivateMediaTempDirectory(directory);
