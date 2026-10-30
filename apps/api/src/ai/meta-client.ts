@@ -15,6 +15,11 @@ export type ImageMime = 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
 export interface ImageInput { bytes: Uint8Array; mime: ImageMime }
 export interface ModelTextResult { text: string; inputTokens: number; outputTokens: number }
 export interface TranscriptionResult { transcript: string; audioDurationMs: number; sessionId: string }
+export interface MetaJsonSchema { name: string; schema: Record<string, unknown> }
+
+function structuredOutput(schema?: MetaJsonSchema) {
+  return schema ? { text: { format: { type: 'json_schema', name: schema.name, schema: schema.schema, strict: true } } } : {};
+}
 
 export type MetaFailureCode = 'not_configured' | 'invalid_input' | 'rate_limited' | 'unauthorized'
   | 'provider_rejected' | 'provider_unavailable' | 'invalid_response' | 'outcome_unknown';
@@ -169,7 +174,7 @@ export function createMetaModelClient(options: MetaModelClientOptions) {
     catch { throw new MetaApiError('invalid_response', 'Meta returned an invalid response.', { status: response.status, retryable: false, outcomeUnknown: true }); }
   }
 
-  async function analyzeImages(prompt: string, images: ImageInput[]): Promise<ModelTextResult[]> {
+  async function analyzeImages(prompt: string, images: ImageInput[], outputSchema?: MetaJsonSchema): Promise<ModelTextResult[]> {
     if (!prompt.trim() || !images.length) throw new MetaApiError('invalid_input', 'A prompt and at least one image are required.');
     const groups = groupImageInputs(images);
     const results: ModelTextResult[] = [];
@@ -182,6 +187,7 @@ export function createMetaModelClient(options: MetaModelClientOptions) {
         model: MUSE_SPARK_MODEL,
         max_output_tokens: MAX_OUTPUT_TOKENS,
         input: [{ type: 'message', role: 'user', content }],
+        ...structuredOutput(outputSchema),
       };
       if (Buffer.byteLength(JSON.stringify(body)) > 50 * 1024 * 1024) {
         throw new MetaApiError('invalid_input', 'The encoded image request exceeds 50 MiB.');
@@ -195,7 +201,7 @@ export function createMetaModelClient(options: MetaModelClientOptions) {
     return results;
   }
 
-  async function countImageInputTokens(prompt: string, images: ImageInput[]): Promise<number[]> {
+  async function countImageInputTokens(prompt: string, images: ImageInput[], outputSchema?: MetaJsonSchema): Promise<number[]> {
     if (!prompt.trim() || !images.length) throw new MetaApiError('invalid_input', 'A prompt and at least one image are required.');
     const groups = groupImageInputs(images);
     const counts: number[] = [];
@@ -207,6 +213,7 @@ export function createMetaModelClient(options: MetaModelClientOptions) {
           { type: 'input_text', text: prompt.slice(0, 8_000) },
           ...group.map((image) => ({ type: 'input_image', image_url: dataUrl(image.bytes, image.mime) })),
         ] }],
+        ...structuredOutput(outputSchema),
       };
       if (Buffer.byteLength(JSON.stringify(body)) > 50 * 1024 * 1024) throw new MetaApiError('invalid_input', 'The encoded image request exceeds 50 MiB.');
       const count = countedTokens(await postJson('/responses/input_tokens', body));
@@ -216,7 +223,7 @@ export function createMetaModelClient(options: MetaModelClientOptions) {
     return counts;
   }
 
-  async function analyzeVideo(prompt: string, bytes: Uint8Array): Promise<ModelTextResult> {
+  async function analyzeVideo(prompt: string, bytes: Uint8Array, outputSchema?: MetaJsonSchema): Promise<ModelTextResult> {
     if (!prompt.trim() || bytes.byteLength < 1 || bytes.byteLength > MAX_VIDEO_BYTES) {
       throw new MetaApiError('invalid_input', 'The video is empty or exceeds 25 MiB.');
     }
@@ -231,6 +238,7 @@ export function createMetaModelClient(options: MetaModelClientOptions) {
           { type: 'input_video', video_url: dataUrl(bytes, 'video/mp4') },
         ],
       }],
+      ...structuredOutput(outputSchema),
     };
     if (Buffer.byteLength(JSON.stringify(body)) > 50 * 1024 * 1024) {
       throw new MetaApiError('invalid_input', 'The encoded video request exceeds 50 MiB.');
@@ -242,21 +250,23 @@ export function createMetaModelClient(options: MetaModelClientOptions) {
     return { text, ...usage };
   }
 
-  async function countTextInputTokens(prompt: string): Promise<number> {
+  async function countTextInputTokens(prompt: string, outputSchema?: MetaJsonSchema): Promise<number> {
     if (!prompt.trim()) throw new MetaApiError('invalid_input', 'A prompt is required.');
     const body = { model: MUSE_SPARK_MODEL, max_output_tokens: MAX_OUTPUT_TOKENS,
-      input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: prompt.slice(0, 8_000) }] }] };
+      input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: prompt.slice(0, 8_000) }] }],
+      ...structuredOutput(outputSchema) };
     const count = countedTokens(await postJson('/responses/input_tokens', body));
     if (count === null) throw new MetaApiError('invalid_response', 'Meta returned an invalid input token count.', { retryable: false, outcomeUnknown: false });
     return count;
   }
 
-  async function analyzeText(prompt: string): Promise<ModelTextResult> {
+  async function analyzeText(prompt: string, outputSchema?: MetaJsonSchema): Promise<ModelTextResult> {
     if (!prompt.trim()) throw new MetaApiError('invalid_input', 'A prompt is required.');
     const raw = await postJson('/responses', {
       model: MUSE_SPARK_MODEL,
       max_output_tokens: MAX_OUTPUT_TOKENS,
       input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: prompt.slice(0, 8_000) }] }],
+      ...structuredOutput(outputSchema),
     });
     const text = responseText(raw);
     const usage = tokenUsage(raw);
@@ -264,7 +274,7 @@ export function createMetaModelClient(options: MetaModelClientOptions) {
     return { text, ...usage };
   }
 
-  async function countVideoInputTokens(prompt: string, bytes: Uint8Array): Promise<number> {
+  async function countVideoInputTokens(prompt: string, bytes: Uint8Array, outputSchema?: MetaJsonSchema): Promise<number> {
     if (!prompt.trim() || bytes.byteLength < 1 || bytes.byteLength > MAX_VIDEO_BYTES) {
       throw new MetaApiError('invalid_input', 'The video is empty or exceeds 25 MiB.');
     }
@@ -275,6 +285,7 @@ export function createMetaModelClient(options: MetaModelClientOptions) {
         { type: 'input_text', text: prompt.slice(0, 8_000) },
         { type: 'input_video', video_url: dataUrl(bytes, 'video/mp4') },
       ] }],
+      ...structuredOutput(outputSchema),
     };
     if (Buffer.byteLength(JSON.stringify(body)) > 50 * 1024 * 1024) throw new MetaApiError('invalid_input', 'The encoded video request exceeds 50 MiB.');
     const count = countedTokens(await postJson('/responses/input_tokens', body));

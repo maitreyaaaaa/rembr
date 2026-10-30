@@ -13,13 +13,22 @@ import { tokenizeSearchTerms } from '../library/search-terms.js';
 import { checkPublicPage } from '../items/safe-fetch.js';
 import { createAiSearchPreferenceRepository, AI_SEARCH_DISCLOSURE_VERSION } from './ai-search-preferences.js';
 import { createAiUsageRepository, sparkCostMicroUsd, AiBudgetExceededError } from '../ai/usage.js';
-import { MAX_OUTPUT_TOKENS, MetaApiError, MUSE_SPARK_MODEL } from '../ai/meta-client.js';
+import { MAX_OUTPUT_TOKENS, MetaApiError, MUSE_SPARK_MODEL, type MetaJsonSchema } from '../ai/meta-client.js';
 import { createSavedItemSummaryRepository, type SavedItemSummaryContext } from './summaries.js';
 import { z } from 'zod';
 
 type TextAnswerModel = {
-  countTextInputTokens(prompt: string): Promise<number>;
-  analyzeText(prompt: string): Promise<{ text: string; inputTokens: number; outputTokens: number }>;
+  countTextInputTokens(prompt: string, outputSchema?: MetaJsonSchema): Promise<number>;
+  analyzeText(prompt: string, outputSchema?: MetaJsonSchema): Promise<{ text: string; inputTokens: number; outputTokens: number }>;
+};
+const SAVED_ITEM_SUMMARY_OUTPUT_SCHEMA: MetaJsonSchema = {
+  name: 'saved_item_summary',
+  schema: {
+    type: 'object',
+    properties: { summary: { type: 'string', maxLength: 1_200 } },
+    required: ['summary'],
+    additionalProperties: false,
+  },
 };
 const questionSchema = z.object({
   question: z.string().trim().min(1).max(120),
@@ -252,7 +261,7 @@ export function createKnowledgeRouter(database: DatabaseHandle, storage: AssetSt
     let reservation: Awaited<ReturnType<typeof aiUsage.reserveSearch>> | undefined;
     let providerReturned = false;
     try {
-      const inputTokens = await options.answerModel.countTextInputTokens(prompt);
+      const inputTokens = await options.answerModel.countTextInputTokens(prompt, SAVED_ITEM_SUMMARY_OUTPUT_SCHEMA);
       reservation = await aiUsage.reserveSearch({ ownerId, amountMicroUsd: sparkCostMicroUsd(inputTokens, MAX_OUTPUT_TOKENS) });
       const current = await aiSearchPreferences.get(ownerId, false);
       if (!current.enabled) {
@@ -260,7 +269,7 @@ export function createKnowledgeRouter(database: DatabaseHandle, storage: AssetSt
         reservation = undefined;
         return res.status(403).json({ error: { code: 'ai_search_consent_required', message: 'Library AI consent was turned off. Enable it again before generating a summary.', requestId: req.requestId } });
       }
-      const generated = await options.answerModel.analyzeText(prompt);
+      const generated = await options.answerModel.analyzeText(prompt, SAVED_ITEM_SUMMARY_OUTPUT_SCHEMA);
       providerReturned = true;
       const actualMicroUsd = sparkCostMicroUsd(generated.inputTokens, generated.outputTokens);
       const settled = await aiUsage.settleSearch(reservation, actualMicroUsd);

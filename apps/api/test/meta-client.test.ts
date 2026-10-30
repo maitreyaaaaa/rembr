@@ -77,6 +77,25 @@ test('input-token preflight uses the exact Responses payload and reports input_t
   assert.deepEqual(count, [321]);
 });
 
+test('Responses API sends strict structured output schemas for analysis requests', async () => {
+  const requests: Array<Record<string, unknown>> = [];
+  const client = createMetaModelClient({ apiKey: 'test-key', fetcher: async (_input, init) => {
+    requests.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+    return jsonResponse(requests.length === 1 ? { input_tokens: 10 } : sparkResponse('{"summary":"A concise summary."}', 10, 4));
+  } });
+  const outputSchema = {
+    name: 'saved_item_summary',
+    schema: { type: 'object', additionalProperties: false, required: ['summary'], properties: { summary: { type: 'string', maxLength: 1200 } } },
+  };
+
+  await client.countTextInputTokens('Summarize this saved item.', outputSchema);
+  await client.analyzeText('Summarize this saved item.', outputSchema);
+
+  const expectedFormat = { type: 'json_schema', name: outputSchema.name, schema: outputSchema.schema, strict: true };
+  assert.deepEqual((requests[0]?.text as { format: unknown }).format, expectedFormat);
+  assert.deepEqual((requests[1]?.text as { format: unknown }).format, expectedFormat);
+});
+
 test('image analysis groups large carousels into multiple requests', async () => {
   let calls = 0;
   const client = createMetaModelClient({ apiKey: 'test-key', fetcher: async () => { calls += 1; return jsonResponse(sparkResponse()); } });
