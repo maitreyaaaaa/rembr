@@ -200,6 +200,7 @@ export function createAccountDataMapService(database: DatabaseHandle) {
           { table: 'account_deletion_steps', reason: 'Contains internal deletion checkpoints and storage progress cursors; user-facing request status is included separately.' },
           { table: 'account_deletion_audit', reason: 'Contains minimal operational deletion events and actor metadata; its retention policy is still being defined.' },
           { table: 'account_owner_work_leases', reason: 'Contains short-lived worker coordination leases used to fence account writes and cleanup.' },
+          { table: 'admin_access_audit', reason: 'Records administrator directory/detail access using hashed targets and bounded metadata; access-query events expire after 90 days.' },
         ],
       };
     },

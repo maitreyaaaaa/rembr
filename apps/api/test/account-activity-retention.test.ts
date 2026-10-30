@@ -29,15 +29,27 @@ test('activity cleanup enforces the shared 90-day window in bounded batches', as
       await database.prepare(`INSERT INTO account_security_events (id,owner_id,event_type,created_at)
         VALUES (?, 'activity-owner', 'sign_in', ?)`).run(id, createdAt);
     }
+    for (const [id, createdAt] of [
+      ['admin-old-a', new Date(Date.parse(cutoff) - 2).toISOString()],
+      ['admin-old-b', new Date(Date.parse(cutoff) - 1).toISOString()],
+      ['admin-boundary', cutoff],
+      ['admin-active', new Date(Date.parse(cutoff) + 1).toISOString()],
+    ] as const) {
+      await database.prepare(`INSERT INTO admin_access_audit (id,event_type,metadata,created_at)
+        VALUES (?, 'admin_user_list_viewed', '{}', ?)`).run(id, createdAt);
+    }
 
-    assert.deepEqual(await cleanupExpiredAccountActivity(database, now, 1), { searchEvents: 1, securityEvents: 1 });
-    assert.deepEqual(await cleanupExpiredAccountActivity(database, now, 1), { searchEvents: 1, securityEvents: 1 });
-    assert.deepEqual(await cleanupExpiredAccountActivity(database, now, 1), { searchEvents: 0, securityEvents: 0 });
+    assert.deepEqual(await cleanupExpiredAccountActivity(database, now, 1), { searchEvents: 1, securityEvents: 1, adminAccessEvents: 1 });
+    assert.deepEqual(await cleanupExpiredAccountActivity(database, now, 1), { searchEvents: 1, securityEvents: 1, adminAccessEvents: 1 });
+    assert.deepEqual(await cleanupExpiredAccountActivity(database, now, 1), { searchEvents: 0, securityEvents: 0, adminAccessEvents: 0 });
     assert.deepEqual(await database.prepare('SELECT id FROM search_events ORDER BY id').all(), [
       { id: 'search-active' }, { id: 'search-boundary' },
     ]);
     assert.deepEqual(await database.prepare('SELECT id FROM account_security_events ORDER BY id').all(), [
       { id: 'security-active' }, { id: 'security-boundary' },
+    ]);
+    assert.deepEqual(await database.prepare('SELECT id FROM admin_access_audit ORDER BY id').all(), [
+      { id: 'admin-active' }, { id: 'admin-boundary' },
     ]);
     await assert.rejects(cleanupExpiredAccountActivity(database, now, 501), /limit must be between/);
   } finally {

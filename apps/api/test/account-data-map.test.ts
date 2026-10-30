@@ -38,6 +38,7 @@ test('account data map inventories current owned tables and labels uncounted byt
       'account_deletion_steps',
       'account_deletion_audit',
       'account_owner_work_leases',
+      'admin_access_audit',
     ]);
   } finally {
     await database.close();

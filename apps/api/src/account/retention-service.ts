@@ -14,5 +14,8 @@ export async function cleanupExpiredAccountActivity(database: DatabaseHandle, no
   const security = await database.prepare(`WITH expired AS MATERIALIZED (
     SELECT id FROM account_security_events WHERE created_at<? ORDER BY created_at,id LIMIT ?
   ) DELETE FROM account_security_events WHERE id IN (SELECT id FROM expired)`).run(cutoff, limit);
-  return { searchEvents: search.changes, securityEvents: security.changes };
+  const adminAccess = await database.prepare(`WITH expired AS MATERIALIZED (
+    SELECT id FROM admin_access_audit WHERE created_at<? ORDER BY created_at,id LIMIT ?
+  ) DELETE FROM admin_access_audit WHERE id IN (SELECT id FROM expired)`).run(cutoff, limit);
+  return { searchEvents: search.changes, securityEvents: security.changes, adminAccessEvents: adminAccess.changes };
 }

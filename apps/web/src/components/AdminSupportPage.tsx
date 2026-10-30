@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import './admin-support-page.css';
 
 type OperatorRole = 'support' | 'admin';
@@ -16,6 +16,18 @@ interface AuditEvent {
   actorType: 'owner' | 'admin' | 'worker';
   createdAt: string;
   metadata?: { step?: string; code?: string; attempt?: number };
+}
+interface AdminUserSummary { userId: string; email: string; accountStatus: string; createdAt: string }
+interface AdminUserDetail {
+  userId: string;
+  email: string;
+  accountStatus: string;
+  createdAt: string;
+  username: string | null;
+  operatorRole: string | null;
+  dataCategories: Array<{ id: string; label: string; rowCount: number }>;
+  recentSecurityActivity: Array<{ eventType: string; createdAt: string }>;
+  latestDeletion: { status: string; requestedAt: string; completedAt: string | null } | null;
 }
 interface RequestError extends Error { status?: number }
 type Request = <T>(path: string, init?: RequestInit) => Promise<T>;
@@ -39,6 +51,17 @@ export function AdminSupportPage({ request }: { request: Request }) {
   const [busyId, setBusyId] = useState('');
   const [notice, setNotice] = useState('');
   const [audit, setAudit] = useState<Record<string, { loading: boolean; events: AuditEvent[]; error: string }>>({});
+  const [userQuery, setUserQuery] = useState('');
+  const [userRows, setUserRows] = useState<AdminUserSummary[]>([]);
+  const [userOffset, setUserOffset] = useState(0);
+  const [userNextOffset, setUserNextOffset] = useState<number | null>(null);
+  const [userLoading, setUserLoading] = useState(false);
+  const [userError, setUserError] = useState('');
+  const [selectedUser, setSelectedUser] = useState<AdminUserDetail | null>(null);
+  const [selectedUserLoading, setSelectedUserLoading] = useState(false);
+  const [selectedUserError, setSelectedUserError] = useState('');
+  const userSearchSequence = useRef(0);
+  const userDetailSequence = useRef(0);
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -93,6 +116,39 @@ export function AdminSupportPage({ request }: { request: Request }) {
     }
   }
 
+  async function searchUsers(offset = 0) {
+    const query = userQuery.trim();
+    if (query.length < 3) { setUserError('Enter at least three characters of the account email.'); return; }
+    const sequence = ++userSearchSequence.current;
+    userDetailSequence.current += 1;
+    setUserLoading(true); setUserError(''); setSelectedUser(null); setSelectedUserLoading(false); setSelectedUserError('');
+    try {
+      const params = new URLSearchParams({ query, limit: '25', offset: String(offset) });
+      const result = await request<{ users: AdminUserSummary[]; nextOffset: number | null }>(`/api/admin/users?${params}`);
+      if (sequence !== userSearchSequence.current) return;
+      setUserRows(result.users); setUserOffset(offset); setUserNextOffset(result.nextOffset);
+    } catch (cause) {
+      if (sequence !== userSearchSequence.current) return;
+      const failure = cause as RequestError;
+      setUserError(failure.message || 'Could not search accounts. Try again.');
+      setUserRows([]); setUserNextOffset(null);
+    } finally { if (sequence === userSearchSequence.current) setUserLoading(false); }
+  }
+
+  async function loadUser(userId: string) {
+    const sequence = ++userDetailSequence.current;
+    setSelectedUserLoading(true); setSelectedUserError(''); setSelectedUser(null);
+    try {
+      const result = await request<{ user: AdminUserDetail }>(`/api/admin/users/${encodeURIComponent(userId)}`);
+      if (sequence !== userDetailSequence.current) return;
+      setSelectedUser(result.user);
+    } catch (cause) {
+      if (sequence !== userDetailSequence.current) return;
+      const failure = cause as RequestError;
+      setSelectedUserError(failure.message || 'Could not load account details.');
+    } finally { if (sequence === userDetailSequence.current) setSelectedUserLoading(false); }
+  }
+
   return <main className="admin-support-page">
     <header className="admin-support-heading">
       <div><p className="eyebrow">Operator workspace</p><h1>Admin support</h1><p className="admin-support-intro">Review account deletion requests using the minimum information needed to act.</p></div>
@@ -102,7 +158,33 @@ export function AdminSupportPage({ request }: { request: Request }) {
     {loading ? <section className="phase2-panel admin-state" role="status">Checking operator access and loading the queue…</section>
       : error && !role ? <section className="phase2-panel admin-state"><p className="notice error" role="alert">{error}</p><button className="quiet-button" type="button" onClick={() => void load()}>Try again</button></section>
       : role === null ? <section className="phase2-panel admin-state" role="status"><h2>Operator access required</h2><p>Your account does not have a support or admin role. If you believe this is a mistake, contact a Rembr administrator.</p></section>
-      : <section className="phase2-panel admin-queue-panel" aria-labelledby="admin-queue-title">
+      : <>
+      {role === 'admin' && <section className="phase2-panel admin-users-panel" aria-labelledby="admin-users-title">
+        <div className="admin-queue-heading"><div><h2 id="admin-users-title">Account lookup</h2><p className="phase2-helper">Admin-only directory with basic account details and record counts. Search terms are not retained in the audit log.</p></div></div>
+        <form className="admin-user-search" onSubmit={(event) => { event.preventDefault(); void searchUsers(); }}>
+          <label htmlFor="admin-user-query">Account email starts with</label>
+          <input id="admin-user-query" type="search" autoComplete="off" maxLength={254} minLength={3} value={userQuery} onChange={(event) => { userSearchSequence.current += 1; userDetailSequence.current += 1; setUserQuery(event.target.value); setUserRows([]); setUserOffset(0); setUserNextOffset(null); setUserLoading(false); setSelectedUser(null); setSelectedUserLoading(false); }} placeholder="name@example.com" />
+          <button className="primary-button" type="submit" disabled={userLoading}>{userLoading ? 'Searching…' : 'Search accounts'}</button>
+        </form>
+        {userError && <p className="notice error" role="alert">{userError}</p>}
+        {userLoading ? <p className="phase2-state" role="status">Searching accounts…</p> : userRows.length > 0 ? <>
+          <ul className="admin-user-results">{userRows.map((user) => <li key={user.userId}>
+            <div><strong>{user.email}</strong><span>{user.accountStatus} · Created {formatDate(user.createdAt)}</span></div>
+            <button className="quiet-button" type="button" onClick={() => void loadUser(user.userId)}>View account details</button>
+          </li>)}</ul>
+          <div className="admin-user-pagination"><button className="quiet-button" type="button" disabled={userLoading || userOffset === 0} onClick={() => void searchUsers(Math.max(0, userOffset - 25))}>Previous</button><button className="quiet-button" type="button" disabled={userLoading || userNextOffset === null} onClick={() => { if (userNextOffset !== null) void searchUsers(userNextOffset); }}>Next</button></div>
+        </> : userOffset > 0 || userQuery.trim().length >= 3 ? <p className="admin-empty" role="status">No accounts match this search.</p> : <p className="admin-empty">Search by at least three email characters.</p>}
+        {selectedUserLoading && <p className="phase2-state" role="status">Loading account details…</p>}
+        {selectedUserError && <p className="notice error" role="alert">{selectedUserError}</p>}
+        {selectedUser && <section className="admin-user-detail" aria-labelledby="admin-user-detail-title">
+          <div className="admin-user-detail-heading"><div><h3 id="admin-user-detail-title">{selectedUser.email}</h3><p>{selectedUser.username ? `@${selectedUser.username} · ` : ''}{selectedUser.accountStatus} · Joined {formatDate(selectedUser.createdAt)}</p></div><button className="quiet-button" type="button" onClick={() => { userDetailSequence.current += 1; setSelectedUser(null); setSelectedUserLoading(false); }}>Close details</button></div>
+          {selectedUser.operatorRole && <p className="admin-audit-note">Operator role: {selectedUser.operatorRole}</p>}
+          <h4>Account data categories</h4><dl className="admin-user-counts">{selectedUser.dataCategories.map(({ id, label, rowCount }) => <div key={id}><dt>{label}</dt><dd>{rowCount.toLocaleString()}</dd></div>)}</dl>
+          {selectedUser.latestDeletion && <p className="admin-audit-note">Latest deletion request: {selectedUser.latestDeletion.status.replaceAll('_', ' ')} · Requested {formatDate(selectedUser.latestDeletion.requestedAt)}{selectedUser.latestDeletion.completedAt ? ` · Completed ${formatDate(selectedUser.latestDeletion.completedAt)}` : ''}</p>}
+          <h4>Recent security activity</h4>{selectedUser.recentSecurityActivity.length ? <ol className="admin-audit-list">{selectedUser.recentSecurityActivity.map((event, index) => <li key={`${event.createdAt}-${index}`}><strong>{event.eventType.replaceAll('_', ' ')}</strong><time dateTime={event.createdAt}>{formatDate(event.createdAt)}</time></li>)}</ol> : <p className="admin-empty">No recent security events.</p>}
+        </section>}
+      </section>}
+      <section className="phase2-panel admin-queue-panel" aria-labelledby="admin-queue-title">
         <div className="admin-queue-heading"><div><h2 id="admin-queue-title">Account deletion queue</h2><p className="phase2-helper">The queue hides email addresses and account IDs. Support can review requests; only admins can approve or retry them.</p></div><button className="quiet-button" type="button" disabled={refreshing} onClick={() => void load(true)}>{refreshing ? 'Refreshing…' : 'Refresh'}</button></div>
         {error && <p className="notice error" role="alert">{error}</p>}
         {notice && <p className="notice success" role="status">{notice}</p>}
@@ -137,6 +219,7 @@ export function AdminSupportPage({ request }: { request: Request }) {
             </li>;
           })}
         </ul>}
-      </section>}
+      </section>
+      </>}
   </main>;
 }

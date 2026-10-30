@@ -12,6 +12,7 @@ import { createAccountDataExportService } from './account/data-export-service.js
 import { createDataExportRouter } from './account/data-export-routes.js';
 import { createAccountDeletionService } from './account/deletion-service.js';
 import { createAccountDeletionAdminRouter, createAccountDeletionRouter } from './account/deletion-routes.js';
+import { createAdminUserRouter } from './account/admin-user-routes.js';
 import { createAccountSecurityActivityRouter, recordAccountSecurityEvent } from './account/security-activity.js';
 import { createOwnerScopedPrivateFileSource } from './account/private-file-source.js';
 import { LocalPrivateExportArtifactStorage } from './storage/account-export-storage.js';
@@ -162,6 +163,7 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
   app.use('/api', createDataExportRouter(database, dataExportService));
   app.use('/api', createAccountDeletionRouter(database, accountDeletionService));
   app.use('/api', createAccountDeletionAdminRouter(database, accountDeletionService));
+  app.use('/api', createAdminUserRouter(database));
   app.use('/api', createAiRouter(database));
   app.use('/api', createSemanticSearchRouter({ database, assetStorage, library, provider: semanticEmbeddingProvider }));
   const answerClient = config.META_API_KEY ? createMetaModelClient({ apiKey: config.META_API_KEY }) : undefined;
