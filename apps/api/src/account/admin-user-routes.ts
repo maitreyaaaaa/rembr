@@ -388,7 +388,7 @@ export function createAdminUserRouter(database: DatabaseHandle) {
           'import_started','import_completed','import_failed','import_status_changed')`,
         [userId, new Date(Date.now() - ACCOUNT_ACTIVITY_RETENTION_MS).toISOString()]);
       addBranch('deletion', 'account_deletion_audit', 'created_at', 'event_type', 'actor_type', 'owner_hash=?', [ownerHash]);
-      addBranch('export', 'account_data_exports', 'updated_at', `CASE status WHEN 'queued' THEN 'export_queued' WHEN 'processing' THEN 'export_processing' WHEN 'ready' THEN 'export_ready'
+      addBranch('export', 'account_data_exports', 'updated_at', `CASE status WHEN 'queued' THEN 'export_queued' WHEN 'processing' THEN 'export_processing' WHEN 'ready' THEN 'export_ready' WHEN 'partial' THEN 'export_partial'
         WHEN 'failed' THEN 'export_failed' WHEN 'cancelled' THEN 'export_cancelled' WHEN 'expired' THEN 'export_expired' ELSE 'export_status' END`, "'owner'::text", 'owner_id=?', [userId]);
       addBranch('import', 'imports', 'updated_at', `CASE status WHEN 'uploading' THEN 'import_uploading' WHEN 'staged' THEN 'import_staged' WHEN 'parsing' THEN 'import_parsing'
         WHEN 'queued' THEN 'import_queued' WHEN 'processing' THEN 'import_processing' WHEN 'completed' THEN 'import_completed'

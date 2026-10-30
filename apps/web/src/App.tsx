@@ -961,7 +961,7 @@ function AccountDataMapPanel() {
   </section><AccountDataExportPanel /></>;
 }
 
-interface AccountDataExport { id: string; status: 'queued' | 'processing' | 'ready' | 'failed' | 'cancelled' | 'expired'; includeFiles: boolean; attemptCount: number; expiresAt: string | null; errorCode: string | null; createdAt: string; updatedAt: string }
+interface AccountDataExport { id: string; status: 'queued' | 'processing' | 'ready' | 'partial' | 'failed' | 'cancelled' | 'expired'; includeFiles: boolean; attemptCount: number; expiresAt: string | null; errorCode: string | null; createdAt: string; updatedAt: string }
 function AccountDataExportPanel() {
   const [exports, setExports] = useState<AccountDataExport[]>([]);
   const [loading, setLoading] = useState(true);
@@ -992,8 +992,9 @@ function AccountDataExportPanel() {
     <button className="primary-button" type="button" disabled={busy} onClick={() => void mutate('/api/account/data-exports', 'POST', { includeFiles })}>{busy ? 'Requesting…' : 'Request data export'}</button>
     {error && <p className="notice error" role="alert">{error}</p>}
     {loading ? <p className="phase2-state" role="status">Loading export requests…</p> : exports.length > 0 && <ul className="phase2-manage-list">{exports.map((item) => <li key={item.id}>
-      <span><strong>{item.status}</strong> · {item.includeFiles ? 'records and files' : 'records only'} · requested {new Date(item.createdAt).toLocaleString()}{item.expiresAt ? ` · expires ${new Date(item.expiresAt).toLocaleString()}` : ''}{item.errorCode ? ` · ${item.errorCode}` : ''}</span>
-      {item.status === 'ready' && <a className="quiet-button" href={`/api/account/data-exports/${encodeURIComponent(item.id)}/download`}>Download ZIP</a>}
+      <span><strong>{item.status === 'partial' ? 'ready with some files omitted' : item.status}</strong> · {item.includeFiles ? 'records and files' : 'records only'} · requested {new Date(item.createdAt).toLocaleString()}{item.expiresAt ? ` · expires ${new Date(item.expiresAt).toLocaleString()}` : ''}{item.errorCode ? ` · ${item.errorCode}` : ''}</span>
+      {item.status === 'partial' && <p className="notice" role="status">Some private files could not be included. Download the ZIP and check manifest.json for the omitted file names and reason codes.</p>}
+      {(item.status === 'ready' || item.status === 'partial') && <a className="quiet-button" href={`/api/account/data-exports/${encodeURIComponent(item.id)}/download`}>Download ZIP</a>}
       {(item.status === 'queued' || item.status === 'failed') && <button className="quiet-button" type="button" disabled={busy} onClick={() => void mutate(`/api/account/data-exports/${encodeURIComponent(item.id)}/cancel`, 'POST')}>Cancel</button>}
       {item.status === 'failed' && item.attemptCount < 3 && <button className="quiet-button" type="button" disabled={busy} onClick={() => void mutate(`/api/account/data-exports/${encodeURIComponent(item.id)}/retry`, 'POST')}>Retry</button>}
     </li>)}</ul>}

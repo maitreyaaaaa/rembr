@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import { createTestDatabase } from '../src/db/database.js';
 import {
   createAccountDataExportService,
+  PrivateExportFileUnavailableError,
   type OwnerScopedPrivateFileSource,
   type PrivateExportArtifactStorage,
   type PrivateExportFileReference,
@@ -185,42 +186,107 @@ test('an unavailable export artifact records a bounded failure activity event', 
   }
 });
 
-test('file bounds fail closed, failed exports can be retried once per attempt, and ready artifacts expire', async () => {
+test('known file omissions produce a downloadable partial export with a reason manifest', async () => {
   const database = await createTestDatabase();
   const storage = fakeStorage();
-  const files = fakeFileSource([fileReference('owner-a', 'asset-a'), fileReference('owner-a', 'asset-b')]);
+  const files = fakeFileSource([
+    fileReference('owner-a', 'asset-a'),
+    fileReference('owner-a', 'asset-b', 21),
+    fileReference('owner-a', 'asset-c'),
+  ]);
   const service = createAccountDataExportService(database, storage, files.source, {
-    limits: { maxFiles: 1, maxSingleFileBytes: 20, maxTotalFileBytes: 30 },
+    limits: { maxFiles: 2, maxSingleFileBytes: 20, maxTotalFileBytes: 30 },
   });
+  try {
+    await seedUser(database, 'owner-a', 'a@example.test');
+    const requested = await service.request('owner-a', true, start);
+    const claim = await service.claimNext(start);
+    assert.ok(claim);
+    const status = await service.processClaim(claim, start);
+    assert.equal(status?.status, 'partial');
+    assert.equal(status?.errorCode, null);
+    assert.equal(storage.artifacts.size, 1);
+    const download = await service.getDownload('owner-a', requested.id, new Date(start.getTime() + 1));
+    assert.ok(download);
+    const archive = await JSZip.loadAsync(download.bytes);
+    const manifest = JSON.parse(await archive.file('manifest.json')!.async('string')) as {
+      completeness: string; files: Array<{ name: string }>; omittedFiles: Array<{ name: string; reason: string }>;
+      omittedFileCountAtLeast: number;
+    };
+    assert.equal(manifest.completeness, 'partial');
+    assert.equal(manifest.files.length, 1);
+    assert.equal(manifest.omittedFileCountAtLeast, 2);
+    assert.deepEqual(manifest.omittedFiles.map(({ reason }) => reason), ['single_file_limit_exceeded', 'file_count_limit_exceeded']);
+    assert.ok(manifest.omittedFiles.every(({ name }) => !name.includes('../')));
+  } finally {
+    await database.close();
+  }
+});
+
+test('unavailable referenced files are listed as omitted but storage and byte-integrity failures stay retryable', async () => {
+  const database = await createTestDatabase();
+  const storage = fakeStorage();
+  let mode: 'unavailable' | 'storage_failure' | 'mismatch' | 'valid' = 'unavailable';
+  const reference = fileReference('owner-a', 'asset-a');
+  const source: OwnerScopedPrivateFileSource = {
+    async listForOwner() { return [reference]; },
+    async readForOwner() {
+      if (mode === 'unavailable') throw new PrivateExportFileUnavailableError();
+      if (mode === 'storage_failure') throw new Error('storage_timeout');
+      return Buffer.from(mode === 'mismatch' ? 'wrong-size' : 'private-file');
+    },
+  };
+  const service = createAccountDataExportService(database, storage, source);
   try {
     await seedUser(database, 'owner-a', 'a@example.test');
     const requested = await service.request('owner-a', true, start);
     let claim = await service.claimNext(start);
     assert.ok(claim);
     let status = await service.processClaim(claim, start);
-    assert.equal(status?.status, 'failed');
-    assert.equal(status?.errorCode, 'file_count_limit_exceeded');
-    assert.equal(storage.artifacts.size, 0);
+    assert.equal(status?.status, 'partial');
+    const download = await service.getDownload('owner-a', requested.id, new Date(start.getTime() + 1));
+    assert.ok(download);
+    const archive = await JSZip.loadAsync(download.bytes);
+    const manifest = JSON.parse(await archive.file('manifest.json')!.async('string')) as { omittedFiles: Array<{ reason: string }> };
+    assert.deepEqual(manifest.omittedFiles.map(({ reason }) => reason), ['file_unavailable']);
 
-    assert.equal((await service.retry('owner-a', requested.id, new Date(start.getTime() + 1)))?.status, 'queued');
-    files.setReferences([fileReference('owner-a', 'asset-a', 21)]);
-    claim = await service.claimNext(new Date(start.getTime() + 2));
+    const retryable = await service.request('owner-a', true, new Date(start.getTime() + 2));
+    mode = 'storage_failure';
+    claim = await service.claimNext(new Date(start.getTime() + 3));
     assert.ok(claim);
-    status = await service.processClaim(claim, new Date(start.getTime() + 2));
+    status = await service.processClaim(claim, new Date(start.getTime() + 3));
     assert.equal(status?.status, 'failed');
-    assert.equal(status?.errorCode, 'invalid_file_reference');
+    assert.equal(status?.id, retryable.id);
+    assert.equal(status?.errorCode, 'export_failed');
 
-    assert.equal((await service.retry('owner-a', requested.id, new Date(start.getTime() + 3)))?.status, 'queued');
-    files.setReferences([fileReference('owner-a', 'asset-a')]);
-    claim = await service.claimNext(new Date(start.getTime() + 4));
+    assert.equal((await service.retry('owner-a', retryable.id, new Date(start.getTime() + 4)))?.status, 'queued');
+    mode = 'mismatch';
+    claim = await service.claimNext(new Date(start.getTime() + 5));
     assert.ok(claim);
-    status = await service.processClaim(claim, new Date(start.getTime() + 4));
-    assert.equal(status?.status, 'ready');
-    assert.equal(status?.attemptCount, 3);
-    assert.equal(await service.retry('owner-a', requested.id, new Date(start.getTime() + 5)), null);
+    status = await service.processClaim(claim, new Date(start.getTime() + 5));
+    assert.equal(status?.status, 'failed');
+    assert.equal(status?.errorCode, 'private_file_unavailable');
+  } finally {
+    await database.close();
+  }
+});
 
-    const eligible = await service.getDownload('owner-a', requested.id, new Date(start.getTime() + 5));
-    assert.ok(eligible);
+test('partial export artifacts expire and are removed like complete export artifacts', async () => {
+  const database = await createTestDatabase();
+  const storage = fakeStorage();
+  const files = fakeFileSource([fileReference('owner-a', 'asset-a', 21)]);
+  const service = createAccountDataExportService(database, storage, files.source, {
+    limits: { maxFiles: 1, maxSingleFileBytes: 20, maxTotalFileBytes: 30 },
+  });
+  try {
+    await seedUser(database, 'owner-a', 'a@example.test');
+    const requested = await service.request('owner-a', true, start);
+    const claim = await service.claimNext(start);
+    assert.ok(claim);
+    const status = await service.processClaim(claim, start);
+    assert.equal(status?.status, 'partial');
+    assert.equal(status?.attemptCount, 1);
+
     const expiredAt = new Date(start.getTime() + 7 * 24 * 60 * 60_000 + 4);
     assert.equal(await service.getDownload('owner-a', requested.id, expiredAt), null);
     assert.equal((await service.getStatus('owner-a', requested.id, expiredAt))?.status, 'expired');

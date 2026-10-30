@@ -40,6 +40,10 @@ export interface PrivateExportArtifactStorage {
   remove(ownerId: string, key: string): Promise<void>;
 }
 
+export class PrivateExportFileUnavailableError extends Error {
+  constructor() { super('private_file_unavailable'); this.name = 'PrivateExportFileUnavailableError'; }
+}
+
 export interface AccountDataExportLimits {
   maxAttempts: number;
   leaseMs: number;
@@ -64,7 +68,7 @@ export interface AccountDataExportClaim {
 
 export interface AccountDataExportStatus {
   id: string;
-  status: 'queued' | 'processing' | 'ready' | 'failed' | 'cancelled' | 'expired';
+  status: 'queued' | 'processing' | 'ready' | 'partial' | 'failed' | 'cancelled' | 'expired';
   includeFiles: boolean;
   attemptCount: number;
   expiresAt: string | null;
@@ -235,30 +239,35 @@ export function createAccountDataExportService(
 
   async function addPrivateFiles(ownerId: string, zip: JSZip) {
     const references = await privateFileSource.listForOwner(ownerId, limits.maxFiles + 1);
-    if (references.length > limits.maxFiles) throw new AccountDataExportError('file_count_limit_exceeded', 'The private file count exceeds the configured export limit.');
-    const declaredTotal = references.reduce((sum, ref) => sum + ref.byteSize, 0);
-    if (!Number.isSafeInteger(declaredTotal) || declaredTotal > limits.maxTotalFileBytes) {
-      throw new AccountDataExportError('file_byte_limit_exceeded', 'The private file bytes exceed the configured export limit.');
-    }
-
     let totalBytes = 0;
     const included: Array<{ path: string; kind: PrivateExportFileKind; name: string; contentType: string; byteSize: number }> = [];
+    const omitted: Array<{ kind: PrivateExportFileKind; name: string; reason: 'file_count_limit_exceeded' | 'single_file_limit_exceeded' | 'total_file_limit_exceeded' | 'file_unavailable' }> = [];
     for (const [index, reference] of references.entries()) {
       if (reference.ownerId !== ownerId) throw new AccountDataExportError('foreign_file_reference', 'The private file source returned a record outside the requested owner.');
-      if (!['asset', 'import', 'media'].includes(reference.kind) || !reference.key || !Number.isSafeInteger(reference.byteSize) || reference.byteSize < 1 || reference.byteSize > limits.maxSingleFileBytes) {
-        throw new AccountDataExportError('invalid_file_reference', 'A private file reference is invalid or exceeds the configured single-file limit.');
+      if (!['asset', 'import', 'media'].includes(reference.kind) || !reference.key || !Number.isSafeInteger(reference.byteSize) || reference.byteSize < 1) {
+        throw new AccountDataExportError('invalid_file_reference', 'A private file reference is invalid.');
       }
-      const bytes = await privateFileSource.readForOwner(ownerId, reference);
+      const name = safeFileName(reference.fileName);
+      if (index >= limits.maxFiles) { omitted.push({ kind: reference.kind, name, reason: 'file_count_limit_exceeded' }); continue; }
+      if (reference.byteSize > limits.maxSingleFileBytes) { omitted.push({ kind: reference.kind, name, reason: 'single_file_limit_exceeded' }); continue; }
+      if (totalBytes + reference.byteSize > limits.maxTotalFileBytes) { omitted.push({ kind: reference.kind, name, reason: 'total_file_limit_exceeded' }); continue; }
+      let bytes: Buffer;
+      try {
+        bytes = await privateFileSource.readForOwner(ownerId, reference);
+      } catch (cause) {
+        if (cause instanceof PrivateExportFileUnavailableError) { omitted.push({ kind: reference.kind, name, reason: 'file_unavailable' }); continue; }
+        throw cause;
+      }
       if (!Buffer.isBuffer(bytes) || bytes.length !== reference.byteSize || bytes.length > limits.maxSingleFileBytes) {
         throw new AccountDataExportError('private_file_unavailable', 'A requested private file could not be read consistently.');
       }
       totalBytes += bytes.length;
       if (totalBytes > limits.maxTotalFileBytes) throw new AccountDataExportError('file_byte_limit_exceeded', 'The private file bytes exceed the configured export limit.');
-      const path = `files/${reference.kind}/${String(index + 1).padStart(4, '0')}-${safeFileName(reference.fileName)}`;
+      const path = `files/${reference.kind}/${String(index + 1).padStart(4, '0')}-${name}`;
       zip.file(path, bytes);
-      included.push({ path, kind: reference.kind, name: safeFileName(reference.fileName), contentType: safeContentType(reference.contentType), byteSize: bytes.length });
+      included.push({ path, kind: reference.kind, name, contentType: safeContentType(reference.contentType), byteSize: bytes.length });
     }
-    return { included, totalBytes };
+    return { included, omitted, omittedFileCountAtLeast: omitted.length, totalBytes };
   }
 
   async function getStatus(ownerId: string, exportId: string): Promise<AccountDataExportStatus | null> {
@@ -270,7 +279,7 @@ export function createAccountDataExportService(
 
   async function expireIfDue(ownerId: string, exportId: string, now: string): Promise<void> {
     const row = await database.prepare(`UPDATE account_data_exports SET status='expired',updated_at=?
-      WHERE owner_id=? AND id=? AND status='ready' AND expires_at<=? RETURNING artifact_key`)
+      WHERE owner_id=? AND id=? AND status IN ('ready','partial') AND expires_at<=? RETURNING artifact_key`)
       .get(now, ownerId, exportId, now) as { artifact_key: string | null } | undefined;
     if (row?.artifact_key) {
       try {
@@ -383,7 +392,7 @@ export function createAccountDataExportService(
       let artifactKey: string | null = null;
       try {
         const snapshot = await getMapAndRows(claim.ownerId);
-        let fileInfo: { included: Array<{ path: string; kind: PrivateExportFileKind; name: string; contentType: string; byteSize: number }>; totalBytes: number } = { included: [], totalBytes: 0 };
+        let fileInfo: Awaited<ReturnType<typeof addPrivateFiles>> = { included: [], omitted: [], omittedFileCountAtLeast: 0, totalBytes: 0 };
         if (claim.includeFiles) fileInfo = await addPrivateFiles(claim.ownerId, snapshot.zip);
         const exportedAt = now.toISOString();
         const expiresAt = new Date(now.getTime() + limits.retentionMs).toISOString();
@@ -399,16 +408,19 @@ export function createAccountDataExportService(
           fileCount: fileInfo.included.length,
           fileByteCount: fileInfo.totalBytes,
           includeFiles: claim.includeFiles,
+          completeness: fileInfo.omitted.length > 0 ? 'partial' : 'complete',
           dataMap: snapshot.dataMap,
           exportedTableCounts: snapshot.countsByCategory,
           files: fileInfo.included,
+          omittedFiles: fileInfo.omitted,
+          omittedFileCountAtLeast: fileInfo.omittedFileCountAtLeast,
           exclusions: [
             'Password hashes are excluded; account identity fields contain only ID, email, status, and creation time.',
             'Session credentials and token hashes are excluded; only session creation and expiry timestamps are included.',
             'Worker lease tokens, lease expiry metadata, and internal private-storage keys are excluded.',
             'Derived local visual vectors are operational similarity indexes and are excluded; the data map reports their row count.',
             'Shared system aggregates, worker status, and global cleanup queue records are not attributable to one owner and are excluded.',
-            claim.includeFiles ? 'Private asset, import, and media bytes are included from the owner-scoped private file source within the listed count and byte limits.' : 'Private binary file bytes are omitted by request; their database metadata records remain included.',
+            claim.includeFiles ? 'Private asset, import, and media bytes are listed individually as included or omitted in this manifest. Known files beyond configured limits or no longer available are omitted with a reason code; other storage and integrity errors fail the export.' : 'Private binary file bytes are omitted by request; their database metadata records remain included.',
             'Copies retained by Meta AI, OpenRouter, or upstream model providers are outside Rembr storage and cannot be enumerated or removed by this export.',
           ],
           limits: {
@@ -461,10 +473,11 @@ export function createAccountDataExportService(
                   .run(completedAt, claim.ownerId, claim.id, claim.leaseToken);
                 return false;
               }
-              const update = await database.prepare(`UPDATE account_data_exports SET status='ready',expires_at=?,
+              const resultStatus = fileInfo.omitted.length > 0 ? 'partial' : 'ready';
+              const update = await database.prepare(`UPDATE account_data_exports SET status=?,expires_at=?,
                 completed_at=?,updated_at=?,lease_token=NULL,lease_expires_at=NULL,error_code=NULL
                 WHERE owner_id=? AND id=? AND status='processing' AND lease_token=? AND lease_expires_at>?`)
-                .run(expiresAt, completedAt, completedAt, claim.ownerId, claim.id, claim.leaseToken, completedAt);
+                .run(resultStatus, expiresAt, completedAt, completedAt, claim.ownerId, claim.id, claim.leaseToken, completedAt);
               if (update.changes === 1) await recordAccountActivityEvent(database, claim.ownerId, 'data_export_ready', completedAt);
               return update.changes === 1;
             })();
@@ -514,13 +527,13 @@ export function createAccountDataExportService(
       const timestamp = now.toISOString();
       await expireIfDue(ownerId, exportId, timestamp);
       const row = await database.prepare(`SELECT artifact_key FROM account_data_exports WHERE owner_id=? AND id=?
-        AND status='ready' AND expires_at>?`).get(ownerId, exportId, timestamp) as { artifact_key: string } | undefined;
+        AND status IN ('ready','partial') AND expires_at>?`).get(ownerId, exportId, timestamp) as { artifact_key: string } | undefined;
       if (!row?.artifact_key) return null;
       let bytes: Buffer;
       try {
         bytes = await artifactStorage.read(ownerId, row.artifact_key);
       } catch {
-        const changed = await database.prepare("UPDATE account_data_exports SET status='failed',error_code='artifact_unavailable',artifact_key=NULL,updated_at=? WHERE owner_id=? AND id=? AND status='ready'")
+        const changed = await database.prepare("UPDATE account_data_exports SET status='failed',error_code='artifact_unavailable',artifact_key=NULL,updated_at=? WHERE owner_id=? AND id=? AND status IN ('ready','partial')")
           .run(timestamp, ownerId, exportId);
         if (changed.changes === 1) await recordAccountActivityEvent(database, ownerId, 'data_export_failed', timestamp).catch(() => undefined);
         return null;
@@ -533,7 +546,7 @@ export function createAccountDataExportService(
       if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500) throw new TypeError('Cleanup limit must be between 1 and 500.');
       const timestamp = now.toISOString();
       const expired = await database.prepare(`UPDATE account_data_exports SET status='expired',updated_at=?
-        WHERE id IN (SELECT id FROM account_data_exports WHERE status='ready' AND expires_at<=? ORDER BY expires_at,id LIMIT ?)
+        WHERE id IN (SELECT id FROM account_data_exports WHERE status IN ('ready','partial') AND expires_at<=? ORDER BY expires_at,id LIMIT ?)
         RETURNING owner_id,id,artifact_key`).all(timestamp, timestamp, limit) as Array<{ owner_id: string; id: string; artifact_key: string | null }>;
       const stale = await database.prepare(`SELECT owner_id,id,artifact_key FROM account_data_exports
         WHERE status='expired' AND artifact_key IS NOT NULL ORDER BY updated_at,id LIMIT ?`).all(limit) as Array<{ owner_id: string; id: string; artifact_key: string }>;

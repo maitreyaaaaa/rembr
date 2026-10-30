@@ -2,7 +2,7 @@ import type { AssetStorage } from '../assets/storage.js';
 import type { DatabaseHandle } from '../db/database.js';
 import type { ImportStorage } from '../imports/storage.js';
 import type { MediaStorage } from '../media/storage.js';
-import type { OwnerScopedPrivateFileSource, PrivateExportFileReference } from './data-export-service.js';
+import { PrivateExportFileUnavailableError, type OwnerScopedPrivateFileSource, type PrivateExportFileReference } from './data-export-service.js';
 
 type FileRow = { owner_id: string; key: string; file_name: string; content_type: string; byte_size: number; kind: 'asset'|'import'|'media' };
 
@@ -39,7 +39,7 @@ export function createOwnerScopedPrivateFileSource(database: DatabaseHandle, sto
           ? "SELECT storage_key FROM import_upload_files WHERE owner_id=? AND id=? AND storage_key=? AND state IN ('staged','parsing','failed') AND received_bytes=expected_bytes AND chunks_received=chunk_count"
           : "SELECT storage_key FROM media_artifacts WHERE owner_id=? AND id=? AND storage_key=? AND active=1 AND status='ready'";
       const row = await database.prepare(sql).get(ownerId, id, key) as { storage_key: string } | undefined;
-      if (!row) throw new Error('private_file_not_owned_or_available');
+      if (!row) throw new PrivateExportFileUnavailableError();
       if (kind === 'asset') return storage.assets.read(row.storage_key);
       if (kind === 'import') return storage.imports.readFile(row.storage_key);
       return storage.media.read(row.storage_key);
