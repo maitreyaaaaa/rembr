@@ -29,7 +29,7 @@ export function createAdminUserRouter(database: DatabaseHandle) {
   const readLimit = rateLimit({ windowMs: 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false });
   const dataMap = createAccountDataMapService(database);
 
-  router.use('/admin/users', (_req, res, next) => {
+  router.use('/admin', (_req, res, next) => {
     res.set({ 'Cache-Control': 'private, no-store, max-age=0', Pragma: 'no-cache', Vary: 'Cookie' });
     next();
   });
@@ -41,11 +41,41 @@ export function createAdminUserRouter(database: DatabaseHandle) {
     return false;
   }
 
-  async function audit(actorId: string, eventType: 'admin_user_list_viewed' | 'admin_user_detail_viewed', targetId: string | null,
+  async function audit(actorId: string, eventType: 'admin_summary_viewed' | 'admin_user_list_viewed' | 'admin_user_detail_viewed', targetId: string | null,
     metadata: Record<string, boolean | number>, now = new Date()) {
     await database.prepare(`INSERT INTO admin_access_audit (id,actor_user_id,event_type,target_hash,metadata,created_at)
       VALUES (?,?,?,?,?,?)`).run(randomUUID(), actorId, eventType, targetId ? hash(targetId) : null, JSON.stringify(metadata), now.toISOString());
   }
+
+  router.get('/admin/summary', auth, readLimit, async (req, res, next) => {
+    try {
+      if (!await requireAdmin(req.user!.id, res, req.requestId)) return;
+      const now = Date.now();
+      const dayAgo = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+      const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+      const [accounts, savedItems, jobs, imports, deletions] = await Promise.all([
+        database.prepare(`SELECT count(*) AS total,
+          count(*) FILTER (WHERE account_status='active') AS active,
+          count(*) FILTER (WHERE account_status='disabled') AS disabled,
+          count(*) FILTER (WHERE created_at>=?) AS new_last_24_hours,
+          count(*) FILTER (WHERE created_at>=?) AS new_last_7_days FROM users`).get(dayAgo, weekAgo) as Promise<Record<string, unknown>>,
+        database.prepare('SELECT status,count(*) AS count FROM saved_items GROUP BY status').all() as Promise<Array<{ status: string; count: string | number }>>,
+        database.prepare('SELECT status,count(*) AS count FROM processing_jobs GROUP BY status').all() as Promise<Array<{ status: string; count: string | number }>>,
+        database.prepare('SELECT status,count(*) AS count FROM imports GROUP BY status').all() as Promise<Array<{ status: string; count: string | number }>>,
+        database.prepare('SELECT status,count(*) AS count FROM account_deletion_requests GROUP BY status').all() as Promise<Array<{ status: string; count: string | number }>>,
+      ]);
+      const statusCounts = (rows: Array<{ status: string; count: string | number }>) =>
+        Object.fromEntries(rows.map(({ status, count }) => [status, Number(count)]));
+      await audit(req.user!.id, 'admin_summary_viewed', null, {});
+      return res.json({ summary: {
+        accounts: Object.fromEntries(Object.entries(accounts).map(([key, value]) => [key, Number(value)])),
+        savedItems: { total: Object.values(statusCounts(savedItems)).reduce((total, count) => total + count, 0), byStatus: statusCounts(savedItems) },
+        processingJobs: { total: Object.values(statusCounts(jobs)).reduce((total, count) => total + count, 0), byStatus: statusCounts(jobs) },
+        imports: { total: Object.values(statusCounts(imports)).reduce((total, count) => total + count, 0), byStatus: statusCounts(imports) },
+        deletionRequests: { total: Object.values(statusCounts(deletions)).reduce((total, count) => total + count, 0), byStatus: statusCounts(deletions) },
+      } });
+    } catch (cause) { return next(cause); }
+  });
 
   router.get('/admin/users', auth, readLimit, async (req, res, next) => {
     const parsed = searchSchema.safeParse(req.query);

@@ -4,6 +4,8 @@
 **Scope:** Full Phase 2 of the [phase-gated roadmap](../rebuild-plan/phase-gated-roadmap.md).  
 **Related acceptance sources:** [capability matrix](../rebuild-plan/feature-and-acceptance-matrix.md), [screen/workflow matrix](../rebuild-plan/screen-workflow-phase-matrix.md), [current UI specifications](../screens/ui-surface-and-screen-specifications.md), [API route/source audit](../backend/api-routes-and-contracts.md), [current system design](./system-design-and-boundaries.md), and [Phase 1 evidence](../rebuild-plan/phase-1-record.md).
 
+**Current architecture note:** This design records the originally approved Phase 2 SQLite baseline. ADR-R12 later superseded that persistence choice: current Rembr uses Supabase Postgres only and PGlite for local schema-matched tests. The historical Phase 2 decisions below are not the active database configuration.
+
 ## User approval record
 
 The user approved the full Phase 2 roadmap scope, selected the modular-monolith direction, and then answered “Looks right” to each of the seven sequential design sections below. The question/approval record is also preserved in the Obsidian decision note `2026-10-28 Rembr Phase 2 Architecture Approvals`.

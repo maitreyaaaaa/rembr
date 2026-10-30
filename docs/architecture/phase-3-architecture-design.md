@@ -1,6 +1,6 @@
 # Phase 3 Architecture Design — Ingestion, Durable Jobs, and Content Processing
 
-**Status:** Design approved; Phase 3 implementation is in progress. Latest local check passed on 2026-10-30 with 176 API tests and API/web typecheck, lint, and builds; the phase gate is not passed.
+**Status:** Design approved; Phase 3 implementation is in progress. Latest local check passed on 2026-10-30 with 178 API tests and API/web typecheck, lint, and builds; the phase gate is not passed.
 
 **Scope source:** [Phase-gated roadmap](../rebuild-plan/phase-gated-roadmap.md), [feature and acceptance matrix](../rebuild-plan/feature-and-acceptance-matrix.md), [screen/workflow matrix](../rebuild-plan/screen-workflow-phase-matrix.md), and [source import flow](../backend/storage-import-flow.md).
 **Current product baseline:** [Phase 1 record](../rebuild-plan/phase-1-record.md), [Phase 2 record](../rebuild-plan/phase-2-record.md), and [Phase 2 architecture](./phase-2-architecture-design.md).
@@ -43,7 +43,7 @@ No additional product approval is required for these choices. API names, interna
 Phase 3 must complete source-backed ingestion and recovery while preserving the current Rembr foundation:
 
 - Keep the independent Rembr repo and the IScraper reference read-only.
-- Keep the modular monolith, SQLite adapter, and private local storage as the current execution baseline. No evidence currently requires Redis/BullMQ, microservices, or hosted object storage.
+- Keep the modular monolith and Supabase Postgres as the only application database, with PGlite for schema-matched local tests. Private file bytes use the configured private storage adapter. Do not add a SQLite fallback; no evidence currently requires Redis/BullMQ or microservices.
 - Cover manual public-URL capture plus audited Instagram, Pinterest, and X/Twitter bookmark exports and their supported file/archive variants. Auto-queue imports after successful parsing. Browser-extension capture remains Phase 5.
 - Keep baseline extraction deterministic, with safe media metadata/download paths. OCR, ASR, visual interpretation, search, grounded chat, and optional AI enrichment remain Phase 4; do not make Phase 3 depend on a model/provider.
 - Account export/deletion, billing, admin UI, production deployment, and final visual polish remain Phases 6, 9, and 7 respectively.

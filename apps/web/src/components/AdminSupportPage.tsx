@@ -29,6 +29,14 @@ interface AdminUserDetail {
   recentSecurityActivity: Array<{ eventType: string; createdAt: string }>;
   latestDeletion: { status: string; requestedAt: string; completedAt: string | null } | null;
 }
+interface AdminOverviewGroup { total: number; byStatus: Record<string, number> }
+interface AdminOverview {
+  accounts: { total: number; active: number; disabled: number; new_last_24_hours: number; new_last_7_days: number };
+  savedItems: AdminOverviewGroup;
+  processingJobs: AdminOverviewGroup;
+  imports: AdminOverviewGroup;
+  deletionRequests: AdminOverviewGroup;
+}
 interface RequestError extends Error { status?: number }
 type Request = <T>(path: string, init?: RequestInit) => Promise<T>;
 
@@ -60,6 +68,9 @@ export function AdminSupportPage({ request }: { request: Request }) {
   const [selectedUser, setSelectedUser] = useState<AdminUserDetail | null>(null);
   const [selectedUserLoading, setSelectedUserLoading] = useState(false);
   const [selectedUserError, setSelectedUserError] = useState('');
+  const [overview, setOverview] = useState<AdminOverview | null>(null);
+  const [overviewLoading, setOverviewLoading] = useState(false);
+  const [overviewError, setOverviewError] = useState('');
   const userSearchSequence = useRef(0);
   const userDetailSequence = useRef(0);
 
@@ -72,10 +83,23 @@ export function AdminSupportPage({ request }: { request: Request }) {
       setRole(result.role);
       if (result.role === null) {
         setQueue([]);
+        setOverview(null);
         return;
       }
       const body = await request<{ deletions: QueueEntry[] }>('/api/admin/account-deletions?limit=50');
       setQueue(body.deletions);
+      if (result.role === 'admin') {
+        setOverviewLoading(true);
+        setOverviewError('');
+        try {
+          const { summary } = await request<{ summary: AdminOverview }>('/api/admin/summary');
+          setOverview(summary);
+        } catch (cause) {
+          const failure = cause as RequestError;
+          setOverviewError(failure.message || 'Could not load the operations overview.');
+          setOverview(null);
+        } finally { setOverviewLoading(false); }
+      } else setOverview(null);
     } catch (cause) {
       const failure = cause as RequestError;
       setError(failure.message || 'Could not load the operator queue. Try again.');
@@ -183,6 +207,18 @@ export function AdminSupportPage({ request }: { request: Request }) {
           {selectedUser.latestDeletion && <p className="admin-audit-note">Latest deletion request: {selectedUser.latestDeletion.status.replaceAll('_', ' ')} · Requested {formatDate(selectedUser.latestDeletion.requestedAt)}{selectedUser.latestDeletion.completedAt ? ` · Completed ${formatDate(selectedUser.latestDeletion.completedAt)}` : ''}</p>}
           <h4>Recent security activity</h4>{selectedUser.recentSecurityActivity.length ? <ol className="admin-audit-list">{selectedUser.recentSecurityActivity.map((event, index) => <li key={`${event.createdAt}-${index}`}><strong>{event.eventType.replaceAll('_', ' ')}</strong><time dateTime={event.createdAt}>{formatDate(event.createdAt)}</time></li>)}</ol> : <p className="admin-empty">No recent security events.</p>}
         </section>}
+      </section>}
+      {role === 'admin' && <section className="phase2-panel admin-overview-panel" aria-labelledby="admin-overview-title">
+        <div className="admin-queue-heading"><div><h2 id="admin-overview-title">Operations overview</h2><p className="phase2-helper">Aggregate counts only. This view excludes account content, URLs, and credentials.</p></div></div>
+        {overviewLoading ? <p className="phase2-state" role="status">Loading operational counts…</p>
+          : overviewError ? <p className="notice error" role="alert">{overviewError}</p>
+            : overview ? <dl className="admin-overview-grid">
+              <div><dt>Accounts</dt><dd>{overview.accounts.total.toLocaleString()}</dd><span>{overview.accounts.active.toLocaleString()} active · {overview.accounts.disabled.toLocaleString()} disabled</span><span>{overview.accounts.new_last_24_hours.toLocaleString()} in 24h · {overview.accounts.new_last_7_days.toLocaleString()} in 7d</span></div>
+              <div><dt>Saved items</dt><dd>{overview.savedItems.total.toLocaleString()}</dd><span>{overview.savedItems.byStatus.ready ?? 0} ready · {overview.savedItems.byStatus.failed ?? 0} failed</span></div>
+              <div><dt>Processing jobs</dt><dd>{overview.processingJobs.total.toLocaleString()}</dd><span>{overview.processingJobs.byStatus.queued ?? 0} queued · {overview.processingJobs.byStatus.processing ?? 0} active</span></div>
+              <div><dt>Imports</dt><dd>{overview.imports.total.toLocaleString()}</dd><span>{overview.imports.byStatus.failed ?? 0} failed · {overview.imports.byStatus.partial ?? 0} partial</span></div>
+              <div><dt>Deletion requests</dt><dd>{overview.deletionRequests.total.toLocaleString()}</dd><span>{overview.deletionRequests.byStatus.pending_approval ?? 0} pending approval</span></div>
+            </dl> : <p className="admin-empty">Operational counts are unavailable.</p>}
       </section>}
       <section className="phase2-panel admin-queue-panel" aria-labelledby="admin-queue-title">
         <div className="admin-queue-heading"><div><h2 id="admin-queue-title">Account deletion queue</h2><p className="phase2-helper">The queue hides email addresses and account IDs. Support can review requests; only admins can approve or retry them.</p></div><button className="quiet-button" type="button" disabled={refreshing} onClick={() => void load(true)}>{refreshing ? 'Refreshing…' : 'Refresh'}</button></div>

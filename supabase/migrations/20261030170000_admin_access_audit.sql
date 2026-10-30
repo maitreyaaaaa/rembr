@@ -1,7 +1,7 @@
 CREATE TABLE admin_access_audit (
   id TEXT PRIMARY KEY,
   actor_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
-  event_type TEXT NOT NULL CHECK (event_type IN ('admin_user_list_viewed', 'admin_user_detail_viewed')),
+  event_type TEXT NOT NULL CHECK (event_type IN ('admin_summary_viewed', 'admin_user_list_viewed', 'admin_user_detail_viewed')),
   target_hash TEXT CHECK (target_hash IS NULL OR target_hash ~ '^[0-9a-f]{64}$'),
   metadata JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(metadata) = 'object'),
   created_at TEXT NOT NULL

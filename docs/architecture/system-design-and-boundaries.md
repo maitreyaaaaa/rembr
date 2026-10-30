@@ -29,7 +29,7 @@ flowchart LR
   Web -->|read APIs| API
 ```
 
-The diagram expresses logical boundaries, not verified production topology. Phase 1 uses a durable local SQLite adapter; a hosted PostgreSQL/Supabase adapter remains a pre-deployment decision. See `../backend/backend-architecture.md`, `../backend/backend-data-and-worker.md`, and `../extension-security/extension-architecture-and-rebuild.md` for traced contracts and source evidence.
+The diagram expresses logical boundaries, not verified production topology. Phase 1 originally used SQLite; ADR-R12 superseded it with Supabase Postgres as Rembr's only application database, with PGlite for local schema-matched tests. Private files use the configured storage adapter. See `architecture-decisions.md`, `../backend/backend-architecture.md`, `../backend/backend-data-and-worker.md`, and `../extension-security/extension-architecture-and-rebuild.md` for the active contract and source evidence.
 
 ## Responsibility boundaries
 
@@ -71,7 +71,7 @@ The exact current status vocabulary and transitions must follow `../backend/inde
 
 | Dependency | Core path when available | Failure behavior required in Rembr |
 |---|---|---|
-| Relational store (SQLite in Phase 1; PostgreSQL/Supabase adapter before deployment) | identities, records, jobs, search metadata | fail closed for protected reads/writes; owner predicates and foreign keys on every access; never claim save success without durable state |
+| Supabase Postgres (PGlite for schema-matched tests) | identities, records, jobs, search metadata | fail closed for protected reads/writes; owner predicates and foreign keys on every access; never claim save success without durable state |
 | Object storage | large captures/media/artifacts where used | preserve metadata and surface partial processing; retry only classified transient errors |
 | Fetch/extraction runtime | article/title/text extraction | validate URL and redirect chain; bounded time/bytes; classify unsupported and blocked targets |
 | Optional local OCR/ASR/vision runtime | deterministic or local media extraction | feature-detect runtime; skip optional stages without losing core text/metadata |

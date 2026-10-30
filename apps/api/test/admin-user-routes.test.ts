@@ -107,3 +107,36 @@ test('admin user search and detail are admin-only, bounded, sanitized, no-store,
     assert.equal((await database.prepare(`SELECT relrowsecurity FROM pg_class WHERE relname='admin_access_audit'`).get() as { relrowsecurity: boolean }).relrowsecurity, true);
   });
 });
+
+test('admin operations overview returns aggregate-only counts to admins and audits the read', async () => {
+  await withApi(async (baseUrl, database) => {
+    const owner = await register(baseUrl, 'overview-owner@example.test');
+    const support = await register(baseUrl, 'overview-support@example.test');
+    const admin = await register(baseUrl, 'overview-admin@example.test');
+    const now = new Date().toISOString();
+    await database.prepare(`INSERT INTO admin_roles (user_id,role,created_at) VALUES (?,'support',?)`).run(support.userId, now);
+    await database.prepare(`INSERT INTO admin_roles (user_id,role,created_at) VALUES (?,'admin',?)`).run(admin.userId, now);
+    await database.prepare(`INSERT INTO saved_items (id,owner_id,original_url,canonical_url,title,status,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?)`).run('overview-item', owner.userId, 'https://example.test/private-path', 'https://example.test/private-path',
+      'Private item title', 'ready', now, now);
+
+    const route = `${baseUrl}/api/admin/summary`;
+    assert.equal((await fetch(route)).status, 401);
+    assert.equal((await fetch(route, { headers: { Cookie: support.cookie } })).status, 403);
+    const response = await fetch(route, { headers: { Cookie: admin.cookie } });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'private, no-store, max-age=0');
+    const body = await response.json() as { summary: { accounts: { total: number; active: number }; savedItems: { total: number; byStatus: Record<string, number> } } };
+    assert.equal(body.summary.accounts.total, 3);
+    assert.equal(body.summary.accounts.active, 3);
+    assert.equal(body.summary.savedItems.total, 1);
+    assert.equal(body.summary.savedItems.byStatus.ready, 1);
+    const serialized = JSON.stringify(body);
+    for (const sensitive of ['Private item title', 'private-path', owner.userId, owner.cookie, password]) assert.equal(serialized.includes(sensitive), false);
+    const audit = await database.prepare(`SELECT actor_user_id,event_type,target_hash,metadata FROM admin_access_audit WHERE event_type='admin_summary_viewed'`)
+      .get() as { actor_user_id: string; event_type: string; target_hash: string | null; metadata: unknown };
+    assert.equal(audit.actor_user_id, admin.userId);
+    assert.equal(audit.target_hash, null);
+    assert.deepEqual(audit.metadata, {});
+  });
+});
