@@ -236,8 +236,82 @@ test('admin import list is bounded, role-restricted, redacted, no-store, and aud
   });
 });
 
+test('admin audit browser filters and paginates redacted records without exposing identities or metadata', async () => {
+  await withApi(async (baseUrl, database) => {
+    const target = await register(baseUrl, 'audit-target@example.test');
+    const member = await register(baseUrl, 'audit-member@example.test');
+    const support = await register(baseUrl, 'audit-support@example.test');
+    const admin = await register(baseUrl, 'audit-admin@example.test');
+    const now = new Date();
+    const timestamp = (delta: number) => new Date(now.getTime() - delta).toISOString();
+    await database.prepare(`INSERT INTO admin_roles (user_id,role,created_at) VALUES (?,'support',?)`).run(support.userId, now.toISOString());
+    await database.prepare(`INSERT INTO admin_roles (user_id,role,created_at) VALUES (?,'admin',?)`).run(admin.userId, now.toISOString());
+    await database.prepare('DELETE FROM account_security_events').run();
+    await database.prepare('DELETE FROM admin_access_audit').run();
+    const ownerHash = createHash('sha256').update(target.userId).digest('hex');
+    await database.prepare(`INSERT INTO account_security_events (id,owner_id,event_type,created_at) VALUES (?,?,?,?)`)
+      .run('private-security-event-id', target.userId, 'sign_in', timestamp(1_000));
+    await database.prepare(`INSERT INTO account_deletion_requests
+      (id,owner_id,owner_hash,status,export_confirmed,requested_at,available_at,created_at,updated_at)
+      VALUES (?,?,?,'pending_approval',TRUE,?,?,?,?)`).run('private-deletion-request-id', target.userId, ownerHash,
+      timestamp(2_000), timestamp(2_000), timestamp(2_000), timestamp(2_000));
+    await database.prepare(`INSERT INTO account_deletion_audit
+      (id,request_id,owner_hash,actor_type,event_type,metadata,created_at) VALUES (?,?,?,'worker','step_completed',?,?)`)
+      .run('private-deletion-event-id', 'private-deletion-request-id', ownerHash,
+        JSON.stringify({ step: 'delete_owner_records', secret: 'private-audit-metadata' }), timestamp(2_000));
+    await database.prepare(`INSERT INTO admin_access_audit (id,actor_user_id,event_type,target_hash,metadata,created_at)
+      VALUES (?,?,'admin_summary_viewed',?,?,?)`).run('private-admin-event-id', admin.userId, ownerHash,
+        JSON.stringify({ privateDetail: 'private-admin-metadata' }), timestamp(3_000));
+
+    const route = `${baseUrl}/api/admin/audit-events`;
+    assert.equal((await fetch(route)).status, 401);
+    assert.equal((await fetch(route, { headers: { Cookie: member.cookie } })).status, 403);
+    assert.equal((await fetch(route, { headers: { Cookie: support.cookie } })).status, 403);
+    const firstResponse = await fetch(`${route}?limit=2`, { headers: { Cookie: admin.cookie } });
+    assert.equal(firstResponse.status, 200);
+    assert.equal(firstResponse.headers.get('cache-control'), 'private, no-store, max-age=0');
+    const firstPage = await firstResponse.json() as { auditEvents: AdminAuditEventForTest[]; nextCursor: string | null };
+    assert.equal(firstPage.auditEvents.length, 2);
+    assert.equal(firstPage.auditEvents[0]!.source, 'security');
+    assert.equal(firstPage.auditEvents[0]!.eventType, 'sign_in');
+    assert.equal(firstPage.auditEvents[1]!.source, 'deletion');
+    assert.ok(firstPage.nextCursor);
+    const secondPageResponse = await fetch(`${route}?limit=2&cursor=${encodeURIComponent(firstPage.nextCursor!)}`, { headers: { Cookie: admin.cookie } });
+    const secondPage = await secondPageResponse.json() as { auditEvents: AdminAuditEventForTest[]; nextCursor: string | null };
+    assert.equal(secondPageResponse.status, 200);
+    assert.equal(secondPage.auditEvents.length, 1);
+    assert.equal(secondPage.auditEvents[0]!.source, 'admin_access');
+    assert.equal(secondPage.auditEvents[0]!.eventType, 'admin_summary_viewed');
+    assert.equal(secondPage.nextCursor, null);
+    const filteredResponse = await fetch(`${route}?source=security&eventType=sign_in&targetUserId=${target.userId}`, { headers: { Cookie: admin.cookie } });
+    const filtered = await filteredResponse.json() as { auditEvents: AdminAuditEventForTest[] };
+    assert.equal(filteredResponse.status, 200);
+    assert.equal(filtered.auditEvents.length, 1);
+    assert.equal(filtered.auditEvents[0]!.targetReference, ownerHash.slice(0, 16));
+    assert.equal((await fetch(`${route}?eventType=account_blocked`, { headers: { Cookie: admin.cookie } })).status, 400);
+    assert.equal((await fetch(`${route}?targetUserId=not-a-uuid`, { headers: { Cookie: admin.cookie } })).status, 400);
+    assert.equal((await fetch(`${route}?cursor=not-a-cursor`, { headers: { Cookie: admin.cookie } })).status, 400);
+
+    const serialized = JSON.stringify([firstPage, secondPage, filtered]);
+    for (const sensitive of [target.userId, target.cookie, target.email, admin.userId, 'private-security-event-id', 'private-deletion-request-id',
+      'private-deletion-event-id', 'private-admin-event-id', 'private-audit-metadata', 'private-admin-metadata', 'actor_user_id', 'request_id', 'ip_hash']) {
+      assert.equal(serialized.includes(sensitive), false);
+    }
+    const readAudit = await database.prepare(`SELECT metadata FROM admin_access_audit WHERE event_type='admin_audit_events_viewed'`).all() as Array<{ metadata: Record<string, unknown> }>;
+    assert.equal(readAudit.length, 3);
+    assert.ok(readAudit.every(({ metadata }) => !JSON.stringify(metadata).includes(target.userId)));
+    assert.ok(readAudit.some(({ metadata }) => metadata.hasTargetFilter === true));
+    assert.ok(readAudit.every(({ metadata }) => Object.keys(metadata).every((key) =>
+      ['limit', 'hasSourceFilter', 'hasEventTypeFilter', 'hasTargetFilter', 'hasCursor', 'resultCount'].includes(key))));
+  });
+});
+
 interface AdminImportRowForTest {
   reference: string; source: string; status: string; fileCount: number; totalBytes: number;
   entries: { accepted: number; duplicate: number; skipped: number; failed: number };
   jobs: { waiting: number; processing: number; completed: number; failed: number };
+}
+
+interface AdminAuditEventForTest {
+  reference: string; source: string; eventType: string; actorType: string; targetReference: string | null; createdAt: string;
 }

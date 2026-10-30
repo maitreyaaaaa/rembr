@@ -14,6 +14,22 @@ const searchSchema = z.object({
   offset: z.coerce.number().int().min(0).max(MAX_USER_OFFSET).default(0),
 }).strict();
 const userIdSchema = z.string().uuid();
+const auditSources = ['security', 'deletion', 'admin_access'] as const;
+const auditEventTypes = [
+  'sign_in', 'sign_out', 'deletion_requested', 'deletion_cancelled',
+  'requested', 'cancelled', 'approved', 'retry_requested', 'claim_acquired', 'step_started', 'step_completed', 'step_failed', 'completed',
+  'admin_summary_viewed', 'admin_worker_status_viewed', 'admin_import_list_viewed', 'admin_audit_events_viewed', 'admin_user_list_viewed', 'admin_user_detail_viewed',
+] as const;
+const auditCursorSchema = z.object({
+  version: z.literal(1), createdAt: z.iso.datetime(), id: z.string().min(1).max(128), source: z.enum(auditSources),
+}).strict();
+const auditEventSchema = z.object({
+  source: z.enum(auditSources).optional(),
+  eventType: z.enum(auditEventTypes).optional(),
+  targetUserId: z.string().uuid().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  cursor: z.string().max(512).optional(),
+}).strict();
 
 function error(res: express.Response, status: number, code: string, message: string, requestId?: string) {
   return res.status(status).json({ error: { code, message, ...(requestId ? { requestId } : {}) } });
@@ -21,6 +37,19 @@ function error(res: express.Response, status: number, code: string, message: str
 
 function hash(value: string): string {
   return createHash('sha256').update(value).digest('hex');
+}
+
+function decodeAuditCursor(value: string | undefined) {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as unknown;
+    const result = auditCursorSchema.safeParse(parsed);
+    return result.success ? result.data : null;
+  } catch { return null; }
+}
+
+function encodeAuditCursor(value: { createdAt: string; id: string; source: typeof auditSources[number] }): string {
+  return Buffer.from(JSON.stringify({ version: 1, ...value })).toString('base64url');
 }
 
 export function createAdminUserRouter(database: DatabaseHandle) {
@@ -41,7 +70,7 @@ export function createAdminUserRouter(database: DatabaseHandle) {
     return false;
   }
 
-  async function audit(actorId: string, eventType: 'admin_summary_viewed' | 'admin_worker_status_viewed' | 'admin_import_list_viewed' | 'admin_user_list_viewed' | 'admin_user_detail_viewed', targetId: string | null,
+  async function audit(actorId: string, eventType: 'admin_summary_viewed' | 'admin_worker_status_viewed' | 'admin_import_list_viewed' | 'admin_audit_events_viewed' | 'admin_user_list_viewed' | 'admin_user_detail_viewed', targetId: string | null,
     metadata: Record<string, boolean | number>, now = new Date()) {
     await database.prepare(`INSERT INTO admin_access_audit (id,actor_user_id,event_type,target_hash,metadata,created_at)
       VALUES (?,?,?,?,?,?)`).run(randomUUID(), actorId, eventType, targetId ? hash(targetId) : null, JSON.stringify(metadata), now.toISOString());
@@ -150,6 +179,53 @@ export function createAdminUserRouter(database: DatabaseHandle) {
       }));
       await audit(req.user!.id, 'admin_import_list_viewed', null, { limit: 50, resultCount: imports.length });
       return res.json({ imports });
+    } catch (cause) { return next(cause); }
+  });
+
+  router.get('/admin/audit-events', auth, readLimit, async (req, res, next) => {
+    try {
+      if (!await requireAdmin(req.user!.id, res, req.requestId)) return;
+      const parsed = auditEventSchema.safeParse(req.query);
+      if (!parsed.success) return error(res, 400, 'invalid_audit_filter', 'Use supported source and event filters, an account ID, and a page size from 1 to 100.', req.requestId);
+      const { source, eventType, targetUserId, limit, cursor: rawCursor } = parsed.data;
+      const cursor = decodeAuditCursor(rawCursor);
+      if (cursor === null) return error(res, 400, 'invalid_audit_cursor', 'The audit page cursor is invalid.', req.requestId);
+      const branches: string[] = [];
+      const parameters: unknown[] = [];
+      const addBranch = (branchSource: typeof auditSources[number], table: string, actorSql: string, targetColumn: string, targetValue: string | null) => {
+        const where: string[] = [];
+        if (source && source !== branchSource) where.push('FALSE');
+        if (eventType) { where.push('event_type=?'); parameters.push(eventType); }
+        if (targetValue) { where.push(`${targetColumn}=?`); parameters.push(targetValue); }
+        if (cursor) {
+          where.push(`(created_at,id,'${branchSource}') < (?,?,?)`);
+          parameters.push(cursor.createdAt, cursor.id, cursor.source);
+        }
+        branches.push(`SELECT id,created_at,'${branchSource}'::text AS source,event_type,${actorSql} AS actor_type,${targetColumn} AS target_id
+          FROM ${table}${where.length ? ` WHERE ${where.join(' AND ')}` : ''}`);
+      };
+      addBranch('security', 'account_security_events', "'owner'::text", 'owner_id', targetUserId ?? null);
+      const hashedTarget = targetUserId ? hash(targetUserId) : null;
+      addBranch('deletion', 'account_deletion_audit', 'actor_type', 'owner_hash', hashedTarget);
+      addBranch('admin_access', 'admin_access_audit', "'admin'::text", 'target_hash', hashedTarget);
+      parameters.push(limit + 1);
+      const rows = await database.prepare(`SELECT id,created_at,source,event_type,actor_type,target_id FROM (${branches.join('\nUNION ALL\n')}) events
+        ORDER BY created_at DESC,id DESC,source DESC LIMIT ?`).all(...parameters) as Array<{
+          id: string; created_at: string; source: typeof auditSources[number]; event_type: string; actor_type: string; target_id: string | null;
+        }>;
+      const hasMore = rows.length > limit;
+      const page = rows.slice(0, limit).map((row) => ({
+        reference: hash(`${row.source}:${row.id}`).slice(0, 16), source: row.source, eventType: row.event_type,
+        actorType: row.actor_type, targetReference: row.target_id
+          ? (/^[0-9a-f]{64}$/i.test(row.target_id) ? row.target_id : hash(row.target_id)).slice(0, 16)
+          : null,
+        createdAt: row.created_at,
+      }));
+      await audit(req.user!.id, 'admin_audit_events_viewed', null, {
+        limit, hasSourceFilter: Boolean(source), hasEventTypeFilter: Boolean(eventType), hasTargetFilter: Boolean(targetUserId), hasCursor: Boolean(cursor), resultCount: page.length,
+      });
+      const last = page.at(-1);
+      return res.json({ auditEvents: page, nextCursor: hasMore && last ? encodeAuditCursor({ createdAt: last.createdAt, id: rows[page.length - 1]!.id, source: last.source }) : null });
     } catch (cause) { return next(cause); }
   });
 

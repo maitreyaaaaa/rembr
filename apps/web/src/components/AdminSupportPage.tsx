@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import './admin-support-page.css';
 
 type OperatorRole = 'support' | 'admin';
@@ -61,6 +61,15 @@ interface AdminImportRow {
   entries: { accepted: number; duplicate: number; skipped: number; failed: number };
   jobs: { waiting: number; processing: number; completed: number; failed: number };
 }
+type AdminAuditSource = 'security' | 'deletion' | 'admin_access';
+interface AdminAuditEvent {
+  reference: string;
+  source: AdminAuditSource;
+  eventType: string;
+  actorType: string;
+  targetReference: string | null;
+  createdAt: string;
+}
 interface RequestError extends Error { status?: number }
 type Request = <T>(path: string, init?: RequestInit) => Promise<T>;
 
@@ -101,8 +110,19 @@ export function AdminSupportPage({ request }: { request: Request }) {
   const [imports, setImports] = useState<AdminImportRow[]>([]);
   const [importsLoading, setImportsLoading] = useState(false);
   const [importsError, setImportsError] = useState('');
+  const [auditEvents, setAuditEvents] = useState<AdminAuditEvent[]>([]);
+  const [auditEventsLoaded, setAuditEventsLoaded] = useState(false);
+  const [auditEventsLoading, setAuditEventsLoading] = useState(false);
+  const [auditEventsError, setAuditEventsError] = useState('');
+  const [auditSourceFilter, setAuditSourceFilter] = useState('');
+  const [auditEventTypeFilter, setAuditEventTypeFilter] = useState('');
+  const [auditTargetUserFilter, setAuditTargetUserFilter] = useState('');
+  const [auditNextCursor, setAuditNextCursor] = useState<string | null>(null);
+  const [auditCurrentCursor, setAuditCurrentCursor] = useState<string | undefined>();
+  const [auditPreviousCursors, setAuditPreviousCursors] = useState<Array<string | undefined>>([]);
   const userSearchSequence = useRef(0);
   const userDetailSequence = useRef(0);
+  const auditEventsSequence = useRef(0);
 
   const load = useCallback(async (isRefresh = false) => {
     if (isRefresh) setRefreshing(true);
@@ -116,6 +136,8 @@ export function AdminSupportPage({ request }: { request: Request }) {
         setOverview(null);
         setWorkerStatus(null);
         setImports([]);
+        setAuditEvents([]);
+        setAuditEventsLoaded(false);
         return;
       }
       const body = await request<{ deletions: QueueEntry[] }>('/api/admin/account-deletions?limit=50');
@@ -153,7 +175,7 @@ export function AdminSupportPage({ request }: { request: Request }) {
         setOverviewLoading(false);
         setWorkerStatusLoading(false);
         setImportsLoading(false);
-      } else { setOverview(null); setWorkerStatus(null); setImports([]); }
+      } else { setOverview(null); setWorkerStatus(null); setImports([]); setAuditEvents([]); setAuditEventsLoaded(false); }
     } catch (cause) {
       const failure = cause as RequestError;
       setError(failure.message || 'Could not load the operator queue. Try again.');
@@ -225,6 +247,45 @@ export function AdminSupportPage({ request }: { request: Request }) {
       const failure = cause as RequestError;
       setSelectedUserError(failure.message || 'Could not load account details.');
     } finally { if (sequence === userDetailSequence.current) setSelectedUserLoading(false); }
+  }
+
+  async function loadAuditEvents(cursor?: string) {
+    const sequence = ++auditEventsSequence.current;
+    setAuditEventsLoading(true); setAuditEventsError(''); setAuditCurrentCursor(cursor);
+    try {
+      const params = new URLSearchParams({ limit: '50' });
+      if (auditSourceFilter) params.set('source', auditSourceFilter);
+      if (auditEventTypeFilter) params.set('eventType', auditEventTypeFilter);
+      if (auditTargetUserFilter.trim()) params.set('targetUserId', auditTargetUserFilter.trim());
+      if (cursor) params.set('cursor', cursor);
+      const result = await request<{ auditEvents: AdminAuditEvent[]; nextCursor: string | null }>(`/api/admin/audit-events?${params}`);
+      if (sequence !== auditEventsSequence.current) return;
+      setAuditEvents(result.auditEvents); setAuditNextCursor(result.nextCursor); setAuditEventsLoaded(true);
+    } catch (cause) {
+      if (sequence !== auditEventsSequence.current) return;
+      const failure = cause as RequestError;
+      setAuditEventsError(failure.message || 'Could not load audit events.');
+      setAuditEvents([]); setAuditNextCursor(null); setAuditEventsLoaded(true);
+    } finally { if (sequence === auditEventsSequence.current) setAuditEventsLoading(false); }
+  }
+
+  function filterAuditEvents(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setAuditPreviousCursors([]);
+    void loadAuditEvents();
+  }
+
+  function nextAuditEventsPage() {
+    if (!auditNextCursor) return;
+    setAuditPreviousCursors((previous) => [...previous, auditCurrentCursor]);
+    void loadAuditEvents(auditNextCursor);
+  }
+
+  function previousAuditEventsPage() {
+    if (!auditPreviousCursors.length) return;
+    const previous = auditPreviousCursors.at(-1);
+    setAuditPreviousCursors((current) => current.slice(0, -1));
+    void loadAuditEvents(previous);
   }
 
   return <main className="admin-support-page">
@@ -304,6 +365,36 @@ export function AdminSupportPage({ request }: { request: Request }) {
                 <span>Jobs: {entry.jobs.waiting} waiting · {entry.jobs.processing} processing · {entry.jobs.completed} completed · {entry.jobs.failed} failed</span>
               </div>
             </li>)}</ul> : <p className="admin-empty" role="status">No imports have been recorded.</p>}
+      </section>}
+      {role === 'admin' && <section className="phase2-panel admin-overview-panel" aria-labelledby="admin-events-title">
+        <div className="admin-queue-heading"><div><h2 id="admin-events-title">Audit events</h2><p className="phase2-helper">Browse security, deletion, and administrator-access events. Results contain fixed event labels, actor type, short hashed references, and timestamps only.</p></div></div>
+        <form className="admin-user-search" onSubmit={filterAuditEvents}>
+          <label htmlFor="admin-audit-source">Event source</label>
+          <select id="admin-audit-source" value={auditSourceFilter} onChange={(event) => setAuditSourceFilter(event.target.value)}>
+            <option value="">All sources</option><option value="security">Account security</option><option value="deletion">Account deletion</option><option value="admin_access">Admin access</option>
+          </select>
+          <label htmlFor="admin-audit-event-type">Event type</label>
+          <select id="admin-audit-event-type" value={auditEventTypeFilter} onChange={(event) => setAuditEventTypeFilter(event.target.value)}>
+            <option value="">All event types</option>
+            {['sign_in', 'sign_out', 'deletion_requested', 'deletion_cancelled', 'requested', 'cancelled', 'approved', 'retry_requested', 'claim_acquired', 'step_started', 'step_completed', 'step_failed', 'completed', 'admin_summary_viewed', 'admin_worker_status_viewed', 'admin_import_list_viewed', 'admin_audit_events_viewed', 'admin_user_list_viewed', 'admin_user_detail_viewed'].map((type) => <option key={type} value={type}>{type.replaceAll('_', ' ')}</option>)}
+          </select>
+          <label htmlFor="admin-audit-target">Target account ID (optional)</label>
+          <input id="admin-audit-target" type="text" autoComplete="off" maxLength={36} value={auditTargetUserFilter} onChange={(event) => setAuditTargetUserFilter(event.target.value)} placeholder="Account UUID" />
+          <p className="admin-audit-note">The account ID is used only to filter. The response and audit record retain only a short hash reference.</p>
+          <button className="primary-button" type="submit" disabled={auditEventsLoading}>{auditEventsLoading ? 'Loading audit events…' : 'Load audit events'}</button>
+        </form>
+        {auditEventsError && <p className="notice error" role="alert">{auditEventsError}</p>}
+        {auditEventsLoading ? <p className="phase2-state" role="status">Loading audit events…</p>
+          : auditEventsLoaded ? auditEvents.length ? <ol className="admin-audit-list">{auditEvents.map((event) => <li key={event.reference}>
+            <strong>{event.source.replaceAll('_', ' ')} · {event.eventType.replaceAll('_', ' ')}</strong>
+            <span>Actor: {event.actorType} · Target ref: {event.targetReference ?? 'not applicable'} · Event ref: {event.reference}</span>
+            <time dateTime={event.createdAt}>{formatDate(event.createdAt)}</time>
+          </li>)}</ol> : <p className="admin-empty" role="status">No audit events match these filters.</p>
+          : <p className="admin-empty">Choose filters and load the latest audit events.</p>}
+        {auditEventsLoaded && <div className="admin-user-pagination">
+          <button className="quiet-button" type="button" disabled={auditEventsLoading || auditPreviousCursors.length === 0} onClick={previousAuditEventsPage}>Previous</button>
+          <button className="quiet-button" type="button" disabled={auditEventsLoading || !auditNextCursor} onClick={nextAuditEventsPage}>Next</button>
+        </div>}
       </section>}
       <section className="phase2-panel admin-queue-panel" aria-labelledby="admin-queue-title">
         <div className="admin-queue-heading"><div><h2 id="admin-queue-title">Account deletion queue</h2><p className="phase2-helper">The queue hides email addresses and account IDs. Support can review requests; only admins can approve or retry them.</p></div><button className="quiet-button" type="button" disabled={refreshing} onClick={() => void load(true)}>{refreshing ? 'Refreshing…' : 'Refresh'}</button></div>
