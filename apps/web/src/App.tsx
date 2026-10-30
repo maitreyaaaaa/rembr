@@ -28,6 +28,7 @@ interface SavedItem {
 interface Onboarding { contentTypes: string[]; referralSource: string; completedAt: string | null; skippedAt: string | null }
 interface AiPreference { enabled: boolean; consentVersion: string | null; consentedAt: string | null; disabledAt: string | null; updatedAt: string | null; providerAvailable: boolean }
 interface LocalOcrPreference { enabled: boolean; consentVersion: string | null; consentedAt: string | null; disabledAt: string | null; updatedAt: string | null; providerAvailable: boolean }
+interface LocalAsrPreference { enabled: boolean; consentVersion: string | null; consentedAt: string | null; disabledAt: string | null; updatedAt: string | null; providerAvailable: boolean }
 type AiSearchPreference = AiPreference;
 type VisualSearchPreference = AiPreference;
 interface SemanticSearchPreference extends AiPreference { indexedItems: number; eligibleItems: number }
@@ -50,6 +51,7 @@ interface LibraryChatTurn { role: 'user' | 'assistant'; content: string; respons
 interface SavedItemSummary { id: string; itemId: string; generation: number; model: string; promptVersion: string; sourceCharacters: number; summary: string; createdAt: string; stale?: boolean }
 const AI_DISCLOSURE_VERSION = '2026-10-29-v2';
 const LOCAL_OCR_DISCLOSURE_VERSION = '2026-10-30-v1';
+const LOCAL_ASR_DISCLOSURE_VERSION = '2026-10-30-v1';
 const AI_SEARCH_DISCLOSURE_VERSION = '2026-10-29-v5';
 const VISUAL_SEARCH_DISCLOSURE_VERSION = '2026-10-29-v1';
 const SEMANTIC_SEARCH_DISCLOSURE_VERSION = '2026-10-30-v1';
@@ -1072,12 +1074,44 @@ function LocalOcrSettings() {
     } catch (cause) { setError(messageOf(cause, 'Could not update local OCR settings.')); }
     finally { setBusy(false); }
   }
-  return <section className="phase2-panel phase2-narrow ai-preference-panel" aria-labelledby="local-ocr-title">
+  return <><section className="phase2-panel phase2-narrow ai-preference-panel" aria-labelledby="local-ocr-title">
     <h2 id="local-ocr-title">Local image text recognition</h2>
     <p className="phase2-helper">When enabled, the Rembr worker runs English text recognition with Tesseract on up to five publicly accessible images from each new Instagram import. It extracts readable text only; images are not sent over the network by this option. Extracted text is saved with the item’s media-analysis notes.</p>
     <div className="ai-provider-status" role="status">{preference?.providerAvailable ? 'The worker has a local OCR runtime available.' : 'Local OCR is not configured on the worker yet. You can save this preference now; jobs will wait until the runtime is available.'}</div>
     <label className="phase2-check ai-preference-toggle"><input type="checkbox" role="switch" aria-label="Allow the Rembr worker to run local OCR on public Instagram images in future imports" checked={Boolean(preference?.enabled)} disabled={busy || !preference} onChange={(event) => void save(event.currentTarget.checked)} /><span>Allow local text recognition on images in future Instagram imports</span></label>
     <p className="field-note">Off by default and separate from Meta media analysis. This setting does not grant Meta permission; if both options are enabled, Meta processing follows its separate consent. Local OCR uses the worker’s configured Tesseract executable, runs only on images already selected for analysis, and is bounded to five images per imported post. You can turn it off at any time.</p>
+    {error && <p className="notice error" role="alert">{error}</p>}
+    {preference?.enabled && <p className="field-note" role="status">Enabled{preference.consentedAt ? ` since ${new Date(preference.consentedAt).toLocaleDateString()}` : ''}.</p>}
+  </section><LocalAsrSettings /></>;
+}
+
+function LocalAsrSettings() {
+  const [preference, setPreference] = useState<LocalAsrPreference | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    let alive = true;
+    void api<{ preference: LocalAsrPreference }>('/api/ai/local-asr-preferences')
+      .then((result) => { if (alive) setPreference(result.preference); })
+      .catch((cause) => { if (alive) setError(messageOf(cause, 'Could not load local transcription settings.')); });
+    return () => { alive = false; };
+  }, []);
+  async function save(enabled: boolean) {
+    setBusy(true); setError('');
+    try {
+      const result = await api<{ preference: LocalAsrPreference }>('/api/ai/local-asr-preferences', {
+        method: 'PUT', body: JSON.stringify({ enabled, disclosureVersion: enabled ? LOCAL_ASR_DISCLOSURE_VERSION : undefined }),
+      });
+      setPreference(result.preference);
+    } catch (cause) { setError(messageOf(cause, 'Could not update local transcription settings.')); }
+    finally { setBusy(false); }
+  }
+  return <section className="phase2-panel phase2-narrow ai-preference-panel" aria-labelledby="local-asr-title">
+    <h2 id="local-asr-title">Local audio transcription</h2>
+    <p className="phase2-helper">When enabled, Rembr runs a preconfigured local Whisper model on up to six private temporary audio chunks from each new Instagram import (up to 60 minutes total). Transcripts are saved with the item’s media-analysis notes.</p>
+    <div className="ai-provider-status" role="status">{preference?.providerAvailable ? 'The worker has a local Whisper runtime and model available.' : 'Local transcription is not configured on the worker yet. You can save this preference now; jobs will wait until the runtime and local model are available.'}</div>
+    <label className="phase2-check ai-preference-toggle"><input type="checkbox" role="switch" aria-label="Allow the Rembr worker to transcribe public Instagram media with its local Whisper model" checked={Boolean(preference?.enabled)} disabled={busy || !preference} onChange={(event) => void save(event.currentTarget.checked)} /><span>Allow local transcription of audio in future Instagram imports</span></label>
+    <p className="field-note">Off by default and separate from both Meta media analysis and local image text recognition. The worker must have Whisper and a model file already installed; enabling this setting does not download a model. Audio is processed on the Rembr worker and is not sent to Meta by this setting. If Meta analysis is also enabled, it follows its separate consent. You can turn local transcription off at any time.</p>
     {error && <p className="notice error" role="alert">{error}</p>}
     {preference?.enabled && <p className="field-note" role="status">Enabled{preference.consentedAt ? ` since ${new Date(preference.consentedAt).toLocaleDateString()}` : ''}.</p>}
   </section>;

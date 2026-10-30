@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { createTestDatabase } from '../src/db/database.js';
 import { AiBudgetExceededError, createAiUsageRepository, MONTHLY_AI_CAP_MICROUSD, sparkCostMicroUsd, utcMonthStart, voiceCostMicroUsd } from '../src/ai/usage.js';
-import { AI_DISCLOSURE_VERSION, LOCAL_OCR_DISCLOSURE_VERSION, createAiPreferenceRepository } from '../src/ai/preferences.js';
+import { AI_DISCLOSURE_VERSION, LOCAL_ASR_DISCLOSURE_VERSION, LOCAL_OCR_DISCLOSURE_VERSION, createAiPreferenceRepository } from '../src/ai/preferences.js';
 import { MetaApiError } from '../src/ai/meta-client.js';
 import { processNextAiJob, resolveAiMediaWithOwnerLease, type AiJob, type AiMediaLeaseRunner, type AiModelClient } from '../src/ai/worker.js';
 
@@ -226,6 +226,46 @@ test('local OCR runs with its own consent when Meta is unavailable and records n
     assert.equal(Number(result.billed_microusd), 0);
     assert.equal(result.image_count, 1);
     assert.equal((await database.prepare('SELECT count(*) AS count FROM ai_usage_reservations WHERE job_id=?').get('local-ocr-job') as { count: number }).count, 0);
+  } finally { await database.close(); await rm(root, { recursive: true, force: true }); }
+});
+
+test('local ASR runs with independent consent, saves a transcript, and records no paid usage', async () => {
+  const database = await createTestDatabase();
+  const root = await mkdtemp(join(tmpdir(), 'rembr-local-asr-worker-'));
+  try {
+    const now = new Date('2026-10-30T10:00:00.000Z');
+    await seedImport(database, 'local-asr-import', 'local-asr-job', now.toISOString());
+    await database.prepare(`INSERT INTO ai_analysis_preferences
+      (owner_id,enabled,consent_version,consented_at,updated_at,local_asr_enabled,local_asr_consent_version,local_asr_consented_at)
+      VALUES ('budget-user',FALSE,NULL,NULL,?,TRUE,?,?)`).run(now.toISOString(), LOCAL_ASR_DISCLOSURE_VERSION, now.toISOString());
+    const path = join(root, 'rembr-direct-audio-000.wav');
+    const bytes = Buffer.alloc(44); bytes.write('RIFF', 0, 'ascii'); bytes.write('WAVE', 8, 'ascii');
+    await writeFile(path, bytes);
+    const unusedMetaClient = new Proxy({}, { get: () => async () => { throw new Error('Meta must not be called'); } }) as AiModelClient;
+    let cleaned = false;
+    const jobId = await processNextAiJob(database, unusedMetaClient,
+      async () => ({ files: [{ path, mime: 'audio/wav', byteSize: bytes.length, kind: 'wav', durationSeconds: 12 }], cleanup: async () => { cleaned = true; await rm(path, { force: true }); } }),
+      false, now, undefined, async (audio, signal) => {
+        assert.equal(audio.path, path);
+        assert.ok(signal);
+        assert.equal((await database.prepare('SELECT count(*) AS count FROM account_owner_work_leases WHERE owner_id=? AND expires_at>?')
+          .get('budget-user', new Date().toISOString()) as { count: number }).count, 1);
+        return '  Local speech transcript.  ';
+      });
+    assert.equal(jobId, 'local-asr-job');
+    assert.equal(cleaned, true);
+    const result = await database.prepare(`SELECT status,model,transcript,input_tokens,output_tokens,billed_microusd,audio_seconds
+      FROM ai_analysis_results WHERE item_id='item-local-asr-import'`).get() as {
+        status: string; model: string; transcript: string; input_tokens: number; output_tokens: number; billed_microusd: string; audio_seconds: number;
+      };
+    assert.equal(result.status, 'completed');
+    assert.equal(result.model, 'whisper-local-asr');
+    assert.equal(result.transcript, 'Local speech transcript.');
+    assert.equal(result.input_tokens, 0);
+    assert.equal(result.output_tokens, 0);
+    assert.equal(Number(result.billed_microusd), 0);
+    assert.equal(result.audio_seconds, 12);
+    assert.equal((await database.prepare('SELECT count(*) AS count FROM ai_usage_reservations WHERE job_id=?').get('local-asr-job') as { count: number }).count, 0);
   } finally { await database.close(); await rm(root, { recursive: true, force: true }); }
 });
 

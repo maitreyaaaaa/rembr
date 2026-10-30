@@ -3,6 +3,7 @@ import { lockActiveOwner } from '../account/owner-lifecycle.js';
 
 export const AI_DISCLOSURE_VERSION = '2026-10-29-v2';
 export const LOCAL_OCR_DISCLOSURE_VERSION = '2026-10-30-v1';
+export const LOCAL_ASR_DISCLOSURE_VERSION = '2026-10-30-v1';
 
 export interface AiPreference {
   enabled: boolean;
@@ -14,6 +15,15 @@ export interface AiPreference {
 }
 
 export interface LocalOcrPreference {
+  enabled: boolean;
+  consentVersion: string | null;
+  consentedAt: string | null;
+  disabledAt: string | null;
+  updatedAt: string | null;
+  providerAvailable: boolean;
+}
+
+export interface LocalAsrPreference {
   enabled: boolean;
   consentVersion: string | null;
   consentedAt: string | null;
@@ -54,8 +64,10 @@ export function createAiPreferenceRepository(database: DatabaseHandle) {
           await database.prepare(`UPDATE ai_analysis_jobs SET status='cancelled',pause_reason='consent_disabled',
             error_code='consent_disabled',updated_at=?,completed_at=?
             WHERE owner_id=? AND status IN ('queued','paused') AND NOT EXISTS (
-              SELECT 1 FROM ai_analysis_preferences p WHERE p.owner_id=ai_analysis_jobs.owner_id AND p.local_ocr_enabled=TRUE
-                AND p.local_ocr_consent_version=?)`).run(now, now, ownerId, LOCAL_OCR_DISCLOSURE_VERSION);
+              SELECT 1 FROM ai_analysis_preferences p WHERE p.owner_id=ai_analysis_jobs.owner_id AND (
+                (p.local_ocr_enabled=TRUE AND p.local_ocr_consent_version=?) OR
+                (p.local_asr_enabled=TRUE AND p.local_asr_consent_version=?)
+              ))`).run(now, now, ownerId, LOCAL_OCR_DISCLOSURE_VERSION, LOCAL_ASR_DISCLOSURE_VERSION);
         }
       })();
     },
@@ -91,8 +103,49 @@ export function createAiPreferenceRepository(database: DatabaseHandle) {
           await database.prepare(`UPDATE ai_analysis_jobs SET status='cancelled',pause_reason='consent_disabled',
             error_code='consent_disabled',updated_at=?,completed_at=?
             WHERE owner_id=? AND status IN ('queued','paused') AND NOT EXISTS (
-              SELECT 1 FROM ai_analysis_preferences p WHERE p.owner_id=ai_analysis_jobs.owner_id AND p.enabled=TRUE
-                AND p.consent_version=?)`).run(now, now, ownerId, AI_DISCLOSURE_VERSION);
+              SELECT 1 FROM ai_analysis_preferences p WHERE p.owner_id=ai_analysis_jobs.owner_id AND (
+                (p.enabled=TRUE AND p.consent_version=?) OR
+                (p.local_asr_enabled=TRUE AND p.local_asr_consent_version=?)
+              ))`).run(now, now, ownerId, AI_DISCLOSURE_VERSION, LOCAL_ASR_DISCLOSURE_VERSION);
+        }
+      })();
+    },
+
+    async getLocalAsr(ownerId: string, providerAvailable: boolean): Promise<LocalAsrPreference> {
+      const row = await database.prepare(`SELECT local_asr_enabled,local_asr_consent_version,local_asr_consented_at,
+          local_asr_disabled_at,updated_at FROM ai_analysis_preferences WHERE owner_id=?`).get(ownerId) as {
+        local_asr_enabled: boolean | number; local_asr_consent_version: string | null;
+        local_asr_consented_at: string | null; local_asr_disabled_at: string | null; updated_at: string;
+      } | undefined;
+      return {
+        enabled: Boolean(row?.local_asr_enabled && row.local_asr_consent_version === LOCAL_ASR_DISCLOSURE_VERSION),
+        consentVersion: row?.local_asr_consent_version ?? null, consentedAt: row?.local_asr_consented_at ?? null,
+        disabledAt: row?.local_asr_disabled_at ?? null, updatedAt: row?.updated_at ?? null, providerAvailable,
+      };
+    },
+
+    async setLocalAsr(ownerId: string, enabled: boolean): Promise<void> {
+      const now = new Date().toISOString();
+      await database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
+        await database.prepare(`INSERT INTO ai_analysis_preferences
+          (owner_id,enabled,consent_version,consented_at,disabled_at,updated_at,
+           local_asr_enabled,local_asr_consent_version,local_asr_consented_at,local_asr_disabled_at)
+          VALUES (?,FALSE,NULL,NULL,NULL,?,?,?,?,?)
+          ON CONFLICT (owner_id) DO UPDATE SET local_asr_enabled=excluded.local_asr_enabled,
+            local_asr_consent_version=CASE WHEN excluded.local_asr_enabled THEN excluded.local_asr_consent_version ELSE ai_analysis_preferences.local_asr_consent_version END,
+            local_asr_consented_at=CASE WHEN excluded.local_asr_enabled THEN excluded.local_asr_consented_at ELSE ai_analysis_preferences.local_asr_consented_at END,
+            local_asr_disabled_at=CASE WHEN excluded.local_asr_enabled THEN NULL ELSE excluded.local_asr_disabled_at END,
+            updated_at=excluded.updated_at`)
+          .run(ownerId, now, enabled, enabled ? LOCAL_ASR_DISCLOSURE_VERSION : null, enabled ? now : null, enabled ? null : now);
+        if (!enabled) {
+          await database.prepare(`UPDATE ai_analysis_jobs SET status='cancelled',pause_reason='consent_disabled',
+            error_code='consent_disabled',updated_at=?,completed_at=?
+            WHERE owner_id=? AND status IN ('queued','paused') AND NOT EXISTS (
+              SELECT 1 FROM ai_analysis_preferences p WHERE p.owner_id=ai_analysis_jobs.owner_id AND (
+                (p.enabled=TRUE AND p.consent_version=?) OR
+                (p.local_ocr_enabled=TRUE AND p.local_ocr_consent_version=?)
+              ))`).run(now, now, ownerId, AI_DISCLOSURE_VERSION, LOCAL_OCR_DISCLOSURE_VERSION);
         }
       })();
     },

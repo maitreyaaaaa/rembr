@@ -9,7 +9,7 @@ import { createApp } from '../src/app.js';
 import { createTestDatabase } from '../src/db/database.js';
 import { createImportService, validateImportFiles } from '../src/imports/service.js';
 import { createImportRepository } from '../src/imports/repository.js';
-import { LOCAL_OCR_DISCLOSURE_VERSION } from '../src/ai/preferences.js';
+import { LOCAL_ASR_DISCLOSURE_VERSION, LOCAL_OCR_DISCLOSURE_VERSION } from '../src/ai/preferences.js';
 import type { ParsedImportItem } from '../src/imports/parser.js';
 import { LocalImportStorage } from '../src/imports/storage.js';
 import { LocalMediaStorage } from '../src/media/storage.js';
@@ -54,6 +54,28 @@ test('new Instagram imports queue analysis for separate local OCR consent withou
     }]);
     assert.equal((await database.prepare(`SELECT count(*) AS count FROM ai_analysis_jobs
       WHERE owner_id='local-ocr-import-user' AND import_id='local-ocr-import'`).get() as { count: number }).count, 1);
+  } finally { await database.close(); }
+});
+
+test('new Instagram imports queue analysis for separate local ASR consent without Meta consent', async () => {
+  const database = await createTestDatabase();
+  try {
+    const now = new Date().toISOString();
+    await database.prepare(`INSERT INTO users (id,email,password_hash,created_at)
+      VALUES ('local-asr-import-user','local-asr-import@example.test','x',?)`).run(now);
+    await database.prepare(`INSERT INTO imports (id,owner_id,request_id,source,status,created_at,updated_at,lease_token,lease_expires_at)
+      VALUES ('local-asr-import','local-asr-import-user','local-asr-import','instagram','parsing',?,?, 'parse-lease',?)`)
+      .run(now, now, new Date(Date.now() + 60_000).toISOString());
+    await database.prepare(`INSERT INTO ai_analysis_preferences
+      (owner_id,enabled,consent_version,consented_at,updated_at,local_asr_enabled,local_asr_consent_version,local_asr_consented_at)
+      VALUES ('local-asr-import-user',FALSE,NULL,NULL,?,TRUE,?,?)`)
+      .run(now, LOCAL_ASR_DISCLOSURE_VERSION, now);
+    await createImportRepository(database).accept('local-asr-import-user', 'local-asr-import', 'parse-lease', [], [{
+      platform: 'instagram', url: 'https://www.instagram.com/p/local-asr-item/', sourceId: 'local-asr-item',
+      title: 'Saved audio', description: '', collection: null, metadata: {}, sourceOrder: 0,
+    }]);
+    assert.equal((await database.prepare(`SELECT count(*) AS count FROM ai_analysis_jobs
+      WHERE owner_id='local-asr-import-user' AND import_id='local-asr-import'`).get() as { count: number }).count, 1);
   } finally { await database.close(); }
 });
 async function withApi(run: (baseUrl: string, database: Awaited<ReturnType<typeof createTestDatabase>>, importPath: string, mediaPath: string) => Promise<void>) {

@@ -60,3 +60,11 @@ services:
         value: /usr/bin/tesseract
       - key: LOCAL_OCR_TIMEOUT_MS
         value: "30000"
+      - key: LOCAL_ASR_ENABLED
+        value: "false"
+      - key: WHISPER_PATH
+        value: whisper
+      - key: WHISPER_MODEL_PATH
+        value: ""
+      - key: LOCAL_ASR_TIMEOUT_MS
+        value: "300000"

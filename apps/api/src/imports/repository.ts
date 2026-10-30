@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { basename } from 'node:path';
 import { lockActiveOwner } from '../account/owner-lifecycle.js';
 import type { DatabaseHandle } from '../db/database.js';
-import { AI_DISCLOSURE_VERSION, LOCAL_OCR_DISCLOSURE_VERSION } from '../ai/preferences.js';
+import { AI_DISCLOSURE_VERSION, LOCAL_ASR_DISCLOSURE_VERSION, LOCAL_OCR_DISCLOSURE_VERSION } from '../ai/preferences.js';
 import type { ParsedImportItem } from './parser.js';
 
 const ACCEPT_BATCH_SIZE = 250;
@@ -318,12 +318,15 @@ export function createImportRepository(database: DatabaseHandle) {
           if (!fileIds.has(failure.fileId)) throw new ImportRepositoryError('upload_file_not_found');
           entryRows.push([randomUUID(), ownerId, importId, failure.fileId, null, null, 'unknown', null, null, '', '{}', 'failed', failure.code, null, now]);
         }
-        const preference = await database.prepare(`SELECT enabled,consent_version,local_ocr_enabled,local_ocr_consent_version
+        const preference = await database.prepare(`SELECT enabled,consent_version,local_ocr_enabled,local_ocr_consent_version,
+            local_asr_enabled,local_asr_consent_version
           FROM ai_analysis_preferences WHERE owner_id=?`)
           .get(ownerId) as { enabled: boolean | number; consent_version: string | null;
-            local_ocr_enabled: boolean | number; local_ocr_consent_version: string | null } | undefined;
+            local_ocr_enabled: boolean | number; local_ocr_consent_version: string | null;
+            local_asr_enabled: boolean | number; local_asr_consent_version: string | null } | undefined;
         const aiEnabled = Boolean((preference?.enabled && preference.consent_version === AI_DISCLOSURE_VERSION)
-          || (preference?.local_ocr_enabled && preference.local_ocr_consent_version === LOCAL_OCR_DISCLOSURE_VERSION));
+          || (preference?.local_ocr_enabled && preference.local_ocr_consent_version === LOCAL_OCR_DISCLOSURE_VERSION)
+          || (preference?.local_asr_enabled && preference.local_asr_consent_version === LOCAL_ASR_DISCLOSURE_VERSION));
         for (const entry of items) {
           const uploadFileId = fileIdsByName.get(String(entry.metadata.sourceFile ?? '')) ?? null;
           const sourceOrder = entry.platform === 'instagram' ? instagramOrderByItem.get(entry) ?? null : null;

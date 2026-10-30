@@ -37,3 +37,9 @@
 - Keep the user's browser/accessibility confirmation marked as reported evidence; add exact routes/viewports or screenshots if those are needed for a reproducible review record.
 - Verify the Phase 4 branch in a hosted app runtime after the user's planned branch integration; the current Render web service still deploys `master`.
 - The Phase 4 exit gate from [`phase-gated-roadmap.md`](phase-gated-roadmap.md#phase-4--search-knowledge-and-optional-ai) remains **open**: all agreed search/knowledge features are not yet proven complete.
+
+## Local ASR increment (2026-10-30)
+
+- Added a separate default-off local ASR consent and a Whisper-compatible worker adapter on the Phase 6 implementation branch. It consumes only the existing bounded private WAV chunks, runs with an owner-work lease and fixed CLI arguments, stores at most 60,000 transcript characters, and does not reserve paid-provider usage.
+- A model file must already be provisioned; the worker does not download one. The runtime/model are not bundled, installed, or validated here. No real audio was transcribed. The local pipeline adapter does not close the broader IScraper ADR-010 extractor, media-source, or Phase 4 acceptance gates.
+- `npm.cmd run check` passed locally after the ASR increment: API/web typecheck and lint, all 194 API tests, and API/web production builds. Vite emitted the large-chunk warning (2,402.54 kB minified). `git diff --check` passed. No production Whisper/model was installed or exercised, and no hosted migration/runtime verification was performed.

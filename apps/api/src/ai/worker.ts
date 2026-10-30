@@ -3,8 +3,9 @@ import { readFile } from 'node:fs/promises';
 import { lockActiveOwner } from '../account/owner-lifecycle.js';
 import type { DatabaseHandle } from '../db/database.js';
 import { OwnerLifecycleError, withOwnerWorkLease } from '../account/owner-lifecycle.js';
-import { AI_DISCLOSURE_VERSION, LOCAL_OCR_DISCLOSURE_VERSION } from './preferences.js';
+import { AI_DISCLOSURE_VERSION, LOCAL_ASR_DISCLOSURE_VERSION, LOCAL_OCR_DISCLOSURE_VERSION } from './preferences.js';
 import type { LocalOcrImage } from './local-ocr.js';
+import type { LocalAsrAudio } from './local-asr.js';
 import { AiBudgetExceededError, createAiUsageRepository, sparkCostMicroUsd, voiceCostMicroUsd, type AiUsageReservation } from './usage.js';
 import { MetaApiError, groupImageInputs, MAX_AUDIO_BODY_BYTES, MAX_AUDIO_SECONDS, MAX_IMAGE_BYTES, MAX_INLINE_IMAGE_GROUP_BYTES, MAX_VIDEO_BYTES, MUSE_SPARK_MODEL, MUSE_VOICE_MODEL, type ImageInput, type ModelTextResult, type TranscriptionResult } from './meta-client.js';
 
@@ -16,6 +17,7 @@ class AiConsentDisabledError extends Error {}
 class AiMetaConsentDisabledError extends Error {}
 
 export type LocalOcrExtractor = (image: LocalOcrImage, signal?: AbortSignal) => Promise<string>;
+export type LocalAsrExtractor = (audio: LocalAsrAudio, signal?: AbortSignal) => Promise<string>;
 
 export interface AiJob {
   id: string; owner_id: string; import_id: string; item_id: string; generation: number; attempts: number;
@@ -67,7 +69,7 @@ export interface AiModelClient {
 interface ClaimedAiJob extends Omit<AiJob, 'lease_token'> { lease_token: string }
 
 async function claimNextAiJob(database: DatabaseHandle, now: Date, apiKeyAvailable: boolean,
-  localOcrAvailable: boolean): Promise<ClaimedAiJob | undefined> {
+  localOcrAvailable: boolean, localAsrAvailable: boolean): Promise<ClaimedAiJob | undefined> {
   const timestamp = now.toISOString();
   const monthStart = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-01`;
   await database.transaction(async () => {
@@ -97,8 +99,10 @@ async function claimNextAiJob(database: DatabaseHandle, now: Date, apiKeyAvailab
       WHERE status='paused' AND pause_reason='provider_unavailable' AND available_at<=? AND EXISTS (
         SELECT 1 FROM ai_analysis_preferences p WHERE p.owner_id=ai_analysis_jobs.owner_id AND (
           (? AND p.enabled=TRUE AND p.consent_version=?) OR
-          (? AND p.local_ocr_enabled=TRUE AND p.local_ocr_consent_version=?)))`)
-      .run(timestamp, timestamp, apiKeyAvailable, AI_DISCLOSURE_VERSION, localOcrAvailable, LOCAL_OCR_DISCLOSURE_VERSION);
+          (? AND p.local_ocr_enabled=TRUE AND p.local_ocr_consent_version=?) OR
+          (? AND p.local_asr_enabled=TRUE AND p.local_asr_consent_version=?)))`)
+      .run(timestamp, timestamp, apiKeyAvailable, AI_DISCLOSURE_VERSION, localOcrAvailable, LOCAL_OCR_DISCLOSURE_VERSION,
+        localAsrAvailable, LOCAL_ASR_DISCLOSURE_VERSION);
   })();
   return database.transaction(async () => {
     const row = await database.prepare(`SELECT j.id,j.owner_id,j.import_id,j.item_id,j.generation,j.attempts,
@@ -109,11 +113,13 @@ async function claimNextAiJob(database: DatabaseHandle, now: Date, apiKeyAvailab
       LEFT JOIN extracted_artifacts e ON e.item_id=j.item_id AND e.owner_id=j.owner_id
       JOIN ai_analysis_preferences p ON p.owner_id=j.owner_id AND (
         (? AND p.enabled=TRUE AND p.consent_version=?) OR
-        (? AND p.local_ocr_enabled=TRUE AND p.local_ocr_consent_version=?))
+        (? AND p.local_ocr_enabled=TRUE AND p.local_ocr_consent_version=?) OR
+        (? AND p.local_asr_enabled=TRUE AND p.local_asr_consent_version=?))
       WHERE u.account_status='active' AND j.attempts<j.max_attempts AND ((j.status='queued' AND j.available_at<=?) OR
         (j.status='processing' AND j.lease_expires_at<=?))
       ORDER BY j.created_at ASC,j.import_id ASC,j.id ASC LIMIT 1 FOR UPDATE OF u SKIP LOCKED`)
-      .get(apiKeyAvailable, AI_DISCLOSURE_VERSION, localOcrAvailable, LOCAL_OCR_DISCLOSURE_VERSION, timestamp, timestamp) as
+      .get(apiKeyAvailable, AI_DISCLOSURE_VERSION, localOcrAvailable, LOCAL_OCR_DISCLOSURE_VERSION,
+        localAsrAvailable, LOCAL_ASR_DISCLOSURE_VERSION, timestamp, timestamp) as
       Omit<ClaimedAiJob, 'lease_token'> | undefined;
     if (!row) return undefined;
     const leaseToken = randomUUID();
@@ -219,8 +225,8 @@ async function saveResult(database: DatabaseHandle, job: ClaimedAiJob, data: {
 }
 
 export async function processNextAiJob(database: DatabaseHandle, client: AiModelClient, resolver: AiMediaResolver,
-  apiKeyAvailable: boolean, now = new Date(), localOcr?: LocalOcrExtractor): Promise<string | null> {
-  const job = await claimNextAiJob(database, now, apiKeyAvailable, Boolean(localOcr));
+  apiKeyAvailable: boolean, now = new Date(), localOcr?: LocalOcrExtractor, localAsr?: LocalAsrExtractor): Promise<string | null> {
+  const job = await claimNextAiJob(database, now, apiKeyAvailable, Boolean(localOcr), Boolean(localAsr));
   if (!job) return null;
   const usage = createAiUsageRepository(database);
   const reservations: AiUsageReservation[] = [];
@@ -229,6 +235,8 @@ export async function processNextAiJob(database: DatabaseHandle, client: AiModel
   let pausedForBudget: 'import_budget' | 'monthly_budget' | null = null;
   let retryableFailure = false;
   let localOcrUsed = false;
+  let localAsrUsed = false;
+  let paidTranscriptionUsed = false;
   let reservationCall = 0;
   let billedMicroUsd = 0;
   let resolution: AiMediaResolution | undefined;
@@ -238,15 +246,19 @@ export async function processNextAiJob(database: DatabaseHandle, client: AiModel
   let imageCount = 0; let imageBytes = 0; let videoCount = 0; let maxVideoBytes = 0; let audioSeconds = 0;
   let partial = false;
   const currentPreferences = async () => await database.prepare(`SELECT preference.enabled,preference.consent_version,
-        preference.local_ocr_enabled,preference.local_ocr_consent_version,owner.account_status
+        preference.local_ocr_enabled,preference.local_ocr_consent_version,
+        preference.local_asr_enabled,preference.local_asr_consent_version,owner.account_status
       FROM ai_analysis_preferences preference
       JOIN users owner ON owner.id=preference.owner_id WHERE preference.owner_id=?`).get(job.owner_id) as
       { enabled: boolean | number; consent_version: string | null; local_ocr_enabled: boolean | number;
-        local_ocr_consent_version: string | null; account_status: string } | undefined;
+        local_ocr_consent_version: string | null; local_asr_enabled: boolean | number;
+        local_asr_consent_version: string | null; account_status: string } | undefined;
   const hasMetaConsent = (preference: Awaited<ReturnType<typeof currentPreferences>>) =>
     Boolean(preference?.enabled && preference.consent_version === AI_DISCLOSURE_VERSION);
   const hasLocalOcrConsent = (preference: Awaited<ReturnType<typeof currentPreferences>>) =>
     Boolean(preference?.local_ocr_enabled && preference.local_ocr_consent_version === LOCAL_OCR_DISCLOSURE_VERSION);
+  const hasLocalAsrConsent = (preference: Awaited<ReturnType<typeof currentPreferences>>) =>
+    Boolean(preference?.local_asr_enabled && preference.local_asr_consent_version === LOCAL_ASR_DISCLOSURE_VERSION);
   const ensureActiveOwner = async () => {
     const preference = await currentPreferences();
     if (!preference || preference.account_status !== 'active') throw new AiConsentDisabledError();
@@ -258,14 +270,15 @@ export async function processNextAiJob(database: DatabaseHandle, client: AiModel
   };
   const ensureAnyConsent = async () => {
     const preference = await ensureActiveOwner();
-    if (!hasMetaConsent(preference) && !hasLocalOcrConsent(preference)) throw new AiConsentDisabledError();
+    if (!hasMetaConsent(preference) && !hasLocalOcrConsent(preference) && !hasLocalAsrConsent(preference)) throw new AiConsentDisabledError();
   };
   try {
     await ensureAnyConsent();
     let consent = await currentPreferences();
     let canUseMeta = hasMetaConsent(consent) && apiKeyAvailable;
     let canUseLocalOcr = hasLocalOcrConsent(consent) && Boolean(localOcr);
-    if (!canUseMeta && !canUseLocalOcr) {
+    let canUseLocalAsr = hasLocalAsrConsent(consent) && Boolean(localAsr);
+    if (!canUseMeta && !canUseLocalOcr && !canUseLocalAsr) {
       await database.prepare(`UPDATE ai_analysis_jobs SET status='paused',pause_reason='provider_unavailable',lease_token=NULL,
         lease_expires_at=NULL,error_code='provider_unavailable',updated_at=? WHERE id=? AND owner_id=? AND lease_token=?`)
         .run(now.toISOString(), job.id, job.owner_id, job.lease_token);
@@ -286,7 +299,9 @@ export async function processNextAiJob(database: DatabaseHandle, client: AiModel
     const videoFiles = discoveredVideos.slice(0, 1);
     const audioFiles = discoveredAudio.slice(0, 6);
     if (imageFiles.length !== discoveredImages.length || videoFiles.length !== discoveredVideos.length || audioFiles.length !== discoveredAudio.length) partial = true;
-    if (!canUseMeta && (videoFiles.length > 0 || audioFiles.length > 0)) partial = true;
+    if (!canUseMeta && imageFiles.length > 0 && !canUseLocalOcr) partial = true;
+    if (!canUseMeta && videoFiles.length > 0) partial = true;
+    audioSeconds = audioFiles.reduce((sum, file) => sum + (file.durationSeconds ?? 0), 0);
     imageCount = imageFiles.length;
     imageBytes = imageFiles.reduce((sum, file) => sum + file.byteSize, 0);
 
@@ -312,9 +327,31 @@ export async function processNextAiJob(database: DatabaseHandle, client: AiModel
       if (imageFiles.length > 5) partial = true;
     }
 
+    if (canUseLocalAsr && localAsr) {
+      for (const file of audioFiles) {
+        consent = await ensureActiveOwner();
+        if (!hasLocalAsrConsent(consent)) { canUseLocalAsr = false; break; }
+        try {
+          const transcript = await withOwnerWorkLease(database, job.owner_id, 'ai_analysis', (signal) => localAsr(file, signal));
+          consent = await ensureActiveOwner();
+          if (hasLocalAsrConsent(consent)) {
+            if (transcript.trim()) {
+              localAsrUsed = true;
+              transcripts.push(transcript.trim().slice(0, 10_000));
+            } else partial = true;
+          }
+        } catch (error) {
+          if (error instanceof OwnerLifecycleError || (error instanceof Error && error.name === 'AbortError')) throw error;
+          partial = true;
+        }
+      }
+    }
+    if (audioFiles.length > 0 && !canUseLocalAsr && !canUseMeta) partial = true;
+
     consent = await currentPreferences();
     canUseMeta = hasMetaConsent(consent) && apiKeyAvailable;
-    if (hasMetaConsent(consent) && !apiKeyAvailable && !localOcrUsed && !canUseLocalOcr) {
+    canUseLocalAsr = hasLocalAsrConsent(consent) && Boolean(localAsr);
+    if (hasMetaConsent(consent) && !apiKeyAvailable && !localOcrUsed && !canUseLocalOcr && !localAsrUsed && !canUseLocalAsr) {
       await database.prepare(`UPDATE ai_analysis_jobs SET status='paused',pause_reason='provider_unavailable',lease_token=NULL,
         lease_expires_at=NULL,error_code='provider_unavailable',updated_at=? WHERE id=? AND owner_id=? AND lease_token=?`)
         .run(now.toISOString(), job.id, job.owner_id, job.lease_token);
@@ -379,10 +416,9 @@ export async function processNextAiJob(database: DatabaseHandle, client: AiModel
       accumulated.push(output);
     }
 
-    for (const file of canUseMeta ? audioFiles : []) {
+    for (const file of canUseMeta && transcripts.length === 0 ? audioFiles : []) {
       const bytes = await readFile(file.path);
       const duration = file.durationSeconds!;
-      audioSeconds += duration;
       if (bytes.byteLength !== file.byteSize) { partial = true; continue; }
       const reservation = await usage.reserve({ ownerId: job.owner_id, importId: job.import_id, jobId: job.id,
         attemptNumber: job.attempts * 100 + ++reservationCall, amountMicroUsd: voiceCostMicroUsd(duration), now });
@@ -393,6 +429,7 @@ export async function processNextAiJob(database: DatabaseHandle, client: AiModel
         unknownUsage = true; throw new MetaApiError('outcome_unknown', 'Audio usage exceeded its reservation.', { retryable: false, outcomeUnknown: true });
       }
       billedMicroUsd += voiceCostMicroUsd(transcription.audioDurationMs / 1000);
+      paidTranscriptionUsed = true;
       transcripts.push(transcription.transcript.slice(0, 60_000));
     }
 
@@ -429,8 +466,8 @@ export async function processNextAiJob(database: DatabaseHandle, client: AiModel
       status: partial ? 'partial' : 'completed', summary, visualDescription,
       ocrText: [...localOcrTexts, ocrText].filter(Boolean).join('\n').slice(0, 30_000), transcript: transcripts.join('\n').slice(0, 60_000),
       keywords, tags, brands, tools, people, repositories,
-      model: [localOcrUsed ? 'tesseract-local-ocr' : null,
-        modelLabel(accumulated.length > 0, transcripts.length > 0)].filter((value) => value && value !== 'none').join(' + ') || 'none',
+      model: [localOcrUsed ? 'tesseract-local-ocr' : null, localAsrUsed ? 'whisper-local-asr' : null,
+        modelLabel(accumulated.length > 0, paidTranscriptionUsed)].filter((value) => value && value !== 'none').join(' + ') || 'none',
       imageCount, imageBytes, videoCount, maxVideoBytes, audioSeconds,
       inputTokens: accumulated.reduce((sum, result) => sum + result.inputTokens, 0),
       outputTokens: accumulated.reduce((sum, result) => sum + result.outputTokens, 0),
@@ -489,8 +526,8 @@ export async function processNextAiJob(database: DatabaseHandle, client: AiModel
       tools: mergeEntityLabels(parsed.map((part) => part.tools)),
       people: mergeEntityLabels(parsed.map((part) => part.people)),
       repositories: mergeEntityLabels(parsed.map((part) => part.repositories)),
-      model: [localOcrUsed ? 'tesseract-local-ocr' : null,
-        modelLabel(accumulated.length > 0, transcripts.length > 0)].filter((value) => value && value !== 'none').join(' + ') || 'none', imageCount, imageBytes,
+      model: [localOcrUsed ? 'tesseract-local-ocr' : null, localAsrUsed ? 'whisper-local-asr' : null,
+        modelLabel(accumulated.length > 0, paidTranscriptionUsed)].filter((value) => value && value !== 'none').join(' + ') || 'none', imageCount, imageBytes,
       videoCount, maxVideoBytes, audioSeconds,
       inputTokens: accumulated.reduce((sum, row) => sum + row.inputTokens, 0), outputTokens: accumulated.reduce((sum, row) => sum + row.outputTokens, 0),
       billedMicroUsd,
