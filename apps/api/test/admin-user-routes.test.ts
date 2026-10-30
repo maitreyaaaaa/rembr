@@ -159,6 +159,12 @@ test('worker status is admin-only, aggregate-only, no-store, and durably audited
       VALUES (?,?,?,?,?,'retry_wait',?,?,?)`).run('worker-job', owner.userId, 'worker-item', 'worker-import', 'worker-correlation', queuedAt, queuedAt, now);
     await database.prepare(`INSERT INTO ai_analysis_jobs (id,owner_id,import_id,item_id,status,available_at,created_at,updated_at)
       VALUES (?,?,?,?,'queued',?,?,?)`).run('worker-ai-job', owner.userId, 'worker-import', 'worker-item', queuedAt, queuedAt, now);
+    await database.prepare(`INSERT INTO visual_embedding_jobs (id,owner_id,item_id,status,available_at,created_at,updated_at)
+      VALUES (?,?,?,'queued',?,?,?)`).run('worker-visual-job', owner.userId, 'worker-item', queuedAt, queuedAt, now);
+    await database.prepare(`INSERT INTO saved_items (id,owner_id,original_url,canonical_url,title,status,created_at,updated_at)
+      VALUES (?,?,?,?,?,'queued',?,?)`).run('worker-visual-item-2', owner.userId, 'https://example.test/private-url-2', 'https://example.test/private-url-2', 'Private title 2', queuedAt, now);
+    await database.prepare(`INSERT INTO visual_embedding_jobs (id,owner_id,item_id,status,available_at,created_at,updated_at)
+      VALUES (?,?,?,'processing',?,?,?)`).run('worker-visual-job-2', owner.userId, 'worker-visual-item-2', queuedAt, queuedAt, now);
     await database.prepare(`INSERT INTO account_data_exports (id,owner_id,status,include_files,created_at,updated_at)
       VALUES (?,?,'queued',FALSE,?,?)`).run('worker-export', owner.userId, queuedAt, now);
 
@@ -173,6 +179,7 @@ test('worker status is admin-only, aggregate-only, no-store, and durably audited
       processingJobs: { waiting: number; processing: number; oldestQueuedAt: string | null };
       imports: { waiting: number; processing: number; oldestQueuedAt: string | null };
       aiAnalysisJobs: { waiting: number; processing: number; oldestQueuedAt: string | null };
+      visualEmbeddingJobs: { waiting: number; processing: number; oldestQueuedAt: string | null };
       exports: { waiting: number; processing: number; oldestQueuedAt: string | null };
     } };
     assert.equal(body.workerStatus.processingJobs.waiting, 1);
@@ -181,11 +188,14 @@ test('worker status is admin-only, aggregate-only, no-store, and durably audited
     assert.equal(body.workerStatus.imports.oldestQueuedAt, queuedAt);
     assert.equal(body.workerStatus.aiAnalysisJobs.waiting, 1);
     assert.equal(body.workerStatus.aiAnalysisJobs.oldestQueuedAt, queuedAt);
+    assert.equal(body.workerStatus.visualEmbeddingJobs.waiting, 1);
+    assert.equal(body.workerStatus.visualEmbeddingJobs.processing, 1);
+    assert.equal(body.workerStatus.visualEmbeddingJobs.oldestQueuedAt, queuedAt);
     assert.equal(body.workerStatus.exports.waiting, 1);
     assert.equal(body.workerStatus.exports.oldestQueuedAt, queuedAt);
     const serialized = JSON.stringify(body);
-    for (const sensitive of ['Private title', 'private-url', owner.userId, owner.cookie, 'worker-job', 'worker-export']) assert.equal(serialized.includes(sensitive), false);
-    assert.deepEqual(Object.keys(body.workerStatus).sort(), ['aiAnalysisJobs', 'exports', 'imports', 'processingJobs', 'sampledAt'].sort());
+    for (const sensitive of ['Private title', 'private-url', owner.userId, owner.cookie, 'worker-job', 'worker-visual-job', 'worker-export']) assert.equal(serialized.includes(sensitive), false);
+    assert.deepEqual(Object.keys(body.workerStatus).sort(), ['aiAnalysisJobs', 'exports', 'imports', 'processingJobs', 'sampledAt', 'visualEmbeddingJobs'].sort());
     const audit = await database.prepare(`SELECT actor_user_id,event_type,target_hash,metadata FROM admin_access_audit
       WHERE event_type='admin_worker_status_viewed'`).get() as { actor_user_id: string; event_type: string; target_hash: string | null; metadata: unknown };
     assert.deepEqual(audit, { actor_user_id: admin.userId, event_type: 'admin_worker_status_viewed', target_hash: null, metadata: {} });

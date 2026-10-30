@@ -128,7 +128,7 @@ export function createAdminUserRouter(database: DatabaseHandle) {
     try {
       if (!await requireAdmin(req.user!.id, res, req.requestId)) return;
       const sampledAt = new Date().toISOString();
-      const [jobs, imports, aiJobs, exports] = await Promise.all([
+      const [jobs, imports, aiJobs, visualJobs, exports] = await Promise.all([
         database.prepare(`SELECT count(*) FILTER (WHERE status IN ('queued','retry_wait','cancel_requested')) AS waiting,
           count(*) FILTER (WHERE status='processing') AS processing,
           min(created_at) FILTER (WHERE status IN ('queued','retry_wait','cancel_requested')) AS oldest_queued_at FROM processing_jobs`).get() as Promise<Record<string, unknown>>,
@@ -138,6 +138,9 @@ export function createAdminUserRouter(database: DatabaseHandle) {
         database.prepare(`SELECT count(*) FILTER (WHERE status='queued') AS waiting,
           count(*) FILTER (WHERE status='processing') AS processing,
           min(created_at) FILTER (WHERE status='queued') AS oldest_queued_at FROM ai_analysis_jobs`).get() as Promise<Record<string, unknown>>,
+        database.prepare(`SELECT count(*) FILTER (WHERE status='queued') AS waiting,
+          count(*) FILTER (WHERE status='processing') AS processing,
+          min(created_at) FILTER (WHERE status='queued') AS oldest_queued_at FROM visual_embedding_jobs`).get() as Promise<Record<string, unknown>>,
         database.prepare(`SELECT count(*) FILTER (WHERE status='queued') AS waiting,
           count(*) FILTER (WHERE status='processing') AS processing,
           min(created_at) FILTER (WHERE status='queued') AS oldest_queued_at FROM account_data_exports`).get() as Promise<Record<string, unknown>>,
@@ -153,6 +156,7 @@ export function createAdminUserRouter(database: DatabaseHandle) {
         processingJobs: queue(jobs),
         imports: queue(imports),
         aiAnalysisJobs: queue(aiJobs),
+        visualEmbeddingJobs: queue(visualJobs),
         exports: queue(exports),
       } });
     } catch (cause) { return next(cause); }
