@@ -16,7 +16,7 @@ Phase 6 implementation is in progress on `feat/phase-6-account-privacy-admin-bil
 ## Architecture decisions
 
 1. Keep Supabase Postgres as the only database (ADR-R12). All account queries derive the owner ID from the verified session; client-supplied owner IDs are never accepted.
-2. Keep the API as the only app data boundary; RLS remains defense in depth, and every owner-scoped query names its owner predicate (ADR-R06).
+2. Keep the API as the only app data boundary; RLS remains defense in depth, and every owner-scoped query names its owner predicate (ADR-R06). Derive export ownership columns from the same inventory used by the data map and deletion flow; include an operator's own role while omitting the granting operator's identifier.
 3. Treat private file bytes as separate lifecycle artifacts from database metadata (ADR-R09). Exports enumerate database data and include bounded private files only through the private storage adapter. The data map must distinguish byte totals it cannot verify from database row counts.
 4. Make deletion a durable state machine with an atomic claim/lease and idempotent steps. A successful destructive operation followed by failed step logging must be safe to retry. Missing ownership is not proof of completed deletion.
 5. Use an app-owned export request record with owner, state, expiry, and processing lease. Downloads require both the authenticated owner and a ready, unexpired request. Export contents are generated from a versioned data map and never expose another tenant's rows.

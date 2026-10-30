@@ -52,6 +52,8 @@ test('account data map counts only the requested owner and separates file refere
       VALUES (?,?,?,?,?,?,?)`).run('search-a', 'owner-a', 'a'.repeat(64), 1, '{}', 0, timestamp);
     await database.prepare(`INSERT INTO asset_objects (id,owner_id,kind,storage_key,detected_mime,byte_size,sha256,state,created_at,updated_at)
       VALUES (?,?,?,?,?,?,?,?,?,?)`).run('asset-a', 'owner-a', 'avatar', 'owner-a/avatar-a', 'image/png', 16, 'b'.repeat(64), 'ready', timestamp, timestamp);
+    await database.prepare('INSERT INTO admin_roles (user_id,role,granted_by,created_at) VALUES (?,?,?,?)')
+      .run('owner-a', 'admin', 'owner-b', timestamp);
 
     const service = createAccountDataMapService(database);
     const ownerA = await service.getForOwner('owner-a');
@@ -61,12 +63,14 @@ test('account data map counts only the requested owner and separates file refere
     const record = (map: typeof ownerA, categoryId: string, table: string) => category(map, categoryId).records.find((entry) => entry.table === table)!;
 
     assert.equal(record(ownerA, 'account', 'users').rowCount, 1);
+    assert.equal(record(ownerA, 'account', 'admin_roles').rowCount, 1);
     assert.equal(record(ownerA, 'account', 'profiles').rowCount, 1);
     assert.equal(record(ownerA, 'saved_library', 'saved_items').rowCount, 1);
     assert.equal(record(ownerA, 'search_activity', 'search_events').rowCount, 1);
     assert.equal(record(ownerA, 'private_file_references', 'asset_objects').rowCount, 1);
     assert.equal(category(ownerA, 'private_file_references').rowCount, 1);
     assert.equal(record(ownerB, 'account', 'users').rowCount, 1);
+    assert.equal(record(ownerB, 'account', 'admin_roles').rowCount, 0);
     assert.equal(record(ownerB, 'account', 'profiles').rowCount, 0);
     assert.equal(record(ownerB, 'saved_library', 'saved_items').rowCount, 0);
     assert.equal(record(ownerB, 'search_activity', 'search_events').rowCount, 0);

@@ -13,13 +13,14 @@ const categories: readonly DataMapCategoryDefinition[] = [
   {
     id: 'account',
     label: 'Account and preferences',
-    description: 'Account identity, sessions, profile, and onboarding choices.',
+    description: 'Account identity, sessions, profile, onboarding choices, and any operator role assigned to this account.',
     records: [
       { table: 'users', ownerColumn: 'id' },
       { table: 'sessions', ownerColumn: 'user_id' },
       { table: 'profiles', ownerColumn: 'user_id' },
       { table: 'onboarding_preferences', ownerColumn: 'user_id' },
       { table: 'onboarding_content_types', ownerColumn: 'user_id' },
+      { table: 'admin_roles', ownerColumn: 'user_id' },
     ],
   },
   {

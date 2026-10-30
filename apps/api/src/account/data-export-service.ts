@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import JSZip from 'jszip';
 import { lockActiveOwner, OwnerLifecycleError, withOwnerWorkLease } from './owner-lifecycle.js';
 import type { DatabaseHandle } from '../db/database.js';
-import { createAccountDataMapService } from './data-map-service.js';
+import { ACCOUNT_OWNER_TABLES, createAccountDataMapService } from './data-map-service.js';
 
 export const ACCOUNT_DATA_EXPORT_LIMITS = {
   maxAttempts: 3,
@@ -88,7 +88,6 @@ type ExportRow = {
 type OwnerColumn = 'id' | 'owner_id' | 'user_id';
 
 const excludedTables = new Set<string>();
-const userColumnTables = new Set(['profiles', 'onboarding_preferences', 'onboarding_content_types']);
 const excludedColumns: Record<string, ReadonlySet<string>> = {
   imports: new Set(['lease_token']),
   processing_jobs: new Set(['lease_token']),
@@ -100,12 +99,11 @@ const excludedColumns: Record<string, ReadonlySet<string>> = {
   account_data_exports: new Set(['lease_token', 'lease_expires_at', 'artifact_key']),
   account_deletion_requests: new Set(['owner_hash', 'approved_by', 'lease_token', 'lease_expires_at']),
   account_deletion_steps: new Set(['error_code']),
+  admin_roles: new Set(['user_id', 'granted_by']),
 };
 
 function ownerColumnFor(table: string): OwnerColumn {
-  if (table === 'users') return 'id';
-  if (userColumnTables.has(table)) return 'user_id';
-  return 'owner_id';
+  return ACCOUNT_OWNER_TABLES.find((record) => record.table === table)?.ownerColumn ?? 'owner_id';
 }
 
 function sanitizeRow(table: string, row: Record<string, unknown>): Record<string, unknown> {

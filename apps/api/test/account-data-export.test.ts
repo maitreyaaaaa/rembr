@@ -82,8 +82,11 @@ test('personal export packages only the requested owner and excludes password an
   try {
     await seedUser(database, 'owner-a', 'a@example.test');
     await seedUser(database, 'owner-b', 'b@example.test');
+    await seedUser(database, 'admin-granter', 'granting-admin@example.test');
     await seedItem(database, 'item-a', 'owner-a', 'A only');
     await seedItem(database, 'item-b', 'owner-b', 'B private');
+    await database.prepare('INSERT INTO admin_roles (user_id,role,granted_by,created_at) VALUES (?,?,?,?)')
+      .run('owner-a', 'admin', 'admin-granter', start.toISOString());
     await database.prepare(`INSERT INTO sessions (id,user_id,token_hash,expires_at,created_at) VALUES (?,?,?,?,?)`)
       .run('session-a', 'owner-a', 'a'.repeat(64), '2027-01-01T00:00:00.000Z', start.toISOString());
 
@@ -115,6 +118,8 @@ test('personal export packages only the requested owner and excludes password an
     assert.doesNotMatch(account, /token_hash/);
     assert.doesNotMatch(manifest, /secret-password-hash|a{64}/);
     assert.match(account, /2027-01-01T00:00:00.000Z/);
+    assert.match(account, /"role": "admin"/);
+    assert.doesNotMatch(account, /admin-granter|granted_by|user_id/);
     assert.match(manifest, /Session credentials and token hashes are excluded/);
     assert.match(manifest, /outside Rembr storage/);
     assert.ok(archive.file('files/asset/0001-private.txt'));

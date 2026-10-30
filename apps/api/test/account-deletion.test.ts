@@ -13,16 +13,16 @@ import { OwnerLifecycleError, withOwnerWorkLease } from '../src/account/owner-li
 
 const password = 'correct-horse-battery-staple';
 
-test('account data map inventory covers every owner_id table in the live schema', async () => {
+test('account data map inventory covers every owner_id and user_id table in the live schema', async () => {
   await withApi(async (_baseUrl, database) => {
     const rows = await database.prepare(`SELECT DISTINCT table_name FROM information_schema.columns
-      WHERE table_schema='public' AND column_name='owner_id' ORDER BY table_name`).all() as Array<{ table_name: string }>;
+      WHERE table_schema='public' AND column_name IN ('owner_id','user_id') ORDER BY table_name`).all() as Array<{ table_name: string }>;
     const inventoried = new Set(ACCOUNT_OWNER_TABLES.map(({ table }) => table));
     // Operational rows are excluded from exports; account deletion drains the media queue and expired work leases.
     const excludedOperationalTables = new Set(['account_owner_work_leases', 'media_cleanup_queue']);
     const missing = rows.map(({ table_name }) => table_name)
       .filter((table) => !inventoried.has(table) && !excludedOperationalTables.has(table));
-    assert.deepEqual(missing, [], `owner_id tables missing from export/deletion inventory: ${missing.join(', ')}`);
+    assert.deepEqual(missing, [], `owner_id/user_id tables missing from export/deletion inventory: ${missing.join(', ')}`);
   });
 });
 
@@ -186,6 +186,8 @@ test('account deletion removes owner-tagged queued media bytes with no remaining
     const admin = await register(baseUrl, 'delete-queued-media-admin@example.test');
     await database.prepare(`INSERT INTO admin_roles (user_id,role,created_at) VALUES (?,'admin',?)`).run(admin.userId, new Date().toISOString());
     const key = 'orphaned-private-media.media';
+    await database.prepare('INSERT INTO admin_roles (user_id,role,granted_by,created_at) VALUES (?,?,?,?)')
+      .run(owner.userId, 'support', admin.userId, new Date().toISOString());
     await database.prepare(`INSERT INTO media_cleanup_queue (storage_key,owner_id,created_at,updated_at) VALUES (?,?,?,?)`)
       .run(key, owner.userId, new Date().toISOString(), new Date().toISOString());
 
@@ -206,6 +208,7 @@ test('account deletion removes owner-tagged queued media bytes with no remaining
     assert.equal((await service.processClaim(claim, storage))?.status, 'completed');
     assert.deepEqual(removed, [key]);
     assert.equal((await database.prepare('SELECT count(*) AS count FROM media_cleanup_queue WHERE owner_id=?').get(owner.userId) as { count: number }).count, 0);
+    assert.equal((await database.prepare('SELECT count(*) AS count FROM admin_roles WHERE user_id=?').get(owner.userId) as { count: number }).count, 0);
     assert.equal((await database.prepare('SELECT count(*) AS count FROM users WHERE id=?').get(owner.userId) as { count: number }).count, 0);
   });
 });
