@@ -37,6 +37,14 @@ interface AdminOverview {
   imports: AdminOverviewGroup;
   deletionRequests: AdminOverviewGroup;
 }
+interface AdminQueueStatus { waiting: number; processing: number; oldestQueuedAt: string | null }
+interface AdminWorkerStatus {
+  sampledAt: string;
+  processingJobs: AdminQueueStatus;
+  imports: AdminQueueStatus;
+  aiAnalysisJobs: AdminQueueStatus;
+  exports: AdminQueueStatus;
+}
 interface RequestError extends Error { status?: number }
 type Request = <T>(path: string, init?: RequestInit) => Promise<T>;
 
@@ -71,6 +79,9 @@ export function AdminSupportPage({ request }: { request: Request }) {
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [overviewLoading, setOverviewLoading] = useState(false);
   const [overviewError, setOverviewError] = useState('');
+  const [workerStatus, setWorkerStatus] = useState<AdminWorkerStatus | null>(null);
+  const [workerStatusLoading, setWorkerStatusLoading] = useState(false);
+  const [workerStatusError, setWorkerStatusError] = useState('');
   const userSearchSequence = useRef(0);
   const userDetailSequence = useRef(0);
 
@@ -84,6 +95,7 @@ export function AdminSupportPage({ request }: { request: Request }) {
       if (result.role === null) {
         setQueue([]);
         setOverview(null);
+        setWorkerStatus(null);
         return;
       }
       const body = await request<{ deletions: QueueEntry[] }>('/api/admin/account-deletions?limit=50');
@@ -91,15 +103,27 @@ export function AdminSupportPage({ request }: { request: Request }) {
       if (result.role === 'admin') {
         setOverviewLoading(true);
         setOverviewError('');
-        try {
-          const { summary } = await request<{ summary: AdminOverview }>('/api/admin/summary');
-          setOverview(summary);
-        } catch (cause) {
-          const failure = cause as RequestError;
+        setWorkerStatusLoading(true);
+        setWorkerStatusError('');
+        const [summaryResult, statusResult] = await Promise.allSettled([
+          request<{ summary: AdminOverview }>('/api/admin/summary'),
+          request<{ workerStatus: AdminWorkerStatus }>('/api/admin/worker/status'),
+        ]);
+        if (summaryResult.status === 'fulfilled') setOverview(summaryResult.value.summary);
+        else {
+          const failure = summaryResult.reason as RequestError;
           setOverviewError(failure.message || 'Could not load the operations overview.');
           setOverview(null);
-        } finally { setOverviewLoading(false); }
-      } else setOverview(null);
+        }
+        if (statusResult.status === 'fulfilled') setWorkerStatus(statusResult.value.workerStatus);
+        else {
+          const failure = statusResult.reason as RequestError;
+          setWorkerStatusError(failure.message || 'Could not load worker status.');
+          setWorkerStatus(null);
+        }
+        setOverviewLoading(false);
+        setWorkerStatusLoading(false);
+      } else { setOverview(null); setWorkerStatus(null); }
     } catch (cause) {
       const failure = cause as RequestError;
       setError(failure.message || 'Could not load the operator queue. Try again.');
@@ -219,6 +243,25 @@ export function AdminSupportPage({ request }: { request: Request }) {
               <div><dt>Imports</dt><dd>{overview.imports.total.toLocaleString()}</dd><span>{overview.imports.byStatus.failed ?? 0} failed · {overview.imports.byStatus.partial ?? 0} partial</span></div>
               <div><dt>Deletion requests</dt><dd>{overview.deletionRequests.total.toLocaleString()}</dd><span>{overview.deletionRequests.byStatus.pending_approval ?? 0} pending approval</span></div>
             </dl> : <p className="admin-empty">Operational counts are unavailable.</p>}
+      </section>}
+      {role === 'admin' && <section className="phase2-panel admin-overview-panel" aria-labelledby="admin-worker-status-title">
+        <div className="admin-queue-heading"><div><h2 id="admin-worker-status-title">Worker queues</h2><p className="phase2-helper">Aggregate counts and oldest waiting times only. Individual jobs, account details, and error content are excluded.</p></div></div>
+        {workerStatusLoading ? <p className="phase2-state" role="status">Loading worker status…</p>
+          : workerStatusError ? <p className="notice error" role="alert">{workerStatusError}</p>
+            : workerStatus ? <>
+              <dl className="admin-overview-grid">
+                {([
+                  ['Saved-item jobs', workerStatus.processingJobs],
+                  ['Imports', workerStatus.imports],
+                  ['AI analysis', workerStatus.aiAnalysisJobs],
+                  ['Data exports', workerStatus.exports],
+                ] as Array<[string, AdminQueueStatus]>).map(([label, queue]) => <div key={label}>
+                  <dt>{label}</dt><dd>{queue.waiting.toLocaleString()} waiting</dd>
+                  <span>{queue.processing.toLocaleString()} processing · oldest {queue.oldestQueuedAt ? formatDate(queue.oldestQueuedAt) : 'none'}</span>
+                </div>)}
+              </dl>
+              <p className="admin-audit-note">Snapshot updated {formatDate(workerStatus.sampledAt)}.</p>
+            </> : <p className="admin-empty">Worker queue counts are unavailable.</p>}
       </section>}
       <section className="phase2-panel admin-queue-panel" aria-labelledby="admin-queue-title">
         <div className="admin-queue-heading"><div><h2 id="admin-queue-title">Account deletion queue</h2><p className="phase2-helper">The queue hides email addresses and account IDs. Support can review requests; only admins can approve or retry them.</p></div><button className="quiet-button" type="button" disabled={refreshing} onClick={() => void load(true)}>{refreshing ? 'Refreshing…' : 'Refresh'}</button></div>

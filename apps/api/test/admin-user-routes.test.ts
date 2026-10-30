@@ -140,3 +140,54 @@ test('admin operations overview returns aggregate-only counts to admins and audi
     assert.deepEqual(audit.metadata, {});
   });
 });
+
+test('worker status is admin-only, aggregate-only, no-store, and durably audited', async () => {
+  await withApi(async (baseUrl, database) => {
+    const owner = await register(baseUrl, 'worker-owner@example.test');
+    const member = await register(baseUrl, 'worker-member@example.test');
+    const support = await register(baseUrl, 'worker-support@example.test');
+    const admin = await register(baseUrl, 'worker-admin@example.test');
+    const now = new Date().toISOString();
+    const queuedAt = '2026-10-29T08:30:00.000Z';
+    await database.prepare(`INSERT INTO admin_roles (user_id,role,created_at) VALUES (?,'support',?)`).run(support.userId, now);
+    await database.prepare(`INSERT INTO admin_roles (user_id,role,created_at) VALUES (?,'admin',?)`).run(admin.userId, now);
+    await database.prepare(`INSERT INTO imports (id,owner_id,request_id,source,status,created_at,updated_at)
+      VALUES (?,?,?,'instagram','queued',?,?)`).run('worker-import', owner.userId, 'worker-request', queuedAt, now);
+    await database.prepare(`INSERT INTO saved_items (id,owner_id,original_url,canonical_url,title,status,created_at,updated_at)
+      VALUES (?,?,?,?,?,'queued',?,?)`).run('worker-item', owner.userId, 'https://example.test/private-url', 'https://example.test/private-url', 'Private title', queuedAt, now);
+    await database.prepare(`INSERT INTO processing_jobs (id,owner_id,item_id,import_id,correlation_id,status,available_at,created_at,updated_at)
+      VALUES (?,?,?,?,?,'retry_wait',?,?,?)`).run('worker-job', owner.userId, 'worker-item', 'worker-import', 'worker-correlation', queuedAt, queuedAt, now);
+    await database.prepare(`INSERT INTO ai_analysis_jobs (id,owner_id,import_id,item_id,status,available_at,created_at,updated_at)
+      VALUES (?,?,?,?,'queued',?,?,?)`).run('worker-ai-job', owner.userId, 'worker-import', 'worker-item', queuedAt, queuedAt, now);
+    await database.prepare(`INSERT INTO account_data_exports (id,owner_id,status,include_files,created_at,updated_at)
+      VALUES (?,?,'queued',FALSE,?,?)`).run('worker-export', owner.userId, queuedAt, now);
+
+    const route = `${baseUrl}/api/admin/worker/status`;
+    assert.equal((await fetch(route)).status, 401);
+    assert.equal((await fetch(route, { headers: { Cookie: member.cookie } })).status, 403);
+    assert.equal((await fetch(route, { headers: { Cookie: support.cookie } })).status, 403);
+    const response = await fetch(route, { headers: { Cookie: admin.cookie } });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'private, no-store, max-age=0');
+    const body = await response.json() as { workerStatus: Record<string, unknown> & {
+      processingJobs: { waiting: number; processing: number; oldestQueuedAt: string | null };
+      imports: { waiting: number; processing: number; oldestQueuedAt: string | null };
+      aiAnalysisJobs: { waiting: number; processing: number; oldestQueuedAt: string | null };
+      exports: { waiting: number; processing: number; oldestQueuedAt: string | null };
+    } };
+    assert.equal(body.workerStatus.processingJobs.waiting, 1);
+    assert.equal(body.workerStatus.processingJobs.oldestQueuedAt, queuedAt);
+    assert.equal(body.workerStatus.imports.waiting, 1);
+    assert.equal(body.workerStatus.imports.oldestQueuedAt, queuedAt);
+    assert.equal(body.workerStatus.aiAnalysisJobs.waiting, 1);
+    assert.equal(body.workerStatus.aiAnalysisJobs.oldestQueuedAt, queuedAt);
+    assert.equal(body.workerStatus.exports.waiting, 1);
+    assert.equal(body.workerStatus.exports.oldestQueuedAt, queuedAt);
+    const serialized = JSON.stringify(body);
+    for (const sensitive of ['Private title', 'private-url', owner.userId, owner.cookie, 'worker-job', 'worker-export']) assert.equal(serialized.includes(sensitive), false);
+    assert.deepEqual(Object.keys(body.workerStatus).sort(), ['aiAnalysisJobs', 'exports', 'imports', 'processingJobs', 'sampledAt'].sort());
+    const audit = await database.prepare(`SELECT actor_user_id,event_type,target_hash,metadata FROM admin_access_audit
+      WHERE event_type='admin_worker_status_viewed'`).get() as { actor_user_id: string; event_type: string; target_hash: string | null; metadata: unknown };
+    assert.deepEqual(audit, { actor_user_id: admin.userId, event_type: 'admin_worker_status_viewed', target_hash: null, metadata: {} });
+  });
+});

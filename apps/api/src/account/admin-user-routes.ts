@@ -41,7 +41,7 @@ export function createAdminUserRouter(database: DatabaseHandle) {
     return false;
   }
 
-  async function audit(actorId: string, eventType: 'admin_summary_viewed' | 'admin_user_list_viewed' | 'admin_user_detail_viewed', targetId: string | null,
+  async function audit(actorId: string, eventType: 'admin_summary_viewed' | 'admin_worker_status_viewed' | 'admin_user_list_viewed' | 'admin_user_detail_viewed', targetId: string | null,
     metadata: Record<string, boolean | number>, now = new Date()) {
     await database.prepare(`INSERT INTO admin_access_audit (id,actor_user_id,event_type,target_hash,metadata,created_at)
       VALUES (?,?,?,?,?,?)`).run(randomUUID(), actorId, eventType, targetId ? hash(targetId) : null, JSON.stringify(metadata), now.toISOString());
@@ -73,6 +73,40 @@ export function createAdminUserRouter(database: DatabaseHandle) {
         processingJobs: { total: Object.values(statusCounts(jobs)).reduce((total, count) => total + count, 0), byStatus: statusCounts(jobs) },
         imports: { total: Object.values(statusCounts(imports)).reduce((total, count) => total + count, 0), byStatus: statusCounts(imports) },
         deletionRequests: { total: Object.values(statusCounts(deletions)).reduce((total, count) => total + count, 0), byStatus: statusCounts(deletions) },
+      } });
+    } catch (cause) { return next(cause); }
+  });
+
+  router.get('/admin/worker/status', auth, readLimit, async (req, res, next) => {
+    try {
+      if (!await requireAdmin(req.user!.id, res, req.requestId)) return;
+      const sampledAt = new Date().toISOString();
+      const [jobs, imports, aiJobs, exports] = await Promise.all([
+        database.prepare(`SELECT count(*) FILTER (WHERE status IN ('queued','retry_wait','cancel_requested')) AS waiting,
+          count(*) FILTER (WHERE status='processing') AS processing,
+          min(created_at) FILTER (WHERE status IN ('queued','retry_wait','cancel_requested')) AS oldest_queued_at FROM processing_jobs`).get() as Promise<Record<string, unknown>>,
+        database.prepare(`SELECT count(*) FILTER (WHERE status='queued') AS waiting,
+          count(*) FILTER (WHERE status='processing') AS processing,
+          min(created_at) FILTER (WHERE status='queued') AS oldest_queued_at FROM imports`).get() as Promise<Record<string, unknown>>,
+        database.prepare(`SELECT count(*) FILTER (WHERE status='queued') AS waiting,
+          count(*) FILTER (WHERE status='processing') AS processing,
+          min(created_at) FILTER (WHERE status='queued') AS oldest_queued_at FROM ai_analysis_jobs`).get() as Promise<Record<string, unknown>>,
+        database.prepare(`SELECT count(*) FILTER (WHERE status='queued') AS waiting,
+          count(*) FILTER (WHERE status='processing') AS processing,
+          min(created_at) FILTER (WHERE status='queued') AS oldest_queued_at FROM account_data_exports`).get() as Promise<Record<string, unknown>>,
+      ]);
+      const queue = (row: Record<string, unknown>) => ({
+        waiting: Number(row.waiting ?? 0),
+        processing: Number(row.processing ?? 0),
+        oldestQueuedAt: typeof row.oldest_queued_at === 'string' ? row.oldest_queued_at : null,
+      });
+      await audit(req.user!.id, 'admin_worker_status_viewed', null, {});
+      return res.json({ workerStatus: {
+        sampledAt,
+        processingJobs: queue(jobs),
+        imports: queue(imports),
+        aiAnalysisJobs: queue(aiJobs),
+        exports: queue(exports),
       } });
     } catch (cause) { return next(cause); }
   });
