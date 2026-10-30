@@ -10,6 +10,8 @@ export interface ExtractedPage {
   imageUrls: string[];
   /** Public video URLs exposed in page metadata/DOM, for temporary AI analysis only. */
   videoUrls: string[];
+  /** Public audio URLs exposed in page metadata/DOM, for temporary AI analysis only. */
+  audioUrls: string[];
 }
 
 export function extractPage(html: string, sourceUrl: string): ExtractedPage {
@@ -29,6 +31,7 @@ export function extractPage(html: string, sourceUrl: string): ExtractedPage {
   const mediaUrls: string[] = [];
   const imageUrls: string[] = [];
   const videoUrls: string[] = [];
+  const audioUrls: string[] = [];
   const addMedia = (raw: string | undefined) => {
     if (!raw || mediaUrls.length >= 5) return;
     try {
@@ -43,13 +46,13 @@ export function extractPage(html: string, sourceUrl: string): ExtractedPage {
     'meta[property="og:audio"]', 'meta[property="og:audio:url"]', 'meta[property="og:audio:secure_url"]']) addMedia(page(selector).first().attr('content'));
   page('img[src]').each((_index, element) => { addMedia(page(element).attr('src')); });
   page('video[src], video source[src], audio[src], audio source[src]').each((_index, element) => { addMedia(page(element).attr('src')); });
-  const addAnalysisMedia = (raw: string | undefined, kind: 'image' | 'video') => {
-    if (!raw || (kind === 'image' ? imageUrls.length >= 20 : videoUrls.length >= 1)) return;
+  const addAnalysisMedia = (raw: string | undefined, kind: 'image' | 'video' | 'audio') => {
+    const target = kind === 'image' ? imageUrls : kind === 'video' ? videoUrls : audioUrls;
+    if (!raw || target.length >= (kind === 'image' ? 20 : 1)) return;
     try {
       const url = new URL(raw, sourceUrl);
       if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return;
       url.hash = '';
-      const target = kind === 'image' ? imageUrls : videoUrls;
       if (!target.includes(url.toString())) target.push(url.toString());
     } catch { /* Ignore malformed media metadata and keep the readable page. */ }
   };
@@ -59,11 +62,15 @@ export function extractPage(html: string, sourceUrl: string): ExtractedPage {
   for (const selector of ['meta[property="og:video"]', 'meta[property="og:video:url"]', 'meta[property="og:video:secure_url"]', 'meta[name="twitter:player:stream"]']) {
     addAnalysisMedia(page(selector).first().attr('content'), 'video');
   }
+  for (const selector of ['meta[property="og:audio"]', 'meta[property="og:audio:url"]', 'meta[property="og:audio:secure_url"]']) {
+    addAnalysisMedia(page(selector).first().attr('content'), 'audio');
+  }
   page('img[src], img[data-src], picture source[srcset]').each((_index, element) => {
     const node = page(element);
     const srcset = node.attr('srcset')?.split(',')[0]?.trim().split(/\s+/)[0];
     addAnalysisMedia(node.attr('src') || node.attr('data-src') || srcset, 'image');
   });
   page('video[src], video source[src]').each((_index, element) => addAnalysisMedia(page(element).attr('src'), 'video'));
-  return { title: title || new URL(sourceUrl).hostname, description, text, mediaUrls, imageUrls, videoUrls };
+  page('audio[src], audio source[src]').each((_index, element) => addAnalysisMedia(page(element).attr('src'), 'audio'));
+  return { title: title || new URL(sourceUrl).hostname, description, text, mediaUrls, imageUrls, videoUrls, audioUrls };
 }

@@ -61,6 +61,7 @@ This documentation reconstructs IScraper's current product and implementation so
 - Phase-gated rebuild roadmap: [rebuild-plan/phase-gated-roadmap.md](rebuild-plan/phase-gated-roadmap.md)
 - Phase 1 implementation record: [rebuild-plan/phase-1-record.md](rebuild-plan/phase-1-record.md)
 - Phase 2 implementation and gate record: [rebuild-plan/phase-2-record.md](rebuild-plan/phase-2-record.md)
+- Phase 3 implementation and gate record: [rebuild-plan/phase-3-record.md](rebuild-plan/phase-3-record.md)
 - Screen/workflow phase matrix: [rebuild-plan/screen-workflow-phase-matrix.md](rebuild-plan/screen-workflow-phase-matrix.md)
 - Ten-day rebuild plan: [rebuild-plan/ten-day-rebuild-plan.md](rebuild-plan/ten-day-rebuild-plan.md)
 - REA tracked JavaScript source selection: [source-audit/rea-source-selection.json](source-audit/rea-source-selection.json)

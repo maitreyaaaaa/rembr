@@ -4,7 +4,17 @@ import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { extractPage } from '../src/items/extract.js';
 import { detectSupportedMediaMime } from '../src/media/storage.js';
-import { MAX_ANALYSIS_IMAGE_BYTES_PER_POST, MAX_ANALYSIS_IMAGES_PER_POST, resolveTemporaryAnalysisMedia } from '../src/ai/temporary-media.js';
+import { MAX_ANALYSIS_AUDIO_SECONDS_PER_POST, MAX_ANALYSIS_IMAGE_BYTES_PER_POST, MAX_ANALYSIS_IMAGES_PER_POST, resolveTemporaryAnalysisMedia } from '../src/ai/temporary-media.js';
+
+function wavBytes(durationSeconds = 1): Buffer {
+  const dataLength = durationSeconds * 32_000;
+  const bytes = Buffer.alloc(44 + dataLength);
+  bytes.write('RIFF', 0, 'ascii'); bytes.writeUInt32LE(bytes.length - 8, 4); bytes.write('WAVE', 8, 'ascii');
+  bytes.write('fmt ', 12, 'ascii'); bytes.writeUInt32LE(16, 16); bytes.writeUInt16LE(1, 20); bytes.writeUInt16LE(1, 22);
+  bytes.writeUInt32LE(16_000, 24); bytes.writeUInt32LE(32_000, 28); bytes.writeUInt16LE(2, 32); bytes.writeUInt16LE(16, 34);
+  bytes.write('data', 36, 'ascii'); bytes.writeUInt32LE(dataLength, 40);
+  return bytes;
+}
 
 test('page extraction collects explicit Open Graph and HTML audio/video sources', () => {
   const result = extractPage(`<meta property="og:video" content="/movie.mp4">
@@ -15,6 +25,7 @@ test('page extraction collects explicit Open Graph and HTML audio/video sources'
     'https://example.com/movie.mp4', 'https://cdn.example.com/voice.mp3',
     'https://example.com/clip.webm', 'https://example.com/sound.ogg',
   ]);
+  assert.deepEqual(result.audioUrls, ['https://cdn.example.com/voice.mp3']);
 });
 
 test('page extraction repairs misdecoded Instagram metadata and body text only for Instagram', () => {
@@ -75,5 +86,57 @@ test('temporary analysis rejects media whose bytes do not match the declared MIM
   try {
     assert.equal(resolution.files.length, 0);
     assert.equal(resolution.skippedCount, 1);
+  } finally { await resolution.cleanup(); }
+});
+
+test('temporary analysis discovers one bounded standalone audio source and supplies capped WAV chunks', async () => {
+  const requested: string[] = [];
+  let maxBytes: number | undefined;
+  const resolution = await resolveTemporaryAnalysisMedia('https://www.instagram.com/p/example/', {
+    fetchPage: async () => ({ finalUrl: 'https://www.instagram.com/p/example/', contentType: 'text/html', html: `
+      <meta property="og:audio:secure_url" content="https://cdn.example/voice.mp3">
+      <audio src="https://cdn.example/alternate.mp3"></audio>` }),
+    fetchMedia: async (url, directory, options) => {
+      requested.push(url); maxBytes = options?.maxBytes;
+      const path = join(directory, 'source-audio');
+      const bytes = Buffer.from('ID3\x04\x00\x00', 'binary');
+      await writeFile(path, bytes);
+      return { finalUrl: url, mime: 'audio/mpeg', path, byteSize: bytes.length };
+    },
+    runFfmpeg: async (inputPath, outputPattern, maxDurationSeconds) => {
+      assert.match(inputPath, /source-audio$/);
+      assert.match(outputPattern, /rembr-direct-audio-%03d\.wav$/);
+      assert.equal(maxDurationSeconds, MAX_ANALYSIS_AUDIO_SECONDS_PER_POST);
+      const path = outputPattern.replace('%03d', '000');
+      const bytes = wavBytes();
+      await writeFile(path, bytes);
+    },
+  });
+  try {
+    assert.deepEqual(requested, ['https://cdn.example/voice.mp3']);
+    assert.equal(maxBytes, 25 * 1024 * 1024);
+    assert.equal(resolution.skippedCount, 0);
+    assert.equal(resolution.files.length, 1);
+    assert.equal(resolution.files[0]?.mime, 'audio/wav');
+    assert.equal(resolution.files[0]?.kind, 'wav');
+    assert.equal(resolution.files[0]?.durationSeconds, 1);
+  } finally { await resolution.cleanup(); }
+});
+
+test('temporary analysis skips standalone audio with invalid signatures before invoking ffmpeg', async () => {
+  let transcodeCalls = 0;
+  const resolution = await resolveTemporaryAnalysisMedia('https://www.instagram.com/p/example/', {
+    fetchPage: async () => ({ finalUrl: 'https://www.instagram.com/p/example/', contentType: 'text/html', html: '<audio src="https://cdn.example/not-audio.mp3"></audio>' }),
+    fetchMedia: async (url, directory) => {
+      const path = join(directory, 'not-audio');
+      await writeFile(path, 'not audio bytes');
+      return { finalUrl: url, mime: 'audio/mpeg', path, byteSize: 15 };
+    },
+    runFfmpeg: async () => { transcodeCalls += 1; },
+  });
+  try {
+    assert.equal(resolution.files.length, 0);
+    assert.equal(resolution.skippedCount, 1);
+    assert.equal(transcodeCalls, 0);
   } finally { await resolution.cleanup(); }
 });

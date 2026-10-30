@@ -25,7 +25,7 @@
 
 ## Checks
 
-- `npm.cmd run check` passed locally on 2026-10-30: API/web typecheck and lint, **162 API tests**, and API/web production builds. The suite includes deletion, activity, admin, media/export intent recovery, lease-heartbeat retry/loss, storage timeout/abort, and the local media-write abort signal.
+- `npm.cmd run check` passed locally on 2026-10-30: API/web typecheck and lint, **164 API tests**, and API/web production builds. The suite includes deletion, activity, admin, media/export intent recovery, lease-heartbeat retry/loss, storage timeout/abort, local media-write abort, and bounded standalone-audio discovery/chunking.
 - Vite emitted the large JavaScript chunk warning (2.36 MB minified); build succeeded.
 - `git diff --check` passed. No hosted database or provider changes were made; browser and hosted migration/storage evidence were not run.
 
