@@ -68,3 +68,11 @@ services:
         value: ""
       - key: LOCAL_ASR_TIMEOUT_MS
         value: "300000"
+      - key: LOCAL_VISUAL_EMBEDDING_ENABLED
+        value: "false"
+      - key: VISUAL_EMBEDDING_PATH
+        value: rembr-visual-embedding
+      - key: VISUAL_EMBEDDING_MODEL
+        value: local-ml-visual
+      - key: LOCAL_VISUAL_EMBEDDING_TIMEOUT_MS
+        value: "60000"

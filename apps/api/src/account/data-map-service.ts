@@ -51,6 +51,7 @@ const categories: readonly DataMapCategoryDefinition[] = [
       { table: 'job_attempts', ownerColumn: 'owner_id' },
       { table: 'job_pause_states', ownerColumn: 'owner_id' },
       { table: 'ai_analysis_jobs', ownerColumn: 'owner_id' },
+      { table: 'visual_embedding_jobs', ownerColumn: 'owner_id' },
     ],
   },
   {
@@ -62,6 +63,7 @@ const categories: readonly DataMapCategoryDefinition[] = [
       { table: 'ai_analysis_results', ownerColumn: 'owner_id' },
       { table: 'ai_saved_item_summaries', ownerColumn: 'owner_id' },
       { table: 'semantic_item_embeddings', ownerColumn: 'owner_id' },
+      { table: 'visual_item_embeddings', ownerColumn: 'owner_id' },
       { table: 'link_health_checks', ownerColumn: 'owner_id' },
     ],
   },

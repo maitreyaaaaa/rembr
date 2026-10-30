@@ -2,7 +2,8 @@ import express from 'express';
 import { z } from 'zod';
 import type { DatabaseHandle } from '../db/database.js';
 import { requireUser } from '../auth/sessions.js';
-import { AI_DISCLOSURE_VERSION, LOCAL_ASR_DISCLOSURE_VERSION, LOCAL_OCR_DISCLOSURE_VERSION, createAiPreferenceRepository } from './preferences.js';
+import { AI_DISCLOSURE_VERSION, LOCAL_ASR_DISCLOSURE_VERSION, LOCAL_OCR_DISCLOSURE_VERSION, LOCAL_VISUAL_DISCLOSURE_VERSION, createAiPreferenceRepository } from './preferences.js';
+import { queueCurrentVisualEmbeddings } from './visual-embedding-worker.js';
 
 const updateSchema = z.object({ enabled: z.boolean(), disclosureVersion: z.string().optional() }).strict();
 
@@ -31,6 +32,12 @@ export function createAiRouter(database: DatabaseHandle) {
       .get() as { local_asr_configured: boolean | number; last_heartbeat_at: string } | undefined;
     const heartbeat = Date.parse(row?.last_heartbeat_at ?? '');
     return Boolean(row && row.local_asr_configured && Number.isFinite(heartbeat) && Date.now() - heartbeat <= 90_000);
+  };
+  const localVisualAvailable = async () => {
+    const row = await database.prepare('SELECT local_visual_configured,last_heartbeat_at FROM ai_worker_status WHERE singleton=TRUE')
+      .get() as { local_visual_configured: boolean | number; last_heartbeat_at: string } | undefined;
+    const heartbeat = Date.parse(row?.last_heartbeat_at ?? '');
+    return Boolean(row && row.local_visual_configured && Number.isFinite(heartbeat) && Date.now() - heartbeat <= 90_000);
   };
 
   router.get('/ai/preferences', signedIn, async (req, res) => {
@@ -73,6 +80,21 @@ export function createAiRouter(database: DatabaseHandle) {
     }
     await preferences.setLocalAsr(req.user!.id, parsed.data.enabled);
     return res.json({ preference: await preferences.getLocalAsr(req.user!.id, await localAsrAvailable()) });
+  });
+
+  router.get('/ai/local-visual-preferences', signedIn, async (req, res) => {
+    return res.json({ preference: await preferences.getLocalVisual(req.user!.id, await localVisualAvailable()) });
+  });
+
+  router.put('/ai/local-visual-preferences', signedIn, async (req, res) => {
+    const parsed = updateSchema.safeParse(req.body);
+    if (!parsed.success) return fail(res, 400, 'invalid_local_visual_preference', 'Choose whether to enable local visual similarity.', req.requestId);
+    if (parsed.data.enabled && parsed.data.disclosureVersion !== LOCAL_VISUAL_DISCLOSURE_VERSION) {
+      return fail(res, 400, 'local_visual_consent_required', 'Review and accept the local visual similarity disclosure before enabling it.', req.requestId);
+    }
+    await preferences.setLocalVisual(req.user!.id, parsed.data.enabled);
+    if (parsed.data.enabled) await queueCurrentVisualEmbeddings(database, req.user!.id);
+    return res.json({ preference: await preferences.getLocalVisual(req.user!.id, await localVisualAvailable()) });
   });
 
   router.get('/ai/items/:id', signedIn, async (req, res) => {

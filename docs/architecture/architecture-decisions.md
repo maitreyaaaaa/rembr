@@ -91,6 +91,16 @@ These are planning decisions for the new Rembr implementation. They do not alter
 **Decision:** Store all Rembr API and worker data in the connected Supabase Postgres project. Apply versioned SQL from `supabase/migrations/`; use async `pg` pooling in the server processes. Keep private application file bytes in the existing private filesystem storage paths. Use PGlite with the same Postgres schema for isolated local database tests. Do not keep a SQLite fallback or SQLite data files.
 
 **Consequences:** Both API and worker require `DATABASE_URL` in their server environment. The secret must remain server-side. Supabase tables have RLS enabled with no direct client policies because the app accesses them only through its authenticated API using the server database connection. Keep user ownership checks in the API query layer. Review advisors and grants whenever schema exposure changes.
+
+## ADR-R13 — Keep visual embeddings local, separately consented, and derived
+
+**Status:** Accepted, 2026-10-30.
+
+**Context:** IScraper ADR-010 defines image vectors as a separate local-ML stage with variable dimensions, owner-scoped storage, cosine similarity, and text/metadata fallback. Rembr already has a fixed-dimension OpenRouter text-vector table and a separate Meta image-query feature; neither is an appropriate storage or consent boundary for saved-item image vectors.
+
+**Decision:** Use a separate default-off local visual-processing consent and optional worker-local image embedding command. Pass only bounded private temporary image paths to a fixed `execFile` invocation; cap time, output and vector dimensions; persist variable-length arrays in a dedicated owner/item/model table with media content hash. Rank only vectors with matching model and dimensions, then fall back to deterministic visual text, tags, collections, and item metadata. Keep vectors out of item responses and personal-data export while counting them in the data map. Revocation deletes vectors and cancels queued work; item/account deletion cascades.
+
+**Consequences:** No image model is downloaded or enabled by default. The local runtime remains an operator-provisioned dependency and requires hosted migration, runtime, and browser acceptance evidence before claiming production support. The saved-item similarity feature remains independent from user-selected-image search, Meta media analysis, OCR/ASR consent, and OpenRouter semantic search.
 - Which source behaviors require a redesigned interaction contract because of product, privacy, or security findings? (This changes design while preserving the feature unless the user explicitly approves a scope change.)
 - Whether user-supplied provider credentials are a required Rembr capability. Current backend audit found helper/table presence but no production end-to-end orchestration path.
 - Exact storage provider, auth provider, deployment targets, model provider, and browser support matrix for Rembr.

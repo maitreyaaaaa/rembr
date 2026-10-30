@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 export const OWNER_WORK_LEASE_TTL_MS = 15 * 60_000;
 export const OWNER_WORK_LEASE_HEARTBEAT_MS = OWNER_WORK_LEASE_TTL_MS / 3;
 
-export type OwnerWorkType = 'ai_analysis' | 'visual_search' | 'grounded_answer' | 'semantic_embedding' | 'asset_upload' | 'import_upload' | 'media_upload' | 'export_write';
+export type OwnerWorkType = 'ai_analysis' | 'visual_search' | 'grounded_answer' | 'semantic_embedding' | 'visual_embedding' | 'asset_upload' | 'import_upload' | 'media_upload' | 'export_write';
 
 export class OwnerLifecycleError extends Error {
   constructor(readonly code: string) { super(code); this.name = 'OwnerLifecycleError'; }

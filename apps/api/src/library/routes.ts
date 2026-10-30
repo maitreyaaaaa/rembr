@@ -1,4 +1,5 @@
 import express from 'express';
+import { rateLimit } from 'express-rate-limit';
 import multer from 'multer';
 import { z } from 'zod';
 import type { DatabaseHandle } from '../db/database.js';
@@ -7,6 +8,8 @@ import { createProfileGate } from '../account/routes.js';
 import type { AssetStorage } from '../assets/storage.js';
 import type { MediaStorage } from '../media/storage.js';
 import { createLibraryService, LibraryServiceError } from './service.js';
+import { findSimilarVisuals, type SimilarVisualProfile, type SimilarVisualVector } from './similar-visuals.js';
+import { LOCAL_VISUAL_DISCLOSURE_VERSION } from '../ai/preferences.js';
 
 const noteUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 5, fields: 3, fieldSize: 50_000 } });
 const updateItemSchema = z.object({ titleOverride: z.string().trim().max(240).nullable().optional(), descriptionOverride: z.string().trim().max(2000).nullable().optional() }).strict();
@@ -27,11 +30,21 @@ function formField(req: express.Request, key: string): string {
   return typeof value === 'string' ? value : '';
 }
 
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : [];
+}
+
+function parseJsonStrings(value: unknown): string[] {
+  if (typeof value !== 'string') return [];
+  try { return stringArray(JSON.parse(value)); } catch { return []; }
+}
+
 export function createLibraryRouter(database: DatabaseHandle, storage: AssetStorage, mediaStorage: MediaStorage) {
   const router = express.Router();
   const signedIn = requireUser(database);
   const profile = createProfileGate(database, storage);
   const library = createLibraryService(database, storage, mediaStorage);
+  const similarVisualLimit = rateLimit({ windowMs: 60_000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false });
 
   router.get('/items', signedIn, profile, async (req, res) => {
     const parsed = z.object({
@@ -65,6 +78,58 @@ export function createLibraryRouter(database: DatabaseHandle, storage: AssetStor
     const item = await library.get(req.user!.id, param(req, 'id'));
     if (!item) return apiError(res, 404, 'not_found', 'Saved item not found.', req.requestId);
     return res.json({ item });
+  });
+
+  router.get('/items/:id/similar-visuals', signedIn, profile, similarVisualLimit, async (req, res) => {
+    const parsed = z.object({ limit: z.coerce.number().int().min(1).max(20).default(8) }).safeParse(req.query);
+    if (!parsed.success) return apiError(res, 400, 'invalid_query', 'The similar saves limit must be between 1 and 20.', req.requestId);
+    const ownerId = req.user!.id;
+    const sourceId = param(req, 'id');
+    const sourceExists = await database.prepare('SELECT 1 FROM saved_items WHERE owner_id=? AND id=?').get(ownerId, sourceId);
+    if (!sourceExists) return apiError(res, 404, 'not_found', 'Saved item not found.', req.requestId);
+    const rows = await database.prepare(`SELECT saved_items.id,
+        COALESCE(saved_items.title_override,saved_items.title) AS title,
+        COALESCE(saved_items.description_override,saved_items.description,'') AS description,
+        saved_items.created_at,saved_items.source_platform,saved_items.item_kind,
+        analysis.visual_description,analysis.ocr_text,analysis.summary,analysis.keywords_json,
+        ARRAY(SELECT tags.display_name FROM item_tags JOIN tags ON tags.owner_id=item_tags.owner_id AND tags.id=item_tags.tag_id
+          WHERE item_tags.owner_id=saved_items.owner_id AND item_tags.item_id=saved_items.id ORDER BY tags.normalized_name) AS tags,
+        ARRAY(SELECT collections.name FROM collection_items JOIN collections ON collections.owner_id=collection_items.owner_id AND collections.id=collection_items.collection_id
+          WHERE collection_items.owner_id=saved_items.owner_id AND collection_items.item_id=saved_items.id ORDER BY collections.normalized_name) AS collections,
+        EXISTS (SELECT 1 FROM media_artifacts media WHERE media.owner_id=saved_items.owner_id AND media.item_id=saved_items.id
+          AND media.active=1 AND media.status='ready' AND media.detected_mime LIKE 'image/%')
+          OR EXISTS (SELECT 1 FROM note_assets JOIN asset_objects ON asset_objects.owner_id=note_assets.owner_id AND asset_objects.id=note_assets.asset_id
+            WHERE note_assets.owner_id=saved_items.owner_id AND note_assets.item_id=saved_items.id AND asset_objects.detected_mime LIKE 'image/%' AND asset_objects.state='ready') AS has_image
+      FROM saved_items
+      LEFT JOIN LATERAL (SELECT visual_description,ocr_text,summary,keywords_json FROM ai_analysis_results
+        WHERE owner_id=saved_items.owner_id AND item_id=saved_items.id ORDER BY generation DESC LIMIT 1) analysis ON TRUE
+      WHERE saved_items.owner_id=? AND (saved_items.id=? OR saved_items.id IN (
+        SELECT id FROM saved_items WHERE owner_id=? ORDER BY created_at DESC,id LIMIT 250
+      )) ORDER BY saved_items.created_at DESC,saved_items.id LIMIT 251`)
+      .all(ownerId, sourceId, ownerId) as Array<Record<string, unknown>>;
+    const profiles: SimilarVisualProfile[] = rows.map((row) => ({
+      id: String(row.id), title: String(row.title ?? ''), description: String(row.description ?? ''),
+      visualDescription: String(row.visual_description ?? ''), ocrText: String(row.ocr_text ?? ''), summary: String(row.summary ?? ''),
+      keywords: parseJsonStrings(row.keywords_json), tags: stringArray(row.tags), collections: stringArray(row.collections),
+      platform: row.source_platform == null ? null : String(row.source_platform),
+      contentType: row.item_kind == null ? null : String(row.item_kind), hasImage: Boolean(row.has_image), createdAt: String(row.created_at ?? ''),
+    }));
+    const itemIds = profiles.map((item) => item.id);
+    res.setHeader('Cache-Control', 'private, no-store');
+    const visualConsent = await database.prepare(`SELECT local_visual_enabled,local_visual_consent_version
+      FROM ai_analysis_preferences WHERE owner_id=?`).get(ownerId) as { local_visual_enabled: boolean | number; local_visual_consent_version: string | null } | undefined;
+    const localVisualEnabled = Boolean(visualConsent?.local_visual_enabled && visualConsent.local_visual_consent_version === LOCAL_VISUAL_DISCLOSURE_VERSION);
+    const indexing = localVisualEnabled ? Number((await database.prepare(`SELECT COUNT(*) AS count FROM visual_embedding_jobs
+      WHERE owner_id=? AND status IN ('queued','processing')`).get(ownerId) as { count: number }).count) : 0;
+    const sourceVectorRow = localVisualEnabled
+      ? await database.prepare(`SELECT model FROM visual_item_embeddings WHERE owner_id=? AND item_id=?
+        ORDER BY updated_at DESC LIMIT 1`).get(ownerId, sourceId) as { model: string } | undefined : undefined;
+    const vectors = sourceVectorRow && itemIds.length ? await database.prepare(`SELECT item_id,model,embedding FROM visual_item_embeddings
+      WHERE owner_id=? AND model=? AND item_id IN (${itemIds.map(() => '?').join(',')})`)
+      .all(ownerId, sourceVectorRow.model, ...itemIds) as Array<{ item_id: string; model: string; embedding: number[] }> : [];
+    const ranked = findSimilarVisuals(profiles, sourceId, vectors.map((row) => ({ itemId: row.item_id, model: row.model, embedding: row.embedding } satisfies SimilarVisualVector)), parsed.data.limit);
+    const items = await Promise.all(ranked.map(async (entry) => ({ item: await library.get(ownerId, entry.itemId), similarity: entry.similarity })));
+    return res.json({ items: items.filter((entry) => entry.item), localVisualEnabled, indexing });
   });
 
   router.patch('/items/:id', signedIn, profile, async (req, res) => {

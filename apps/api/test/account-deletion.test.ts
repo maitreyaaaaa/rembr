@@ -125,6 +125,10 @@ test('deletion worker retries a failed storage step and retains only a hash-back
       (id,owner_id,original_url,canonical_url,title,description,status,created_at,updated_at)
       VALUES (?,?,?,?,'Private title','Private description','ready',?,?)`)
       .run(itemId, owner.userId, 'https://example.com/delete-retry', 'https://example.com/delete-retry', now, now);
+    await database.prepare(`INSERT INTO visual_item_embeddings(owner_id,item_id,model,content_hash,embedding,created_at,updated_at)
+      VALUES(?,?,?,?,?,?,?)`).run(owner.userId, itemId, 'local-visual-test', 'e'.repeat(64), [1, 0], now, now);
+    await database.prepare(`INSERT INTO visual_embedding_jobs(id,owner_id,item_id,status,available_at,created_at,updated_at)
+      VALUES(?,?,?,'queued',?,?,?)`).run(`${owner.userId}:${itemId}`, owner.userId, itemId, now, now, now);
     const assetKey = '11111111-1111-4111-8111-111111111111.asset';
     await database.prepare(`INSERT INTO asset_objects
       (id,owner_id,kind,storage_key,detected_mime,byte_size,sha256,state,created_at,updated_at)
@@ -167,6 +171,8 @@ test('deletion worker retries a failed storage step and retains only a hash-back
     assert.equal((await database.prepare('SELECT count(*) AS count FROM users WHERE id=?').get(owner.userId) as { count: number }).count, 0);
     assert.equal((await database.prepare('SELECT count(*) AS count FROM saved_items WHERE owner_id=?').get(owner.userId) as { count: number }).count, 0);
     assert.equal((await database.prepare('SELECT count(*) AS count FROM asset_objects WHERE owner_id=?').get(owner.userId) as { count: number }).count, 0);
+    assert.equal((await database.prepare('SELECT count(*) AS count FROM visual_item_embeddings WHERE owner_id=?').get(owner.userId) as { count: number }).count, 0);
+    assert.equal((await database.prepare('SELECT count(*) AS count FROM visual_embedding_jobs WHERE owner_id=?').get(owner.userId) as { count: number }).count, 0);
     const retained = await database.prepare('SELECT owner_id,status,owner_hash FROM account_deletion_requests WHERE id=?').get(deletionId) as
       { owner_id: string | null; status: string; owner_hash: string };
     assert.equal(retained.owner_id, null);

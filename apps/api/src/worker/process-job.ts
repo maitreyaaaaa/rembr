@@ -5,6 +5,7 @@ import { detectSupportedMediaMime, LocalMediaStorage, type MediaStorage } from '
 import { CaptureError, fetchPublicMedia, fetchPublicPage } from '../items/safe-fetch.js';
 import { extractPage } from '../items/extract.js';
 import { lockActiveOwner, OwnerLifecycleError, withOwnerWorkLease } from '../account/owner-lifecycle.js';
+import { queueVisualEmbeddingForItem } from '../ai/visual-embedding-worker.js';
 
 interface ClaimedJob {
   id: string; item_id: string; owner_id: string; import_id: string | null; correlation_id: string;
@@ -305,6 +306,7 @@ export async function processNextJob(database: DatabaseHandle, fetchPage: PageFe
     });
     if (committed !== true && writtenMediaKeys.length) await queueMediaCleanup(database, job.owner_id, writtenMediaKeys);
     await cleanupInactiveMedia(database, mediaProcessor.storage);
+    if (committed === true) await queueVisualEmbeddingForItem(database, job.owner_id, job.item_id).catch(() => false);
     return committed === false ? null : job.id;
   } catch (error) {
     const code = failureCode(error); const now = new Date().toISOString();

@@ -87,11 +87,12 @@ type ExportRow = {
 
 type OwnerColumn = 'id' | 'owner_id' | 'user_id';
 
-const excludedTables = new Set<string>();
+const excludedTables = new Set<string>(['visual_item_embeddings']);
 const excludedColumns: Record<string, ReadonlySet<string>> = {
   imports: new Set(['lease_token']),
   processing_jobs: new Set(['lease_token']),
   ai_analysis_jobs: new Set(['lease_token']),
+  visual_embedding_jobs: new Set(['lease_token', 'lease_expires_at']),
   asset_objects: new Set(['storage_key']),
   import_upload_files: new Set(['storage_key']),
   import_upload_chunks: new Set(['storage_key']),
@@ -395,6 +396,7 @@ export function createAccountDataExportService(
             'Password hashes are excluded; account identity fields contain only ID, email, status, and creation time.',
             'Session credentials and token hashes are excluded; only session creation and expiry timestamps are included.',
             'Worker lease tokens, lease expiry metadata, and internal private-storage keys are excluded.',
+            'Derived local visual vectors are operational similarity indexes and are excluded; the data map reports their row count.',
             'Shared system aggregates, worker status, and global cleanup queue records are not attributable to one owner and are excluded.',
             claim.includeFiles ? 'Private asset, import, and media bytes are included from the owner-scoped private file source within the listed count and byte limits.' : 'Private binary file bytes are omitted by request; their database metadata records remain included.',
             'Copies retained by Meta AI, OpenRouter, or upstream model providers are outside Rembr storage and cannot be enumerated or removed by this export.',

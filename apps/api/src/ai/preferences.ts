@@ -4,6 +4,7 @@ import { lockActiveOwner } from '../account/owner-lifecycle.js';
 export const AI_DISCLOSURE_VERSION = '2026-10-29-v2';
 export const LOCAL_OCR_DISCLOSURE_VERSION = '2026-10-30-v1';
 export const LOCAL_ASR_DISCLOSURE_VERSION = '2026-10-30-v1';
+export const LOCAL_VISUAL_DISCLOSURE_VERSION = '2026-10-30-v1';
 
 export interface AiPreference {
   enabled: boolean;
@@ -24,6 +25,15 @@ export interface LocalOcrPreference {
 }
 
 export interface LocalAsrPreference {
+  enabled: boolean;
+  consentVersion: string | null;
+  consentedAt: string | null;
+  disabledAt: string | null;
+  updatedAt: string | null;
+  providerAvailable: boolean;
+}
+
+export interface LocalVisualPreference {
   enabled: boolean;
   consentVersion: string | null;
   consentedAt: string | null;
@@ -146,6 +156,43 @@ export function createAiPreferenceRepository(database: DatabaseHandle) {
                 (p.enabled=TRUE AND p.consent_version=?) OR
                 (p.local_ocr_enabled=TRUE AND p.local_ocr_consent_version=?)
               ))`).run(now, now, ownerId, AI_DISCLOSURE_VERSION, LOCAL_OCR_DISCLOSURE_VERSION);
+        }
+      })();
+    },
+
+    async getLocalVisual(ownerId: string, providerAvailable: boolean): Promise<LocalVisualPreference> {
+      const row = await database.prepare(`SELECT local_visual_enabled,local_visual_consent_version,local_visual_consented_at,
+          local_visual_disabled_at,updated_at FROM ai_analysis_preferences WHERE owner_id=?`).get(ownerId) as {
+        local_visual_enabled: boolean | number; local_visual_consent_version: string | null;
+        local_visual_consented_at: string | null; local_visual_disabled_at: string | null; updated_at: string;
+      } | undefined;
+      return {
+        enabled: Boolean(row?.local_visual_enabled && row.local_visual_consent_version === LOCAL_VISUAL_DISCLOSURE_VERSION),
+        consentVersion: row?.local_visual_consent_version ?? null, consentedAt: row?.local_visual_consented_at ?? null,
+        disabledAt: row?.local_visual_disabled_at ?? null, updatedAt: row?.updated_at ?? null, providerAvailable,
+      };
+    },
+
+    async setLocalVisual(ownerId: string, enabled: boolean): Promise<void> {
+      const now = new Date().toISOString();
+      await database.transaction(async () => {
+        if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
+        await database.prepare(`INSERT INTO ai_analysis_preferences
+          (owner_id,enabled,consent_version,consented_at,disabled_at,updated_at,
+           local_visual_enabled,local_visual_consent_version,local_visual_consented_at,local_visual_disabled_at)
+          VALUES (?,FALSE,NULL,NULL,NULL,?,?,?,?,?)
+          ON CONFLICT (owner_id) DO UPDATE SET local_visual_enabled=excluded.local_visual_enabled,
+            local_visual_consent_version=CASE WHEN excluded.local_visual_enabled THEN excluded.local_visual_consent_version ELSE ai_analysis_preferences.local_visual_consent_version END,
+            local_visual_consented_at=CASE WHEN excluded.local_visual_enabled THEN excluded.local_visual_consented_at ELSE ai_analysis_preferences.local_visual_consented_at END,
+            local_visual_disabled_at=CASE WHEN excluded.local_visual_enabled THEN NULL ELSE excluded.local_visual_disabled_at END,
+            updated_at=excluded.updated_at`)
+          .run(ownerId, now, enabled, enabled ? LOCAL_VISUAL_DISCLOSURE_VERSION : null, enabled ? now : null, enabled ? null : now);
+        if (!enabled) {
+          await database.prepare(`DELETE FROM visual_item_embeddings WHERE owner_id=?`).run(ownerId);
+          await database.prepare(`UPDATE visual_embedding_jobs SET status='cancelled',lease_token=NULL,lease_expires_at=NULL,
+            error_code='consent_disabled',updated_at=?,completed_at=? WHERE owner_id=? AND status IN ('queued','processing')`)
+            .run(now, now, ownerId);
+          await database.prepare(`DELETE FROM account_owner_work_leases WHERE owner_id=? AND work_type='visual_embedding'`).run(ownerId);
         }
       })();
     },

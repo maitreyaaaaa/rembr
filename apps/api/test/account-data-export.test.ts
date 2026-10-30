@@ -85,6 +85,8 @@ test('personal export packages only the requested owner and excludes password an
     await seedUser(database, 'admin-granter', 'granting-admin@example.test');
     await seedItem(database, 'item-a', 'owner-a', 'A only');
     await seedItem(database, 'item-b', 'owner-b', 'B private');
+    await database.prepare(`INSERT INTO visual_item_embeddings(owner_id,item_id,model,content_hash,embedding,created_at,updated_at)
+      VALUES(?,?,?,?,?,?,?)`).run('owner-a', 'item-a', 'local-visual-test', 'd'.repeat(64), [0.125, 0.875], start.toISOString(), start.toISOString());
     await database.prepare('INSERT INTO admin_roles (user_id,role,granted_by,created_at) VALUES (?,?,?,?)')
       .run('owner-a', 'admin', 'admin-granter', start.toISOString());
     await database.prepare(`INSERT INTO sessions (id,user_id,token_hash,expires_at,created_at) VALUES (?,?,?,?,?)`)
@@ -132,6 +134,8 @@ test('personal export packages only the requested owner and excludes password an
     assert.match(privacyRequests, /pending_approval/);
     assert.doesNotMatch(privacyRequests, /secret-storage-key-marker|progress_cursor/);
     assert.match(manifest, /Session credentials and token hashes are excluded/);
+    assert.match(manifest, /local visual vectors are operational similarity indexes and are excluded/);
+    assert.doesNotMatch(manifest + library, /local-visual-test|0\.125|0\.875/);
     assert.match(manifest, /outside Rembr storage/);
     assert.ok(archive.file('files/asset/0001-private.txt'));
     assert.ok(archive.file('files/import/0002-private.txt'));

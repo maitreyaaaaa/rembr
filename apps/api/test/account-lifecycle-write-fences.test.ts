@@ -49,7 +49,7 @@ test('knowledge and preference writes reject an owner frozen after request authe
 
     for (const table of [
       'ai_analysis_preferences', 'ai_search_preferences', 'ai_saved_item_summaries', 'library_reminders',
-      'link_health_checks', 'smart_collections', 'semantic_item_embeddings',
+      'link_health_checks', 'smart_collections', 'semantic_item_embeddings', 'visual_item_embeddings', 'visual_embedding_jobs',
     ]) {
       const count = await database.prepare(`SELECT count(*) AS count FROM ${table} WHERE owner_id=?`)
         .get('frozen-knowledge-owner') as { count: number };
