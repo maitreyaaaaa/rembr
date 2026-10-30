@@ -107,5 +107,32 @@ test('operator role endpoint is self-scoped and deletion queue stays minimal whi
     });
     assert.equal(retried.status, 200);
     assert.equal((await retried.json() as { deletion: { status: string } }).deletion.status, 'approved');
+
+    const deniedAccess = await database.prepare(`SELECT actor_user_id,target_hash,metadata FROM admin_access_audit
+      WHERE event_type='admin_access_denied' ORDER BY metadata->>'action'`).all() as Array<{
+        actor_user_id: string; target_hash: string | null; metadata: Record<string, unknown>;
+      }>;
+    assert.deepEqual(deniedAccess.map((entry) => ({ actor: entry.actor_user_id, targetHash: entry.target_hash, metadata: entry.metadata })), [
+      { actor: support.userId, targetHash: null, metadata: { action: 'admin_deletion_retry', requiredRole: 'admin', actualRole: 'support' } },
+      { actor: member.userId, targetHash: null, metadata: { action: 'support_deletion_audit', requiredRole: 'support', actualRole: 'none' } },
+      { actor: member.userId, targetHash: null, metadata: { action: 'support_deletion_queue', requiredRole: 'support', actualRole: 'none' } },
+    ]);
+    assert.equal(JSON.stringify(deniedAccess).includes(deletionId), false);
+
+    const deniedFeedResponse = await fetch(`${baseUrl}/api/admin/audit-events?eventType=admin_access_denied&limit=10`, { headers: { Cookie: admin.cookie } });
+    assert.equal(deniedFeedResponse.status, 200);
+    const deniedFeed = await deniedFeedResponse.json() as { auditEvents: Array<{
+      eventType: string; source: string; actorType: string; action?: string; targetReference: string | null;
+    }> };
+    assert.equal(deniedFeed.auditEvents.length, 3);
+    assert.ok(deniedFeed.auditEvents.every((event) => event.eventType === 'admin_access_denied' && event.source === 'admin_access'
+      && event.actorType === 'user' && event.targetReference === null));
+    assert.deepEqual(deniedFeed.auditEvents.map((event) => event.action).sort(), [
+      'admin_deletion_retry', 'support_deletion_audit', 'support_deletion_queue',
+    ]);
+    const deniedFeedText = JSON.stringify(deniedFeed);
+    for (const privateValue of [member.userId, member.cookie, support.userId, support.cookie, admin.userId, deletionId]) {
+      assert.equal(deniedFeedText.includes(privateValue), false);
+    }
   });
 });

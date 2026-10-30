@@ -68,13 +68,14 @@ interface AdminImportRow {
   entries: { accepted: number; duplicate: number; skipped: number; failed: number };
   jobs: { waiting: number; processing: number; completed: number; failed: number };
 }
-type AdminAuditSource = 'security' | 'deletion' | 'admin_access';
+type AdminAuditSource = 'security' | 'activity' | 'deletion' | 'admin_access';
 interface AdminAuditEvent {
   reference: string;
   source: AdminAuditSource;
   eventType: string;
   actorType: string;
   targetReference: string | null;
+  action?: string;
   createdAt: string;
 }
 interface RequestError extends Error { status?: number }
@@ -441,7 +442,7 @@ export function AdminSupportPage({ request }: { request: Request }) {
           <label htmlFor="admin-audit-event-type">Event type</label>
           <select id="admin-audit-event-type" value={auditEventTypeFilter} onChange={(event) => setAuditEventTypeFilter(event.target.value)}>
             <option value="">All event types</option>
-            {['sign_in', 'sign_out', 'deletion_requested', 'deletion_cancelled', 'requested', 'cancelled', 'approved', 'retry_requested', 'claim_acquired', 'step_started', 'step_completed', 'step_failed', 'completed', 'admin_summary_viewed', 'admin_worker_status_viewed', 'admin_import_list_viewed', 'admin_audit_events_viewed', 'admin_user_list_viewed', 'admin_user_detail_viewed', 'admin_user_timeline_viewed'].map((type) => <option key={type} value={type}>{type.replaceAll('_', ' ')}</option>)}
+            {['sign_in', 'sign_out', 'deletion_requested', 'deletion_cancelled', 'requested', 'cancelled', 'approved', 'retry_requested', 'claim_acquired', 'step_started', 'step_completed', 'step_failed', 'completed', 'data_export_requested', 'data_export_ready', 'data_export_failed', 'data_export_cancelled', 'data_export_retried', 'data_export_downloaded', 'import_started', 'import_completed', 'import_failed', 'import_status_changed', 'background_job_failed', 'background_job_blocked', 'background_job_retrying', 'search_failed', 'analysis_used', 'admin_summary_viewed', 'admin_worker_status_viewed', 'admin_import_list_viewed', 'admin_audit_events_viewed', 'admin_user_list_viewed', 'admin_user_detail_viewed', 'admin_user_timeline_viewed', 'admin_access_denied'].map((type) => <option key={type} value={type}>{type.replaceAll('_', ' ')}</option>)}
           </select>
           <label htmlFor="admin-audit-target">Target account ID (optional)</label>
           <input id="admin-audit-target" type="text" autoComplete="off" maxLength={36} value={auditTargetUserFilter} onChange={(event) => setAuditTargetUserFilter(event.target.value)} placeholder="Account UUID" />
@@ -452,7 +453,7 @@ export function AdminSupportPage({ request }: { request: Request }) {
         {auditEventsLoading ? <p className="phase2-state" role="status">Loading audit events…</p>
           : auditEventsLoaded ? auditEvents.length ? <ol className="admin-audit-list">{auditEvents.map((event) => <li key={event.reference}>
             <strong>{event.source.replaceAll('_', ' ')} · {event.eventType.replaceAll('_', ' ')}</strong>
-            <span>Actor: {event.actorType} · Target ref: {event.targetReference ?? 'not applicable'} · Event ref: {event.reference}</span>
+            <span>Actor: {event.actorType}{event.action ? ` · Action: ${event.action.replaceAll('_', ' ')}` : ''} · Target ref: {event.targetReference ?? 'not applicable'} · Event ref: {event.reference}</span>
             <time dateTime={event.createdAt}>{formatDate(event.createdAt)}</time>
           </li>)}</ol> : <p className="admin-empty" role="status">No audit events match these filters.</p>
           : <p className="admin-empty">Choose filters and load the latest audit events.</p>}

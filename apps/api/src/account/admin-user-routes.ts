@@ -4,6 +4,7 @@ import { rateLimit } from 'express-rate-limit';
 import { z } from 'zod';
 import { requireUser } from '../auth/sessions.js';
 import type { DatabaseHandle } from '../db/database.js';
+import { ADMIN_ACCESS_ACTIONS, recordAdminAccessDenied, type AdminAccessAction } from './admin-access-audit.js';
 import { createAccountDataMapService } from './data-map-service.js';
 import { ACCOUNT_ACTIVITY_EVENT_TYPES } from './activity-events.js';
 import { ACCOUNT_ACTIVITY_RETENTION_MS } from './retention-service.js';
@@ -20,6 +21,7 @@ const auditEventTypes = [
   'sign_in', 'sign_out', 'deletion_requested', 'deletion_cancelled',
   'requested', 'cancelled', 'approved', 'retry_requested', 'claim_acquired', 'step_started', 'step_completed', 'step_failed', 'completed',
   'admin_summary_viewed', 'admin_worker_status_viewed', 'admin_import_list_viewed', 'admin_audit_events_viewed', 'admin_user_list_viewed', 'admin_user_detail_viewed', 'admin_user_timeline_viewed',
+  'admin_access_denied',
   ...ACCOUNT_ACTIVITY_EVENT_TYPES,
 ] as const;
 const timelineSources = ['security', 'activity', 'deletion', 'export', 'import', 'admin_access'] as const;
@@ -83,9 +85,10 @@ export function createAdminUserRouter(database: DatabaseHandle) {
     next();
   });
 
-  async function requireAdmin(userId: string, res: express.Response, requestId?: string): Promise<boolean> {
+  async function requireAdmin(userId: string, action: AdminAccessAction, res: express.Response, requestId?: string): Promise<boolean> {
     const role = await database.prepare('SELECT role FROM admin_roles WHERE user_id=?').get(userId) as { role: string } | undefined;
     if (role?.role === 'admin') return true;
+    await recordAdminAccessDenied(database, userId, action, 'admin', role?.role === 'support' ? 'support' : 'none');
     error(res, 403, 'admin_role_required', 'This action requires an administrator role.', requestId);
     return false;
   }
@@ -98,7 +101,7 @@ export function createAdminUserRouter(database: DatabaseHandle) {
 
   router.get('/admin/summary', auth, readLimit, async (req, res, next) => {
     try {
-      if (!await requireAdmin(req.user!.id, res, req.requestId)) return;
+      if (!await requireAdmin(req.user!.id, 'admin_summary', res, req.requestId)) return;
       const now = Date.now();
       const dayAgo = new Date(now - 24 * 60 * 60 * 1000).toISOString();
       const weekAgo = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -128,7 +131,7 @@ export function createAdminUserRouter(database: DatabaseHandle) {
 
   router.get('/admin/worker/status', auth, readLimit, async (req, res, next) => {
     try {
-      if (!await requireAdmin(req.user!.id, res, req.requestId)) return;
+      if (!await requireAdmin(req.user!.id, 'admin_worker_status', res, req.requestId)) return;
       const sampledAt = new Date().toISOString();
       const [jobs, imports, aiJobs, visualJobs, exports] = await Promise.all([
         database.prepare(`SELECT count(*) FILTER (WHERE status IN ('queued','retry_wait','cancel_requested')) AS waiting,
@@ -166,7 +169,7 @@ export function createAdminUserRouter(database: DatabaseHandle) {
 
   router.get('/admin/imports', auth, readLimit, async (req, res, next) => {
     try {
-      if (!await requireAdmin(req.user!.id, res, req.requestId)) return;
+      if (!await requireAdmin(req.user!.id, 'admin_import_list', res, req.requestId)) return;
       const rows = await database.prepare(`WITH recent_imports AS (
           SELECT id,owner_id,source,status,created_at,completed_at,file_count,total_bytes,parsed_count,new_count,duplicate_count,skipped_count,failed_count
           FROM imports ORDER BY created_at DESC,id DESC LIMIT 50
@@ -208,7 +211,7 @@ export function createAdminUserRouter(database: DatabaseHandle) {
 
   router.get('/admin/audit-events', auth, readLimit, async (req, res, next) => {
     try {
-      if (!await requireAdmin(req.user!.id, res, req.requestId)) return;
+      if (!await requireAdmin(req.user!.id, 'admin_audit_events', res, req.requestId)) return;
       const parsed = auditEventSchema.safeParse(req.query);
       if (!parsed.success) return error(res, 400, 'invalid_audit_filter', 'Use supported source and event filters, an account ID, and a page size from 1 to 100.', req.requestId);
       const { source, eventType, targetUserId, limit, cursor: rawCursor } = parsed.data;
@@ -217,7 +220,7 @@ export function createAdminUserRouter(database: DatabaseHandle) {
       const branches: string[] = [];
       const parameters: unknown[] = [];
       const addBranch = (branchSource: typeof auditSources[number], table: string, actorSql: string, targetColumn: string, targetValue: string | null,
-        extraWhere?: string, extraParameters: unknown[] = []) => {
+        extraWhere?: string, extraParameters: unknown[] = [], actionSql = 'NULL::text') => {
         const where: string[] = extraWhere ? [extraWhere] : [];
         parameters.push(...extraParameters);
         if (source && source !== branchSource) where.push('FALSE');
@@ -227,7 +230,7 @@ export function createAdminUserRouter(database: DatabaseHandle) {
           where.push(`(created_at,id,'${branchSource}') < (?,?,?)`);
           parameters.push(cursor.createdAt, cursor.id, cursor.source);
         }
-        branches.push(`SELECT id,created_at,'${branchSource}'::text AS source,event_type,${actorSql} AS actor_type,${targetColumn} AS target_id
+        branches.push(`SELECT id,created_at,'${branchSource}'::text AS source,event_type,${actorSql} AS actor_type,${targetColumn} AS target_id,${actionSql} AS action
           FROM ${table}${where.length ? ` WHERE ${where.join(' AND ')}` : ''}`);
       };
       addBranch('security', 'account_security_events', "'owner'::text", 'owner_id', targetUserId ?? null);
@@ -235,11 +238,12 @@ export function createAdminUserRouter(database: DatabaseHandle) {
         'created_at>=?', [new Date(Date.now() - ACCOUNT_ACTIVITY_RETENTION_MS).toISOString()]);
       const hashedTarget = targetUserId ? hash(targetUserId) : null;
       addBranch('deletion', 'account_deletion_audit', 'actor_type', 'owner_hash', hashedTarget);
-      addBranch('admin_access', 'admin_access_audit', "'admin'::text", 'target_hash', hashedTarget);
+      addBranch('admin_access', 'admin_access_audit', "CASE WHEN event_type='admin_access_denied' THEN 'user'::text ELSE 'admin'::text END", 'target_hash', hashedTarget,
+        undefined, [], "CASE WHEN event_type='admin_access_denied' THEN metadata->>'action' ELSE NULL::text END");
       parameters.push(limit + 1);
-      const rows = await database.prepare(`SELECT id,created_at,source,event_type,actor_type,target_id FROM (${branches.join('\nUNION ALL\n')}) events
+      const rows = await database.prepare(`SELECT id,created_at,source,event_type,actor_type,target_id,action FROM (${branches.join('\nUNION ALL\n')}) events
         ORDER BY created_at DESC,id DESC,source DESC LIMIT ?`).all(...parameters) as Array<{
-          id: string; created_at: string; source: typeof auditSources[number]; event_type: string; actor_type: string; target_id: string | null;
+          id: string; created_at: string; source: typeof auditSources[number]; event_type: string; actor_type: string; target_id: string | null; action: string | null;
         }>;
       const hasMore = rows.length > limit;
       const page = rows.slice(0, limit).map((row) => ({
@@ -247,6 +251,7 @@ export function createAdminUserRouter(database: DatabaseHandle) {
         actorType: row.actor_type, targetReference: row.target_id
           ? (/^[0-9a-f]{64}$/i.test(row.target_id) ? row.target_id : hash(row.target_id)).slice(0, 16)
           : null,
+        ...(row.action && ADMIN_ACCESS_ACTIONS.includes(row.action as typeof ADMIN_ACCESS_ACTIONS[number]) ? { action: row.action } : {}),
         createdAt: row.created_at,
       }));
       await audit(req.user!.id, 'admin_audit_events_viewed', null, {
@@ -261,7 +266,7 @@ export function createAdminUserRouter(database: DatabaseHandle) {
     const parsed = searchSchema.safeParse(req.query);
     if (!parsed.success) return error(res, 400, 'invalid_search', 'Enter at least three characters and use a page size from 1 to 50.', req.requestId);
     try {
-      if (!await requireAdmin(req.user!.id, res, req.requestId)) return;
+      if (!await requireAdmin(req.user!.id, 'admin_user_list', res, req.requestId)) return;
       const { query, limit, offset } = parsed.data;
       const escaped = query.replace(/[!%_]/g, (character) => `!${character}`);
       const rows = await database.prepare(`SELECT id,email,account_status,created_at FROM users
@@ -288,7 +293,7 @@ export function createAdminUserRouter(database: DatabaseHandle) {
     const userId = req.params.userId;
     if (typeof userId !== 'string' || !userIdSchema.safeParse(userId).success) return error(res, 404, 'not_found', 'This account does not exist.', req.requestId);
     try {
-      if (!await requireAdmin(req.user!.id, res, req.requestId)) return;
+      if (!await requireAdmin(req.user!.id, 'admin_user_detail', res, req.requestId)) return;
       const user = await database.prepare(`SELECT account.id,account.email,account.account_status,account.created_at,
         profile.username,operator.role AS operator_role FROM users account
         LEFT JOIN profiles profile ON profile.user_id=account.id
@@ -327,7 +332,7 @@ export function createAdminUserRouter(database: DatabaseHandle) {
     const cursor = decodeTimelineCursor(parsed.data.cursor);
     if (cursor === null) return error(res, 400, 'invalid_timeline_cursor', 'The timeline page cursor is invalid.', req.requestId);
     try {
-      if (!await requireAdmin(req.user!.id, res, req.requestId)) return;
+      if (!await requireAdmin(req.user!.id, 'admin_user_timeline', res, req.requestId)) return;
       const exists = await database.prepare('SELECT id FROM users WHERE id=?').get(userId) as { id: string } | undefined;
       if (!exists) return error(res, 404, 'not_found', 'This account does not exist.', req.requestId);
       const ownerHash = hash(userId);

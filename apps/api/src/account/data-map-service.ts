@@ -208,7 +208,7 @@ export function createAccountDataMapService(database: DatabaseHandle) {
           { table: 'account_deletion_steps', reason: 'Contains internal deletion checkpoints and storage progress cursors; completed or cancelled workflow history is scheduled for cleanup after 90 days, while unresolved requests stay available for recovery.' },
           { table: 'account_deletion_audit', reason: 'Contains minimal operational deletion events and pseudonymous actor metadata; completed or cancelled workflow history is scheduled for cleanup after 90 days, while unresolved requests stay available for recovery.' },
           { table: 'account_owner_work_leases', reason: 'Contains short-lived worker coordination leases used to fence account writes and cleanup.' },
-          { table: 'admin_access_audit', reason: 'Records administrator directory/detail access using hashed targets and bounded metadata; access-query events expire after 90 days.' },
+          { table: 'admin_access_audit', reason: 'Records administrator directory/detail access and denied role checks using bounded redacted metadata; audit events expire after 90 days.' },
         ],
       };
     },

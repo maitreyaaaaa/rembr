@@ -3,6 +3,7 @@ import express, { type RequestHandler } from 'express';
 import { z } from 'zod';
 import { requireAccountLifecycleUser, requireUser } from '../auth/sessions.js';
 import type { DatabaseHandle } from '../db/database.js';
+import { recordAdminAccessDenied, type AdminAccessAction } from './admin-access-audit.js';
 import { AccountDeletionError } from './deletion-service.js';
 
 const uuid = z.string().uuid();
@@ -66,24 +67,25 @@ export function createAccountDeletionAdminRouter(database: DatabaseHandle, servi
     res.set({ 'Cache-Control': 'private, no-store, max-age=0', Pragma: 'no-cache', Vary: 'Cookie' });
     next();
   });
-  const requireRole = (minimum: 'support' | 'admin'): RequestHandler => async (req, res, next) => {
+  const requireRole = (minimum: 'support' | 'admin', action: AdminAccessAction): RequestHandler => async (req, res, next) => {
     try {
       const role = await service.roleFor(req.user!.id);
       if (role !== 'admin' && !(minimum === 'support' && role === 'support')) {
+        await recordAdminAccessDenied(database, req.user!.id, action, minimum, role ?? 'none');
         error(res, 403, 'admin_role_required', 'This action requires an authorized operator role.', req.requestId);
         return;
       }
       next();
     } catch (cause) { next(cause); }
   };
-  router.get('/admin/account-deletions', auth, requireRole('support'), readLimit, async (req, res, next) => {
+  router.get('/admin/account-deletions', auth, readLimit, requireRole('support', 'support_deletion_queue'), async (req, res, next) => {
     try {
       const parsed = z.coerce.number().int().min(1).max(50).safeParse(req.query.limit ?? 50);
       if (!parsed.success) return error(res, 400, 'invalid_limit', 'Limit must be between 1 and 50.', req.requestId);
       return res.json({ deletions: await service.listPending(parsed.data) });
     } catch (cause) { return next(cause); }
   });
-  router.get('/admin/account-deletions/:id/audit', auth, requireRole('support'), readLimit, async (req, res, next) => {
+  router.get('/admin/account-deletions/:id/audit', auth, readLimit, requireRole('support', 'support_deletion_audit'), async (req, res, next) => {
     const requestId = req.params.id;
     if (typeof requestId !== 'string' || !uuid.safeParse(requestId).success) return error(res, 404, 'not_found', 'This deletion request does not exist.', req.requestId);
     try {
@@ -93,7 +95,8 @@ export function createAccountDeletionAdminRouter(database: DatabaseHandle, servi
     } catch (cause) { return next(cause); }
   });
   for (const action of ['approve', 'retry'] as const) {
-    router.post(`/admin/account-deletions/:id/${action}`, auth, requireRole('admin'), mutateLimit, async (req, res, next) => {
+    const auditAction = action === 'approve' ? 'admin_deletion_approve' : 'admin_deletion_retry';
+    router.post(`/admin/account-deletions/:id/${action}`, auth, mutateLimit, requireRole('admin', auditAction), async (req, res, next) => {
       const requestId = req.params.id;
       if (typeof requestId !== 'string' || !uuid.safeParse(requestId).success) return error(res, 404, 'not_found', 'This deletion request does not exist.', req.requestId);
       if (!operatorActionSchema.safeParse(req.body).success) return error(res, 400, 'confirmation_required', 'Confirm this account deletion action.', req.requestId);

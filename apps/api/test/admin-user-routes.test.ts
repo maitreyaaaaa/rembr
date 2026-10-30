@@ -91,15 +91,19 @@ test('admin user search and detail are admin-only, bounded, sanitized, no-store,
 
     const audits = await database.prepare(`SELECT actor_user_id,event_type,target_hash,metadata FROM admin_access_audit ORDER BY created_at,id`)
       .all() as Array<{ actor_user_id: string; event_type: string; target_hash: string | null; metadata: unknown }>;
-    assert.equal(audits.length, 5);
-    assert.deepEqual(audits.slice(0, 4).map(({ event_type, target_hash }) => [event_type, target_hash]), [
+    const successfulAudits = audits.filter(({ event_type }) => event_type !== 'admin_access_denied');
+    const deniedAudits = audits.filter(({ event_type }) => event_type === 'admin_access_denied');
+    assert.equal(successfulAudits.length, 5);
+    assert.equal(deniedAudits.length, 4);
+    assert.deepEqual(successfulAudits.slice(0, 4).map(({ event_type, target_hash }) => [event_type, target_hash]), [
       ['admin_user_list_viewed', null], ['admin_user_list_viewed', null],
       ['admin_user_list_viewed', null], ['admin_user_list_viewed', null],
     ]);
-    assert.deepEqual([audits[4]!.event_type, audits[4]!.target_hash], [
+    assert.deepEqual([successfulAudits[4]!.event_type, successfulAudits[4]!.target_hash], [
       'admin_user_detail_viewed', createHash('sha256').update(target.userId).digest('hex'),
     ]);
-    assert.ok(audits.every(({ actor_user_id }) => actor_user_id === admin.userId));
+    assert.ok(successfulAudits.every(({ actor_user_id }) => actor_user_id === admin.userId));
+    assert.ok(deniedAudits.every(({ target_hash }) => target_hash === null));
     const auditText = JSON.stringify(audits);
     assert.equal(auditText.includes('lookup-target@example.test'), false);
     assert.equal(auditText.includes(target.userId), false);
@@ -279,6 +283,7 @@ test('admin audit browser filters and paginates redacted records without exposin
     assert.equal((await fetch(route)).status, 401);
     assert.equal((await fetch(route, { headers: { Cookie: member.cookie } })).status, 403);
     assert.equal((await fetch(route, { headers: { Cookie: support.cookie } })).status, 403);
+    await database.prepare(`DELETE FROM admin_access_audit WHERE event_type='admin_access_denied'`).run();
     const firstResponse = await fetch(`${route}?limit=2`, { headers: { Cookie: admin.cookie } });
     assert.equal(firstResponse.status, 200);
     assert.equal(firstResponse.headers.get('cache-control'), 'private, no-store, max-age=0');
