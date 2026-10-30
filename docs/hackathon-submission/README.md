@@ -24,6 +24,7 @@ The product uses a React/TypeScript web app, a Node.js API and background worker
 
 - Phase 1 and Phase 2 have recorded local acceptance evidence; see the [phase records](../rebuild-plan/phase-1-record.md) and [Phase 2 record](../rebuild-plan/phase-2-record.md).
 - Phase 3's local implementation and API coverage include imports, queued processing, retries, and recovery. Its exit gate remains open for authenticated browser review, hosted worker/storage evidence, and media parity. See the [Phase 3 record](../rebuild-plan/phase-3-record.md).
+- Two focused local API tests passed on October 31: registration/capture/owner isolation/deletion, and deterministic worker extraction to `ready`. They use the test database and injected HTML; they do not prove browser behavior, live URL fetching, or hosted processing.
 - Phase 4 includes local search and consent-gated AI capabilities; provider and quality checks remain partly open. See the [Phase 4 record](../rebuild-plan/phase-4-record.md).
 - In the current local environment, the API and worker cannot start because `DATABASE_URL` is unset. A production health response alone does not verify an authenticated demo.
 - Render currently reports both the web service and worker live from `master` at commit `23c15e2`. The deployed `/api/health` endpoint returned HTTP 200; this does not establish that account creation, capture, or background processing works end to end.
