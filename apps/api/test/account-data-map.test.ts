@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createTestDatabase } from '../src/db/database.js';
-import { createAccountDataMapService } from '../src/account/data-map-service.js';
+import { ACCOUNT_OWNER_TABLES, createAccountDataMapService } from '../src/account/data-map-service.js';
+import { ACCOUNT_USER_REFERENCE_EXCEPTIONS } from '../src/account/user-reference-lifecycle-policy.js';
 
 const timestamp = '2026-10-30T00:00:00.000Z';
 
@@ -40,6 +41,36 @@ test('account data map inventories current owned tables and labels uncounted byt
       'account_owner_work_leases',
       'admin_access_audit',
     ]);
+  } finally {
+    await database.close();
+  }
+});
+
+test('every schema foreign key to a user has an owner inventory or explicit lifecycle exception', async () => {
+  const database = await createTestDatabase();
+  try {
+    const references = await database.prepare(`SELECT tc.table_name,kcu.column_name
+      FROM information_schema.table_constraints tc
+      JOIN information_schema.key_column_usage kcu
+        ON tc.constraint_name=kcu.constraint_name AND tc.table_schema=kcu.table_schema AND tc.table_name=kcu.table_name
+      JOIN information_schema.constraint_column_usage ccu
+        ON ccu.constraint_name=tc.constraint_name AND ccu.table_schema=tc.table_schema
+      WHERE tc.constraint_type='FOREIGN KEY' AND ccu.table_schema='public'
+        AND ccu.table_name='users' AND ccu.column_name='id'
+      ORDER BY tc.table_name,kcu.column_name`).all() as Array<{ table_name: string; column_name: string }>;
+    const key = (table: string, column: string) => `${table}.${column}`;
+    const actual = references.map(({ table_name, column_name }) => key(table_name, column_name)).sort();
+    const actualSet = new Set(actual);
+    const owned = ACCOUNT_OWNER_TABLES.filter(({ table, ownerColumn }) => table !== 'users' && actualSet.has(key(table, ownerColumn)))
+      .map(({ table, ownerColumn }) => key(table, ownerColumn)).sort();
+    const exceptions = ACCOUNT_USER_REFERENCE_EXCEPTIONS.map(({ table, column }) => key(table, column)).sort();
+
+    assert.equal(new Set(actual).size, actual.length, 'the schema inventory has no duplicate foreign-key fields');
+    assert.equal(new Set([...owned, ...exceptions]).size, owned.length + exceptions.length, 'each reference has one lifecycle classification');
+    assert.deepEqual([...owned, ...exceptions].sort(), actual,
+      'every foreign key to users is either owner-mapped or explicitly classified as operational/audit/operator metadata');
+    assert.ok(ACCOUNT_USER_REFERENCE_EXCEPTIONS.every(({ reason, lifecycle }) => reason.trim().length > 0 &&
+      ['operational', 'audit', 'operator_identity'].includes(lifecycle)));
   } finally {
     await database.close();
   }
