@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { createTestDatabase } from '../src/db/database.js';
 import { AiBudgetExceededError, createAiUsageRepository, MONTHLY_AI_CAP_MICROUSD, sparkCostMicroUsd, utcMonthStart, voiceCostMicroUsd } from '../src/ai/usage.js';
-import { AI_DISCLOSURE_VERSION, createAiPreferenceRepository } from '../src/ai/preferences.js';
+import { AI_DISCLOSURE_VERSION, LOCAL_OCR_DISCLOSURE_VERSION, createAiPreferenceRepository } from '../src/ai/preferences.js';
 import { MetaApiError } from '../src/ai/meta-client.js';
 import { processNextAiJob, resolveAiMediaWithOwnerLease, type AiJob, type AiMediaLeaseRunner, type AiModelClient } from '../src/ai/worker.js';
 
@@ -186,6 +186,47 @@ test('AI worker writes a partial result when public media is unavailable and alw
     const result = await database.prepare(`SELECT status,model,summary FROM ai_analysis_results WHERE item_id='item-partial-import'`).get() as { status: string; model: string; summary: string };
     assert.deepEqual(result, { status: 'partial', model: 'none', summary: '' });
   } finally { await database.close(); }
+});
+
+test('local OCR runs with its own consent when Meta is unavailable and records no paid usage', async () => {
+  const database = await createTestDatabase();
+  const root = await mkdtemp(join(tmpdir(), 'rembr-local-ocr-'));
+  try {
+    const now = new Date('2026-10-30T10:00:00.000Z');
+    await seedImport(database, 'local-ocr-import', 'local-ocr-job', now.toISOString());
+    await database.prepare(`INSERT INTO ai_analysis_preferences
+      (owner_id,enabled,consent_version,consented_at,updated_at,local_ocr_enabled,local_ocr_consent_version,local_ocr_consented_at)
+      VALUES ('budget-user',FALSE,NULL,NULL,?,TRUE,?,?)`).run(now.toISOString(), LOCAL_OCR_DISCLOSURE_VERSION, now.toISOString());
+    const path = join(root, 'photo with spaces.jpg');
+    await writeFile(path, Buffer.from([0xff, 0xd8, 0xff]));
+    const unusedMetaClient = new Proxy({}, { get: () => async () => { throw new Error('Meta must not be called'); } }) as AiModelClient;
+    let cleaned = false; let localCalls = 0;
+    const jobId = await processNextAiJob(database, unusedMetaClient,
+      async () => ({ files: [{ path, mime: 'image/jpeg', byteSize: 3, kind: 'image' }], cleanup: async () => { cleaned = true; await rm(path, { force: true }); } }),
+      false, now, async (image, signal) => {
+        localCalls += 1;
+        assert.equal(image.path, path);
+        assert.ok(signal);
+        assert.equal((await database.prepare('SELECT count(*) AS count FROM account_owner_work_leases WHERE owner_id=? AND expires_at>?')
+          .get('budget-user', new Date().toISOString()) as { count: number }).count, 1);
+        return '  Hello from the image.  ';
+      });
+    assert.equal(jobId, 'local-ocr-job');
+    assert.equal(cleaned, true);
+    assert.equal(localCalls, 1);
+    const result = await database.prepare(`SELECT status,model,ocr_text,input_tokens,output_tokens,billed_microusd,image_count
+      FROM ai_analysis_results WHERE item_id='item-local-ocr-import'`).get() as {
+        status: string; model: string; ocr_text: string; input_tokens: number; output_tokens: number; billed_microusd: string; image_count: number;
+      };
+    assert.equal(result.status, 'completed');
+    assert.equal(result.model, 'tesseract-local-ocr');
+    assert.equal(result.ocr_text, 'Hello from the image.');
+    assert.equal(result.input_tokens, 0);
+    assert.equal(result.output_tokens, 0);
+    assert.equal(Number(result.billed_microusd), 0);
+    assert.equal(result.image_count, 1);
+    assert.equal((await database.prepare('SELECT count(*) AS count FROM ai_usage_reservations WHERE job_id=?').get('local-ocr-job') as { count: number }).count, 0);
+  } finally { await database.close(); await rm(root, { recursive: true, force: true }); }
 });
 
 test('AI worker reserves before analysis, settles actual usage, and persists structured output', async () => {

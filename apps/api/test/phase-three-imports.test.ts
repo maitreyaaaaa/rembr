@@ -9,6 +9,7 @@ import { createApp } from '../src/app.js';
 import { createTestDatabase } from '../src/db/database.js';
 import { createImportService, validateImportFiles } from '../src/imports/service.js';
 import { createImportRepository } from '../src/imports/repository.js';
+import { LOCAL_OCR_DISCLOSURE_VERSION } from '../src/ai/preferences.js';
 import type { ParsedImportItem } from '../src/imports/parser.js';
 import { LocalImportStorage } from '../src/imports/storage.js';
 import { LocalMediaStorage } from '../src/media/storage.js';
@@ -32,6 +33,28 @@ test('local media storage honors an aborted owner-work signal before creating an
 test('upload validation accepts source-compatible X JavaScript bookmark exports', () => {
   const bytes = Buffer.byteLength('window.YTD.bookmark.part0 = [];');
   assert.doesNotThrow(() => validateImportFiles([{ name: 'bookmark.js', mime: 'application/javascript', size: bytes, chunks: 1 }]));
+});
+
+test('new Instagram imports queue analysis for separate local OCR consent without Meta consent', async () => {
+  const database = await createTestDatabase();
+  try {
+    const now = new Date().toISOString();
+    await database.prepare(`INSERT INTO users (id,email,password_hash,created_at)
+      VALUES ('local-ocr-import-user','local-ocr-import@example.test','x',?)`).run(now);
+    await database.prepare(`INSERT INTO imports (id,owner_id,request_id,source,status,created_at,updated_at,lease_token,lease_expires_at)
+      VALUES ('local-ocr-import','local-ocr-import-user','local-ocr-import','instagram','parsing',?,?, 'parse-lease',?)`)
+      .run(now, now, new Date(Date.now() + 60_000).toISOString());
+    await database.prepare(`INSERT INTO ai_analysis_preferences
+      (owner_id,enabled,consent_version,consented_at,updated_at,local_ocr_enabled,local_ocr_consent_version,local_ocr_consented_at)
+      VALUES ('local-ocr-import-user',FALSE,NULL,NULL,?,TRUE,?,?)`)
+      .run(now, LOCAL_OCR_DISCLOSURE_VERSION, now);
+    await createImportRepository(database).accept('local-ocr-import-user', 'local-ocr-import', 'parse-lease', [], [{
+      platform: 'instagram', url: 'https://www.instagram.com/p/local-ocr-item/', sourceId: 'local-ocr-item',
+      title: 'Saved image', description: '', collection: null, metadata: {}, sourceOrder: 0,
+    }]);
+    assert.equal((await database.prepare(`SELECT count(*) AS count FROM ai_analysis_jobs
+      WHERE owner_id='local-ocr-import-user' AND import_id='local-ocr-import'`).get() as { count: number }).count, 1);
+  } finally { await database.close(); }
 });
 async function withApi(run: (baseUrl: string, database: Awaited<ReturnType<typeof createTestDatabase>>, importPath: string, mediaPath: string) => Promise<void>) {
   const database = await createTestDatabase(); const root = await mkdtemp(join(tmpdir(), 'rembr-imports-')); const assets = join(root, 'assets'); const importPath = join(root, 'imports'); const mediaPath = join(root, 'media');

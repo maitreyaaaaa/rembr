@@ -5,6 +5,7 @@ import { cleanupInactiveMedia, processNextJob } from './process-job.js';
 import { cleanupStalePrivateMediaTempDirectories, fetchPublicMedia } from '../items/safe-fetch.js';
 import { createImportService } from '../imports/service.js';
 import { createMetaModelClient } from '../ai/meta-client.js';
+import { createLocalOcr, probeTesseract } from '../ai/local-ocr.js';
 import { processNextAiJob } from '../ai/worker.js';
 import { resolveTemporaryAnalysisMedia } from '../ai/temporary-media.js';
 import type { MediaProcessor } from './process-job.js';
@@ -23,6 +24,9 @@ const dataExports = createAccountDataExportService(database, exportStorage, crea
 const accountDeletions = createAccountDeletionService(database);
 const mediaProcessor: MediaProcessor = { fetchMedia: fetchPublicMedia, storage: mediaStorage };
 const metaClient = createMetaModelClient({ apiKey: config.META_API_KEY });
+const localOcr = config.LOCAL_OCR_ENABLED
+  ? createLocalOcr({ executable: config.tesseractPath, timeoutMs: config.LOCAL_OCR_TIMEOUT_MS })
+  : undefined;
 const aiMediaResolver = async (job: { original_url: string }, signal?: AbortSignal) => {
   try { return await resolveTemporaryAnalysisMedia(job.original_url, { signal }); }
   catch (error) {
@@ -33,12 +37,13 @@ const aiMediaResolver = async (job: { original_url: string }, signal?: AbortSign
 };
 let stopping = false;
 
-async function writeAiWorkerStatus(configured: boolean) {
+async function writeAiWorkerStatus(metaConfigured: boolean, localOcrConfigured: boolean) {
   const now = new Date().toISOString();
-  await database.prepare(`INSERT INTO ai_worker_status (singleton,meta_api_configured,last_heartbeat_at)
-    VALUES (TRUE,?,?) ON CONFLICT(singleton) DO UPDATE SET
-      meta_api_configured=excluded.meta_api_configured,last_heartbeat_at=excluded.last_heartbeat_at`)
-    .run(configured, now);
+  await database.prepare(`INSERT INTO ai_worker_status (singleton,meta_api_configured,local_ocr_configured,last_heartbeat_at)
+    VALUES (TRUE,?,?,?) ON CONFLICT(singleton) DO UPDATE SET
+      meta_api_configured=excluded.meta_api_configured,local_ocr_configured=excluded.local_ocr_configured,
+      last_heartbeat_at=excluded.last_heartbeat_at`)
+    .run(metaConfigured, localOcrConfigured, now);
 }
 
 async function run() {
@@ -49,13 +54,14 @@ async function run() {
 await cleanupExpiredSessions(database).catch(() => 0);
 await cleanupExpiredAccountActivity(database).catch(() => undefined);
   await cleanupStalePrivateMediaTempDirectories();
-  await writeAiWorkerStatus(Boolean(config.META_API_KEY));
+  const localOcrConfigured = Boolean(localOcr && await probeTesseract(config.tesseractPath));
+  await writeAiWorkerStatus(Boolean(config.META_API_KEY), localOcrConfigured);
   let lastTempSweepAt = Date.now();
 let lastExpiredSessionSweepAt = Date.now();
 let lastExpiredActivitySweepAt = Date.now();
   const statusHeartbeat = setInterval(() => {
     void (async () => {
-      await writeAiWorkerStatus(Boolean(config.META_API_KEY)).catch(() => undefined);
+      await writeAiWorkerStatus(Boolean(config.META_API_KEY), localOcrConfigured).catch(() => undefined);
       if (Date.now() - lastTempSweepAt >= 15 * 60_000) {
         await cleanupStalePrivateMediaTempDirectories().catch(() => 0);
         await dataExports.cleanupExpiredArtifacts(100).catch(() => 0);
@@ -89,7 +95,8 @@ let lastExpiredActivitySweepAt = Date.now();
               await dataExports.processClaim(exportClaim);
               console.info('rembr_data_export_processed', { exportId: exportClaim.id });
             } else {
-              const aiJobId = await processNextAiJob(database, metaClient, aiMediaResolver, Boolean(config.META_API_KEY));
+              const aiJobId = await processNextAiJob(database, metaClient, aiMediaResolver,
+                Boolean(config.META_API_KEY), new Date(), localOcrConfigured ? localOcr : undefined);
               if (!aiJobId) await delay(1000);
               else console.info('rembr_ai_job_processed', { jobId: aiJobId });
             }
@@ -102,7 +109,7 @@ let lastExpiredActivitySweepAt = Date.now();
     }
   }
   clearInterval(statusHeartbeat);
-  await writeAiWorkerStatus(false).catch(() => undefined);
+  await writeAiWorkerStatus(false, false).catch(() => undefined);
   await database.close();
 }
 

@@ -2,7 +2,7 @@ import express from 'express';
 import { z } from 'zod';
 import type { DatabaseHandle } from '../db/database.js';
 import { requireUser } from '../auth/sessions.js';
-import { AI_DISCLOSURE_VERSION, createAiPreferenceRepository } from './preferences.js';
+import { AI_DISCLOSURE_VERSION, LOCAL_OCR_DISCLOSURE_VERSION, createAiPreferenceRepository } from './preferences.js';
 
 const updateSchema = z.object({ enabled: z.boolean(), disclosureVersion: z.string().optional() }).strict();
 
@@ -20,6 +20,12 @@ export function createAiRouter(database: DatabaseHandle) {
     const heartbeat = Date.parse(row?.last_heartbeat_at ?? '');
     return Boolean(row && row.meta_api_configured && Number.isFinite(heartbeat) && Date.now() - heartbeat <= 90_000);
   };
+  const localOcrAvailable = async () => {
+    const row = await database.prepare('SELECT local_ocr_configured,last_heartbeat_at FROM ai_worker_status WHERE singleton=TRUE')
+      .get() as { local_ocr_configured: boolean | number; last_heartbeat_at: string } | undefined;
+    const heartbeat = Date.parse(row?.last_heartbeat_at ?? '');
+    return Boolean(row && row.local_ocr_configured && Number.isFinite(heartbeat) && Date.now() - heartbeat <= 90_000);
+  };
 
   router.get('/ai/preferences', signedIn, async (req, res) => {
     res.json({ preference: await preferences.get(req.user!.id, await providerAvailable()) });
@@ -33,6 +39,20 @@ export function createAiRouter(database: DatabaseHandle) {
     }
     await preferences.set(req.user!.id, parsed.data.enabled);
     return res.json({ preference: await preferences.get(req.user!.id, await providerAvailable()) });
+  });
+
+  router.get('/ai/local-ocr-preferences', signedIn, async (req, res) => {
+    return res.json({ preference: await preferences.getLocalOcr(req.user!.id, await localOcrAvailable()) });
+  });
+
+  router.put('/ai/local-ocr-preferences', signedIn, async (req, res) => {
+    const parsed = updateSchema.safeParse(req.body);
+    if (!parsed.success) return fail(res, 400, 'invalid_local_ocr_preference', 'Choose whether to enable local image text recognition.', req.requestId);
+    if (parsed.data.enabled && parsed.data.disclosureVersion !== LOCAL_OCR_DISCLOSURE_VERSION) {
+      return fail(res, 400, 'local_ocr_consent_required', 'Review and accept the local image text-recognition disclosure before enabling it.', req.requestId);
+    }
+    await preferences.setLocalOcr(req.user!.id, parsed.data.enabled);
+    return res.json({ preference: await preferences.getLocalOcr(req.user!.id, await localOcrAvailable()) });
   });
 
   router.get('/ai/items/:id', signedIn, async (req, res) => {

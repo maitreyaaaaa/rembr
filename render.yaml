@@ -54,3 +54,9 @@ services:
         sync: false
       - key: META_API_KEY
         sync: false
+      - key: LOCAL_OCR_ENABLED
+        value: "false"
+      - key: TESSERACT_PATH
+        value: /usr/bin/tesseract
+      - key: LOCAL_OCR_TIMEOUT_MS
+        value: "30000"
