@@ -87,6 +87,8 @@ async function signatureMatches(path: string, mime: string): Promise<boolean> {
     if (mime === 'image/webp') return bytesRead >= 12 && header.toString('ascii', 0, 4) === 'RIFF' && header.toString('ascii', 8, 12) === 'WEBP';
     if (mime === 'image/gif') return bytesRead >= 6 && ['GIF87a', 'GIF89a'].includes(header.toString('ascii', 0, 6));
     if (mime === 'video/mp4') return bytesRead >= 12 && header.toString('ascii', 4, 8) === 'ftyp';
+    if (mime === 'video/webm') return bytesRead >= 4 && header.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]));
+    if (mime === 'video/ogg') return bytesRead >= 4 && header.toString('ascii', 0, 4) === 'OggS';
     if (mime === 'audio/mpeg') return bytesRead >= 3 && (header.toString('ascii', 0, 3) === 'ID3' || (header[0] === 0xff && (header[1]! & 0xe0) === 0xe0));
     if (mime === 'audio/mp4') return bytesRead >= 12 && header.toString('ascii', 4, 8) === 'ftyp';
     if (mime === 'audio/webm') return bytesRead >= 4 && header.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]));
@@ -131,8 +133,11 @@ export async function resolveTemporaryAnalysisMedia(
     for (const mediaUrl of extracted.videoUrls.slice(0, 1)) {
       try {
         const asset = await fetchMedia(mediaUrl, directory, { maxBytes: MAX_VIDEO_MEDIA_BYTES });
-        if (asset.mime !== 'video/mp4' || !await signatureMatches(asset.path, asset.mime)) { skippedCount += 1; continue; }
-        files.push({ path: asset.path, mime: asset.mime, byteSize: asset.byteSize, kind: 'video' });
+        if (!['video/mp4', 'video/webm', 'video/ogg'].includes(asset.mime) || !await signatureMatches(asset.path, asset.mime)) { skippedCount += 1; continue; }
+        // The visual provider contract accepts validated MP4 only. Other formats
+        // stay local and are used solely as bounded ffmpeg input for transcription.
+        if (asset.mime === 'video/mp4') files.push({ path: asset.path, mime: asset.mime, byteSize: asset.byteSize, kind: 'video' });
+        else skippedCount += 1; // Visual analysis is skipped, even when audio transcription succeeds.
         try {
           const audioFiles = await extractAudioChunks(asset.path, directory, 'rembr-video-audio', MAX_ANALYSIS_AUDIO_SECONDS_PER_POST, options.runFfmpeg);
           files.push(...audioFiles);
