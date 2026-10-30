@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import './admin-support-page.css';
 
 type OperatorRole = 'support' | 'admin';
+type OperatorRoleSelection = OperatorRole | 'none';
 type DeletionStatus = 'pending_approval' | 'approved' | 'processing' | 'partial_failed' | 'failed';
 interface QueueEntry {
   id: string;
@@ -31,7 +32,7 @@ interface AdminUserDetail {
 }
 interface AdminUserTimelineEvent {
   reference: string;
-  source: 'security' | 'deletion' | 'export' | 'import' | 'admin_access';
+  source: 'security' | 'activity' | 'deletion' | 'export' | 'import' | 'admin_access';
   eventType: string;
   actorType: string;
   createdAt: string;
@@ -107,6 +108,11 @@ export function AdminSupportPage({ request }: { request: Request }) {
   const [userLoading, setUserLoading] = useState(false);
   const [userError, setUserError] = useState('');
   const [selectedUser, setSelectedUser] = useState<AdminUserDetail | null>(null);
+  const [roleChangeValue, setRoleChangeValue] = useState<OperatorRoleSelection>('none');
+  const [roleChangeConfirmed, setRoleChangeConfirmed] = useState(false);
+  const [roleChangeBusy, setRoleChangeBusy] = useState(false);
+  const [roleChangeError, setRoleChangeError] = useState('');
+  const [roleChangeNotice, setRoleChangeNotice] = useState('');
   const [selectedUserLoading, setSelectedUserLoading] = useState(false);
   const [selectedUserError, setSelectedUserError] = useState('');
   const [timelineEvents, setTimelineEvents] = useState<AdminUserTimelineEvent[]>([]);
@@ -137,6 +143,7 @@ export function AdminSupportPage({ request }: { request: Request }) {
   const [auditPreviousCursors, setAuditPreviousCursors] = useState<Array<string | undefined>>([]);
   const userSearchSequence = useRef(0);
   const userDetailSequence = useRef(0);
+  const roleChangeSequence = useRef(0);
   const userTimelineSequence = useRef(0);
   const auditEventsSequence = useRef(0);
 
@@ -239,6 +246,7 @@ export function AdminSupportPage({ request }: { request: Request }) {
     if (query.length < 3) { setUserError('Enter at least three characters of the account email.'); return; }
     const sequence = ++userSearchSequence.current;
     userDetailSequence.current += 1;
+    roleChangeSequence.current += 1; setRoleChangeBusy(false);
     userTimelineSequence.current += 1;
     setUserLoading(true); setUserError(''); setSelectedUser(null); setSelectedUserLoading(false); setSelectedUserError('');
     setTimelineEvents([]); setTimelineLoadedUserId(''); setTimelineNextCursor(null); setTimelinePreviousCursors([]);
@@ -257,6 +265,7 @@ export function AdminSupportPage({ request }: { request: Request }) {
 
   async function loadUser(userId: string) {
     const sequence = ++userDetailSequence.current;
+    roleChangeSequence.current += 1; setRoleChangeBusy(false);
     userTimelineSequence.current += 1;
     setTimelineEvents([]); setTimelineLoadedUserId(''); setTimelineError(''); setTimelineNextCursor(null);
     setTimelineCurrentCursor(undefined); setTimelinePreviousCursors([]);
@@ -265,11 +274,37 @@ export function AdminSupportPage({ request }: { request: Request }) {
       const result = await request<{ user: AdminUserDetail }>(`/api/admin/users/${encodeURIComponent(userId)}`);
       if (sequence !== userDetailSequence.current) return;
       setSelectedUser(result.user);
+      setRoleChangeValue(result.user.operatorRole === 'admin' || result.user.operatorRole === 'support' ? result.user.operatorRole : 'none');
+      setRoleChangeConfirmed(false); setRoleChangeError(''); setRoleChangeNotice('');
     } catch (cause) {
       if (sequence !== userDetailSequence.current) return;
       const failure = cause as RequestError;
       setSelectedUserError(failure.message || 'Could not load account details.');
     } finally { if (sequence === userDetailSequence.current) setSelectedUserLoading(false); }
+  }
+
+  async function changeUserRole(event: FormEvent) {
+    event.preventDefault();
+    if (!selectedUser) return;
+    const currentRole: OperatorRoleSelection = selectedUser.operatorRole === 'admin' || selectedUser.operatorRole === 'support' ? selectedUser.operatorRole : 'none';
+    if (roleChangeValue === currentRole) { setRoleChangeError('Choose a different operator role.'); return; }
+    if (!roleChangeConfirmed) { setRoleChangeError('Confirm that you intend to change this account’s operator access.'); return; }
+    const sequence = ++roleChangeSequence.current;
+    const targetUserId = selectedUser.userId;
+    setRoleChangeBusy(true); setRoleChangeError(''); setRoleChangeNotice('');
+    try {
+      const result = await request<{ operatorRole: OperatorRole | null }>(`/api/admin/users/${encodeURIComponent(targetUserId)}/role`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ role: roleChangeValue === 'none' ? null : roleChangeValue, confirm: true }),
+      });
+      if (sequence !== roleChangeSequence.current) return;
+      setSelectedUser((current) => current?.userId === targetUserId ? { ...current, operatorRole: result.operatorRole } : current);
+      setRoleChangeValue(result.operatorRole ?? 'none'); setRoleChangeConfirmed(false); setRoleChangeNotice('Operator role updated and recorded in the audit history.');
+    } catch (cause) {
+      if (sequence !== roleChangeSequence.current) return;
+      const failure = cause as RequestError;
+      setRoleChangeError(failure.message || 'Could not update this operator role.');
+    } finally { if (sequence === roleChangeSequence.current) setRoleChangeBusy(false); }
   }
 
   async function loadUserTimeline(userId: string, cursor?: string) {
@@ -357,7 +392,7 @@ export function AdminSupportPage({ request }: { request: Request }) {
         <div className="admin-queue-heading"><div><h2 id="admin-users-title">Account lookup</h2><p className="phase2-helper">Admin-only directory with basic account details and record counts. Search terms are not retained in the audit log.</p></div></div>
         <form className="admin-user-search" onSubmit={(event) => { event.preventDefault(); void searchUsers(); }}>
           <label htmlFor="admin-user-query">Account email starts with</label>
-          <input id="admin-user-query" type="search" autoComplete="off" maxLength={254} minLength={3} value={userQuery} onChange={(event) => { userSearchSequence.current += 1; userDetailSequence.current += 1; userTimelineSequence.current += 1; setUserQuery(event.target.value); setUserRows([]); setUserOffset(0); setUserNextOffset(null); setUserLoading(false); setSelectedUser(null); setSelectedUserLoading(false); setTimelineEvents([]); setTimelineLoadedUserId(''); setTimelineNextCursor(null); setTimelinePreviousCursors([]); }} placeholder="name@example.com" />
+          <input id="admin-user-query" type="search" autoComplete="off" maxLength={254} minLength={3} value={userQuery} onChange={(event) => { userSearchSequence.current += 1; userDetailSequence.current += 1; roleChangeSequence.current += 1; setRoleChangeBusy(false); userTimelineSequence.current += 1; setUserQuery(event.target.value); setUserRows([]); setUserOffset(0); setUserNextOffset(null); setUserLoading(false); setSelectedUser(null); setSelectedUserLoading(false); setTimelineEvents([]); setTimelineLoadedUserId(''); setTimelineNextCursor(null); setTimelinePreviousCursors([]); }} placeholder="name@example.com" />
           <button className="primary-button" type="submit" disabled={userLoading}>{userLoading ? 'Searching…' : 'Search accounts'}</button>
         </form>
         {userError && <p className="notice error" role="alert">{userError}</p>}
@@ -371,8 +406,18 @@ export function AdminSupportPage({ request }: { request: Request }) {
         {selectedUserLoading && <p className="phase2-state" role="status">Loading account details…</p>}
         {selectedUserError && <p className="notice error" role="alert">{selectedUserError}</p>}
         {selectedUser && <section className="admin-user-detail" aria-labelledby="admin-user-detail-title">
-          <div className="admin-user-detail-heading"><div><h3 id="admin-user-detail-title">{selectedUser.email}</h3><p>{selectedUser.username ? `@${selectedUser.username} · ` : ''}{selectedUser.accountStatus} · Joined {formatDate(selectedUser.createdAt)}</p></div><button className="quiet-button" type="button" onClick={() => { userDetailSequence.current += 1; setSelectedUser(null); setSelectedUserLoading(false); }}>Close details</button></div>
-          {selectedUser.operatorRole && <p className="admin-audit-note">Operator role: {selectedUser.operatorRole}</p>}
+          <div className="admin-user-detail-heading"><div><h3 id="admin-user-detail-title">{selectedUser.email}</h3><p>{selectedUser.username ? `@${selectedUser.username} · ` : ''}{selectedUser.accountStatus} · Joined {formatDate(selectedUser.createdAt)}</p></div><button className="quiet-button" type="button" onClick={() => { userDetailSequence.current += 1; roleChangeSequence.current += 1; setRoleChangeBusy(false); setSelectedUser(null); setSelectedUserLoading(false); }}>Close details</button></div>
+          <p className="admin-audit-note">Operator role: {selectedUser.operatorRole ?? 'none'}</p>
+          <form className="admin-user-search" onSubmit={(event) => void changeUserRole(event)}>
+            <label htmlFor="admin-user-role">Change operator role</label>
+            <select id="admin-user-role" value={roleChangeValue} onChange={(event) => { setRoleChangeValue(event.target.value as OperatorRoleSelection); setRoleChangeConfirmed(false); setRoleChangeError(''); }}>
+              <option value="none">No operator access</option><option value="support">Support</option><option value="admin">Admin</option>
+            </select>
+            <p className="admin-audit-note">Role changes are audited. You cannot change your own role, and the last active admin cannot be demoted.</p>
+            <label className="phase2-check"><input type="checkbox" checked={roleChangeConfirmed} onChange={(event) => setRoleChangeConfirmed(event.target.checked)} /><span>I confirm this account should have the selected operator access.</span></label>
+            {roleChangeError && <p className="notice error" role="alert">{roleChangeError}</p>}{roleChangeNotice && <p className="notice" role="status">{roleChangeNotice}</p>}
+            <button className="quiet-button" type="submit" disabled={roleChangeBusy || roleChangeValue === (selectedUser.operatorRole ?? 'none')}>{roleChangeBusy ? 'Saving role…' : 'Apply role change'}</button>
+          </form>
           <h4>Account data categories</h4><dl className="admin-user-counts">{selectedUser.dataCategories.map(({ id, label, rowCount }) => <div key={id}><dt>{label}</dt><dd>{rowCount.toLocaleString()}</dd></div>)}</dl>
           {selectedUser.latestDeletion && <p className="admin-audit-note">Latest deletion request: {selectedUser.latestDeletion.status.replaceAll('_', ' ')} · Requested {formatDate(selectedUser.latestDeletion.requestedAt)}{selectedUser.latestDeletion.completedAt ? ` · Completed ${formatDate(selectedUser.latestDeletion.completedAt)}` : ''}</p>}
           <h4>Recent security activity</h4>{selectedUser.recentSecurityActivity.length ? <ol className="admin-audit-list">{selectedUser.recentSecurityActivity.map((event, index) => <li key={`${event.createdAt}-${index}`}><strong>{event.eventType.replaceAll('_', ' ')}</strong><time dateTime={event.createdAt}>{formatDate(event.createdAt)}</time></li>)}</ol> : <p className="admin-empty">No recent security events.</p>}
@@ -442,7 +487,7 @@ export function AdminSupportPage({ request }: { request: Request }) {
           <label htmlFor="admin-audit-event-type">Event type</label>
           <select id="admin-audit-event-type" value={auditEventTypeFilter} onChange={(event) => setAuditEventTypeFilter(event.target.value)}>
             <option value="">All event types</option>
-            {['sign_in', 'sign_out', 'deletion_requested', 'deletion_cancelled', 'requested', 'cancelled', 'approved', 'retry_requested', 'claim_acquired', 'step_started', 'step_completed', 'step_failed', 'completed', 'data_export_requested', 'data_export_ready', 'data_export_failed', 'data_export_cancelled', 'data_export_retried', 'data_export_downloaded', 'import_started', 'import_completed', 'import_failed', 'import_status_changed', 'background_job_failed', 'background_job_blocked', 'background_job_retrying', 'search_failed', 'analysis_used', 'admin_summary_viewed', 'admin_worker_status_viewed', 'admin_import_list_viewed', 'admin_audit_events_viewed', 'admin_user_list_viewed', 'admin_user_detail_viewed', 'admin_user_timeline_viewed', 'admin_access_denied'].map((type) => <option key={type} value={type}>{type.replaceAll('_', ' ')}</option>)}
+            {['sign_in', 'sign_out', 'deletion_requested', 'deletion_cancelled', 'requested', 'cancelled', 'approved', 'retry_requested', 'claim_acquired', 'step_started', 'step_completed', 'step_failed', 'completed', 'data_export_requested', 'data_export_ready', 'data_export_failed', 'data_export_cancelled', 'data_export_retried', 'data_export_downloaded', 'import_started', 'import_completed', 'import_failed', 'import_status_changed', 'background_job_failed', 'background_job_blocked', 'background_job_retrying', 'search_failed', 'analysis_used', 'admin_summary_viewed', 'admin_worker_status_viewed', 'admin_import_list_viewed', 'admin_audit_events_viewed', 'admin_user_list_viewed', 'admin_user_detail_viewed', 'admin_user_timeline_viewed', 'admin_access_denied', 'admin_role_changed'].map((type) => <option key={type} value={type}>{type.replaceAll('_', ' ')}</option>)}
           </select>
           <label htmlFor="admin-audit-target">Target account ID (optional)</label>
           <input id="admin-audit-target" type="text" autoComplete="off" maxLength={36} value={auditTargetUserFilter} onChange={(event) => setAuditTargetUserFilter(event.target.value)} placeholder="Account UUID" />

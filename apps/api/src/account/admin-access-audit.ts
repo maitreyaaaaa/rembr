@@ -3,7 +3,7 @@ import type { DatabaseHandle } from '../db/database.js';
 
 export const ADMIN_ACCESS_ACTIONS = [
   'admin_summary', 'admin_worker_status', 'admin_import_list', 'admin_audit_events', 'admin_user_list', 'admin_user_detail', 'admin_user_timeline',
-  'support_deletion_queue', 'support_deletion_audit', 'admin_deletion_approve', 'admin_deletion_retry',
+  'support_deletion_queue', 'support_deletion_audit', 'admin_deletion_approve', 'admin_deletion_retry', 'admin_role_change',
 ] as const;
 
 export type AdminAccessAction = typeof ADMIN_ACCESS_ACTIONS[number];

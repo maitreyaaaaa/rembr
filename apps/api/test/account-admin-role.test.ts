@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -134,5 +135,78 @@ test('operator role endpoint is self-scoped and deletion queue stays minimal whi
     for (const privateValue of [member.userId, member.cookie, support.userId, support.cookie, admin.userId, deletionId]) {
       assert.equal(deniedFeedText.includes(privateValue), false);
     }
+  });
+});
+
+test('admins can confirm audited role grants and revocations without exposing target identities', async () => {
+  await withApi(async (baseUrl, database) => {
+    const target = await register(baseUrl, 'role-target@example.test');
+    const member = await register(baseUrl, 'role-member@example.test');
+    const support = await register(baseUrl, 'role-support@example.test');
+    const admin = await register(baseUrl, 'role-admin@example.test');
+    const disabled = await register(baseUrl, 'role-disabled@example.test');
+    const now = new Date().toISOString();
+    await database.prepare(`INSERT INTO admin_roles (user_id,role,created_at) VALUES (?,'support',?)`).run(support.userId, now);
+    await database.prepare(`INSERT INTO admin_roles (user_id,role,created_at) VALUES (?,'admin',?)`).run(admin.userId, now);
+    await database.prepare("UPDATE users SET account_status='disabled' WHERE id=?").run(disabled.userId);
+    const route = (userId: string) => `${baseUrl}/api/admin/users/${encodeURIComponent(userId)}/role`;
+    const submit = (userId: string, cookie: string | undefined, role: string | null, confirm = true) => fetch(route(userId), {
+      method: 'POST', headers: { ...(cookie ? { Cookie: cookie } : {}), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ role, confirm }),
+    });
+
+    assert.equal((await submit(target.userId, undefined, 'support')).status, 401);
+    assert.equal((await submit(target.userId, member.cookie, 'support')).status, 403);
+    assert.equal((await submit(target.userId, support.cookie, 'support')).status, 403);
+    assert.equal((await submit(target.userId, admin.cookie, 'support', false)).status, 400);
+    assert.equal((await submit(admin.userId, admin.cookie, null)).status, 409);
+    assert.equal((await submit(disabled.userId, admin.cookie, 'support')).status, 409);
+
+    const grant = await submit(target.userId, admin.cookie, 'support');
+    assert.equal(grant.status, 200);
+    assert.deepEqual(await grant.json(), { operatorRole: 'support' });
+    assert.equal((await submit(target.userId, admin.cookie, 'admin')).status, 200);
+    assert.equal((await submit(target.userId, admin.cookie, null)).status, 200);
+    assert.equal(await database.prepare('SELECT role FROM admin_roles WHERE user_id=?').get(target.userId), undefined);
+
+    const targetHash = createHash('sha256').update(target.userId).digest('hex');
+    const auditRows = await database.prepare(`SELECT actor_user_id,target_hash,metadata FROM admin_access_audit
+      WHERE event_type='admin_role_changed' ORDER BY created_at,id`).all() as Array<{
+        actor_user_id: string; target_hash: string; metadata: Record<string, unknown>;
+      }>;
+    assert.equal(auditRows.length, 3);
+    assert.ok(auditRows.every((entry) => entry.actor_user_id === admin.userId && entry.target_hash === targetHash));
+    assert.deepEqual(auditRows.map((entry) => entry.metadata), [
+      { action: 'granted', previousRole: null, role: 'support' },
+      { action: 'changed', previousRole: 'support', role: 'admin' },
+      { action: 'revoked', previousRole: 'admin', role: null },
+    ]);
+
+    const feedResponse = await fetch(`${baseUrl}/api/admin/audit-events?eventType=admin_role_changed&targetUserId=${target.userId}`, { headers: { Cookie: admin.cookie } });
+    assert.equal(feedResponse.status, 200);
+    const feed = await feedResponse.json() as { auditEvents: Array<{ eventType: string; actorType: string; targetReference: string | null }> };
+    assert.equal(feed.auditEvents.length, 3);
+    assert.ok(feed.auditEvents.every((entry) => entry.eventType === 'admin_role_changed' && entry.actorType === 'admin'
+      && entry.targetReference === targetHash.slice(0, 16)));
+    const serialized = JSON.stringify(feed);
+    for (const privateValue of [target.userId, target.cookie, target.email, admin.userId, admin.cookie]) assert.equal(serialized.includes(privateValue), false);
+  });
+});
+
+test('simultaneous role changes cannot remove the final active administrator', async () => {
+  await withApi(async (baseUrl, database) => {
+    const first = await register(baseUrl, 'role-race-first@example.test');
+    const second = await register(baseUrl, 'role-race-second@example.test');
+    const now = new Date().toISOString();
+    await database.prepare(`INSERT INTO admin_roles (user_id,role,created_at) VALUES (?,'admin',?),(?,'admin',?)`)
+      .run(first.userId, now, second.userId, now);
+    const change = (actor: typeof first, targetId: string) => fetch(`${baseUrl}/api/admin/users/${targetId}/role`, {
+      method: 'POST', headers: { Cookie: actor.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ role: null, confirm: true }),
+    });
+    const results = await Promise.all([change(first, second.userId), change(second, first.userId)]);
+    assert.deepEqual(results.map((result) => result.status).sort(), [200, 403]);
+    const activeAdminCount = await database.prepare(`SELECT count(*) AS total FROM admin_roles roles
+      JOIN users account ON account.id=roles.user_id WHERE roles.role='admin' AND account.account_status='active'`).get() as { total: number | string };
+    assert.equal(Number(activeAdminCount.total), 1);
   });
 });

@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { requireUser } from '../auth/sessions.js';
 import type { DatabaseHandle } from '../db/database.js';
 import { ADMIN_ACCESS_ACTIONS, recordAdminAccessDenied, type AdminAccessAction } from './admin-access-audit.js';
+import { AdminRoleChangeError, changeAdminRole } from './admin-role-service.js';
 import { createAccountDataMapService } from './data-map-service.js';
 import { ACCOUNT_ACTIVITY_EVENT_TYPES } from './activity-events.js';
 import { ACCOUNT_ACTIVITY_RETENTION_MS } from './retention-service.js';
@@ -16,12 +17,14 @@ const searchSchema = z.object({
   offset: z.coerce.number().int().min(0).max(MAX_USER_OFFSET).default(0),
 }).strict();
 const userIdSchema = z.string().uuid();
+const roleChangeSchema = z.object({ role: z.union([z.enum(['support', 'admin']), z.null()]), confirm: z.literal(true) }).strict();
 const auditSources = ['security', 'activity', 'deletion', 'admin_access'] as const;
 const auditEventTypes = [
   'sign_in', 'sign_out', 'deletion_requested', 'deletion_cancelled',
   'requested', 'cancelled', 'approved', 'retry_requested', 'claim_acquired', 'step_started', 'step_completed', 'step_failed', 'completed',
   'admin_summary_viewed', 'admin_worker_status_viewed', 'admin_import_list_viewed', 'admin_audit_events_viewed', 'admin_user_list_viewed', 'admin_user_detail_viewed', 'admin_user_timeline_viewed',
   'admin_access_denied',
+  'admin_role_changed',
   ...ACCOUNT_ACTIVITY_EVENT_TYPES,
 ] as const;
 const timelineSources = ['security', 'activity', 'deletion', 'export', 'import', 'admin_access'] as const;
@@ -78,6 +81,7 @@ export function createAdminUserRouter(database: DatabaseHandle) {
   const router = express.Router();
   const auth = requireUser(database) as RequestHandler;
   const readLimit = rateLimit({ windowMs: 60_000, limit: 20, standardHeaders: 'draft-8', legacyHeaders: false });
+  const roleChangeLimit = rateLimit({ windowMs: 15 * 60_000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false });
   const dataMap = createAccountDataMapService(database);
 
   router.use('/admin', (_req, res, next) => {
@@ -322,6 +326,31 @@ export function createAdminUserRouter(database: DatabaseHandle) {
         latestDeletion: deletion ? { status: deletion.status, requestedAt: deletion.requested_at, completedAt: deletion.completed_at } : null,
       } });
     } catch (cause) { return next(cause); }
+  });
+
+  router.post('/admin/users/:userId/role', auth, roleChangeLimit, async (req, res, next) => {
+    const userId = req.params.userId;
+    if (typeof userId !== 'string' || !userIdSchema.safeParse(userId).success) return error(res, 404, 'not_found', 'This account does not exist.', req.requestId);
+    const parsed = roleChangeSchema.safeParse(req.body);
+    if (!parsed.success) return error(res, 400, 'invalid_role_change', 'Choose support, admin, or no role and confirm the role change.', req.requestId);
+    try {
+      if (!await requireAdmin(req.user!.id, 'admin_role_change', res, req.requestId)) return;
+      const result = await changeAdminRole(database, {
+        actorId: req.user!.id, targetId: userId, role: parsed.data.role, confirm: parsed.data.confirm,
+      });
+      return res.json({ operatorRole: result.role });
+    } catch (cause) {
+      if (cause instanceof AdminRoleChangeError) {
+        if (cause.code === 'admin_role_required') {
+          const role = await database.prepare('SELECT role FROM admin_roles WHERE user_id=?').get(req.user!.id) as { role: string } | undefined;
+          await recordAdminAccessDenied(database, req.user!.id, 'admin_role_change', 'admin', role?.role === 'support' ? 'support' : 'none');
+          return error(res, 403, cause.code, 'This action requires an administrator role.', req.requestId);
+        }
+        const status = cause.code === 'account_not_found' ? 404 : cause.code === 'confirmation_required' ? 400 : 409;
+        return error(res, status, cause.code, 'This operator role change could not be completed.', req.requestId);
+      }
+      return next(cause);
+    }
   });
 
   router.get('/admin/users/:userId/timeline', auth, readLimit, async (req, res, next) => {
