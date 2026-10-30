@@ -298,10 +298,12 @@ test('AI worker reserves before analysis, settles actual usage, and persists str
     const path = join(root, 'photo.jpg');
     await writeFile(path, Buffer.from([0xff, 0xd8, 0xff]));
     const calls: string[] = [];
+    let analysisOutputSchema: { name: string; schema: Record<string, unknown> } | undefined;
     const client: AiModelClient = {
       countTextInputTokens: async () => 12,
       analyzeText: async () => ({ text: '{"summary":"A sunset.","visual_description":"Orange sky over water.","keywords":["sunset"],"tags":["travel"],"brands":["Acme"],"tools":["Figma"],"people":["Ada Lovelace"],"repositories":["rembr/core"]}', inputTokens: 12, outputTokens: 20 }),
-      countImageInputTokens: async (_prompt, _images, signal) => {
+      countImageInputTokens: async (_prompt, _images, signal, outputSchema) => {
+        analysisOutputSchema = outputSchema;
         calls.push('count-images');
         assert.ok(signal);
         assert.equal((await database.prepare('SELECT count(*) AS count FROM account_owner_work_leases WHERE owner_id=? AND expires_at>?')
@@ -309,7 +311,7 @@ test('AI worker reserves before analysis, settles actual usage, and persists str
         return [100];
       },
       countVideoInputTokens: async () => 100,
-      analyzeImages: async () => { calls.push('images'); return [{ text: '{"summary":"A sunset.","visual_description":"Orange sky over water.","ocr_text":"","keywords":["sunset","orange sky"],"tags":["travel"],"brands":["Acme","Acme Labs"],"tools":["Figma"],"people":["ADA LOVELACE"],"repositories":["rembr/core"]}', inputTokens: 100, outputTokens: 20 }]; },
+      analyzeImages: async (_prompt, _images, _signal, outputSchema) => { analysisOutputSchema = outputSchema; calls.push('images'); return [{ text: '{"summary":"A sunset.","visual_description":"Orange sky over water.","ocr_text":"","keywords":["sunset","orange sky"],"tags":["travel"],"brands":["Acme","Acme Labs"],"tools":["Figma"],"people":["ADA LOVELACE"],"repositories":["rembr/core"]}', inputTokens: 100, outputTokens: 20 }]; },
       analyzeVideo: async () => ({ text: '', inputTokens: 0, outputTokens: 0 }),
       transcribeWav: async () => ({ transcript: '', audioDurationMs: 0, sessionId: 'x' }),
     };
@@ -322,6 +324,9 @@ test('AI worker reserves before analysis, settles actual usage, and persists str
     }, true, now);
     assert.equal(jobId, 'media-job');
     assert.deepEqual(calls, ['resolver', 'count-images', 'images', 'cleanup']);
+    assert.equal(analysisOutputSchema?.name, 'saved_post_analysis');
+    assert.equal((analysisOutputSchema?.schema as { additionalProperties?: boolean }).additionalProperties, false);
+    assert.deepEqual((analysisOutputSchema?.schema as { required?: string[] }).required, ['summary', 'visual_description', 'ocr_text', 'keywords', 'tags', 'brands', 'tools', 'people', 'repositories']);
     const result = await database.prepare(`SELECT summary,visual_description,keywords_json,tags_json,brands_json,tools_json,people_json,repositories_json,billed_microusd,status FROM ai_analysis_results WHERE item_id='item-media-import'`).get() as {
       summary: string; visual_description: string; keywords_json: string; tags_json: string; brands_json: string; tools_json: string; people_json: string; repositories_json: string; billed_microusd: string; status: string;
     };

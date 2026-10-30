@@ -12,20 +12,21 @@ import type { AssetStorage } from '../assets/storage.js';
 import { detectImageMime } from '../assets/storage.js';
 import type { createLibraryService } from '../library/service.js';
 import { createAiUsageRepository, AiBudgetExceededError, sparkCostMicroUsd } from './usage.js';
-import { MetaApiError, MAX_OUTPUT_TOKENS, type ImageInput, type ModelTextResult } from './meta-client.js';
+import { MetaApiError, MAX_OUTPUT_TOKENS, type ImageInput, type MetaJsonSchema, type ModelTextResult } from './meta-client.js';
 import {
   parseVisualSearchAnalysis,
   VISUAL_SEARCH_DISCLOSURE_VERSION,
   VISUAL_SEARCH_MAX_RESULTS,
   VISUAL_SEARCH_PROMPT,
+  VISUAL_SEARCH_OUTPUT_SCHEMA,
   VISUAL_SEARCH_MAX_UPLOAD_BYTES,
 } from './visual-search.js';
 
 const updatePreferenceSchema = z.object({ enabled: z.boolean(), disclosureVersion: z.string().optional() }).strict();
 
 export interface VisualSearchModel {
-  countImageInputTokens(prompt: string, images: ImageInput[]): Promise<number[]>;
-  analyzeImages(prompt: string, images: ImageInput[], signal?: AbortSignal): Promise<ModelTextResult[]>;
+  countImageInputTokens(prompt: string, images: ImageInput[], signal?: AbortSignal, outputSchema?: MetaJsonSchema): Promise<number[]>;
+  analyzeImages(prompt: string, images: ImageInput[], signal?: AbortSignal, outputSchema?: MetaJsonSchema): Promise<ModelTextResult[]>;
 }
 
 interface VisualSearchPreference {
@@ -121,7 +122,7 @@ export function createVisualSearchRouter(database: DatabaseHandle, assetStorage:
     let reservation: Awaited<ReturnType<typeof usage.reserveSearch>> | undefined;
     let providerReturned = false;
     try {
-      const tokenCounts = await options.imageModel.countImageInputTokens(VISUAL_SEARCH_PROMPT, images);
+      const tokenCounts = await options.imageModel.countImageInputTokens(VISUAL_SEARCH_PROMPT, images, undefined, VISUAL_SEARCH_OUTPUT_SCHEMA);
       if (tokenCounts.length !== 1 || !Number.isSafeInteger(tokenCounts[0]) || tokenCounts[0]! < 0) {
         return fail(res, 502, 'visual_search_invalid_response', 'Meta AI returned an invalid image-analysis response.', req.requestId);
       }
@@ -133,7 +134,7 @@ export function createVisualSearchRouter(database: DatabaseHandle, assetStorage:
         return fail(res, 403, 'visual_search_consent_required', 'Image-search consent was turned off. Enable it again before searching.', req.requestId);
       }
 
-      const generated = await withOwnerWorkLease(database, ownerId, 'visual_search', (signal) => options.imageModel!.analyzeImages(VISUAL_SEARCH_PROMPT, images, signal));
+      const generated = await withOwnerWorkLease(database, ownerId, 'visual_search', (signal) => options.imageModel!.analyzeImages(VISUAL_SEARCH_PROMPT, images, signal, VISUAL_SEARCH_OUTPUT_SCHEMA));
       providerReturned = true;
       if (generated.length !== 1) {
         const actual = generated.reduce((sum, output) => sum + sparkCostMicroUsd(output.inputTokens, output.outputTokens), 0);

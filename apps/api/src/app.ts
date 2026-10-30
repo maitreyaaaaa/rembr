@@ -22,7 +22,7 @@ import { createImportRouter } from './imports/routes.js';
 import { LocalImportStorage, type ImportStorage } from './imports/storage.js';
 import { createJobRouter } from './jobs/routes.js';
 import { createAiRouter } from './ai/routes.js';
-import { createMetaModelClient } from './ai/meta-client.js';
+import { createMetaModelClient, type MetaJsonSchema } from './ai/meta-client.js';
 import { createVisualSearchRouter, type VisualSearchModel } from './ai/visual-search-routes.js';
 import { createKnowledgeRouter } from './knowledge/routes.js';
 import { createSmartCollectionRouter } from './smart-collections/routes.js';
@@ -46,7 +46,7 @@ function errorResponse(code: string, message: string, requestId?: string) {
   return { error: { code, message, ...(requestId ? { requestId } : {}) } };
 }
 
-export function createApp(database: DatabaseHandle, options: { validateUrl?: typeof validatePublicUrl; checkLink?: typeof checkPublicPage; assetDirectory?: string; assetStorage?: AssetStorage; importDirectory?: string; importStorage?: ImportStorage; mediaDirectory?: string; mediaStorage?: MediaStorage; exportStorage?: import('./account/data-export-service.js').PrivateExportArtifactStorage; answerModel?: { countTextInputTokens(prompt: string): Promise<number>; analyzeText(prompt: string): Promise<{ text: string; inputTokens: number; outputTokens: number }> }; imageSearchModel?: VisualSearchModel; providerAvailable?: () => Promise<boolean>; semanticEmbeddingProvider?: EmbeddingProvider } = {}) {
+export function createApp(database: DatabaseHandle, options: { validateUrl?: typeof validatePublicUrl; checkLink?: typeof checkPublicPage; assetDirectory?: string; assetStorage?: AssetStorage; importDirectory?: string; importStorage?: ImportStorage; mediaDirectory?: string; mediaStorage?: MediaStorage; exportStorage?: import('./account/data-export-service.js').PrivateExportArtifactStorage; answerModel?: { countTextInputTokens(prompt: string, signal?: AbortSignal, outputSchema?: MetaJsonSchema): Promise<number>; analyzeText(prompt: string, signal?: AbortSignal, outputSchema?: MetaJsonSchema): Promise<{ text: string; inputTokens: number; outputTokens: number }> }; imageSearchModel?: VisualSearchModel; providerAvailable?: () => Promise<boolean>; semanticEmbeddingProvider?: EmbeddingProvider } = {}) {
   const app = express();
   const assetStorage = options.assetStorage ?? new LocalAssetStorage(options.assetDirectory ?? config.assetDirectory);
   const importStorage = options.importStorage ?? new LocalImportStorage(options.importDirectory ?? config.importDirectory);
