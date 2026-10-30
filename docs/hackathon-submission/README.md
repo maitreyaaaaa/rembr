@@ -1,6 +1,6 @@
 # Hackathon submission draft
 
-**Status:** Draft. The authenticated demo journey and live model behavior have not been verified in the current environment.
+**Status:** Draft. One authenticated hosted capture-to-search demo has been verified with the existing synthetic test account. Live Meta model behavior and formal event requirements remain unverified.
 
 ## Short project description
 
@@ -33,13 +33,14 @@ The product uses a React/TypeScript web app, a Node.js API and background worker
 
 ## Before submission
 
-- Verify the demo on a configured, authorized environment with synthetic data.
-- Confirm current official event rules and any model-use requirement.
-- Record a short capture-to-search walkthrough and prepare a reviewer setup note.
+- Re-run the capture-to-search path while recording, using the synthetic account.
 - Keep claims aligned with the observed demo and list anything not verified.
-- The event page currently lists **November 4, 2026, 9:00 PM ET** as the project submission deadline.
+- Record the verified capture-to-search walkthrough and prepare a short reviewer setup note.
+- Confirm the current Official Rules, including required submission artifacts and whether a Meta model is mandatory.
+- The official event pages currently list **November 4, 2026, 9:00 PM ET** as the project submission deadline.
 
 ## Sources
 
 - [Official event page](https://events.cerebralvalley.ai/e/meta-ai-developer-hackathon)
+- [Meta developer event page](https://dev.meta.ai/events/global-hackathon)
 - [Phase-gated roadmap](../rebuild-plan/phase-gated-roadmap.md)
