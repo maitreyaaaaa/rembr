@@ -152,6 +152,7 @@ export interface AccountDataMap {
     providers: string[];
   };
   excludedSharedRecords: Array<{ table: string; reason: string }>;
+  excludedOperationalRecords: Array<{ table: string; reason: string }>;
 }
 
 export function createAccountDataMapService(database: DatabaseHandle) {
@@ -192,7 +193,9 @@ export function createAccountDataMapService(database: DatabaseHandle) {
         excludedSharedRecords: [
           { table: 'ai_monthly_usage', reason: 'Contains shared monthly aggregates and has no owner_id, so it cannot be safely attributed to one account.' },
           { table: 'ai_worker_status', reason: 'Contains global worker readiness, not user-owned data.' },
-          { table: 'media_cleanup_queue', reason: 'Contains shared operational cleanup state without an owner column.' },
+        ],
+        excludedOperationalRecords: [
+          { table: 'media_cleanup_queue', reason: 'Contains private storage keys and internal retry state; owner-tagged entries are drained during account deletion, while legacy unattributed entries remain in the worker-wide cleanup sweep.' },
         ],
       };
     },

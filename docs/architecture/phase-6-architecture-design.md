@@ -23,6 +23,8 @@ Phase 6 implementation is in progress on `feat/phase-6-account-privacy-admin-bil
 6. Keep audit records minimal and redacted. Security activity can include event kind, timestamp, outcome, and safe request metadata, but not secrets or raw user content.
 7. Admin authorization is a separate policy from support metadata. Every privileged mutation must be role-checked, rate-limited, confirmed, and durably audited; private content is excluded from default support projections.
 8. Billing remains optional and fail-closed. No live checkout is enabled until prices, credentials, callback secret, access policy, and test evidence are configured and approved.
+9. Bootstrap the first admin through a one-time server-side CLI, not an app endpoint. Require an existing active account, explicit operator confirmation, and an empty `admin_roles` table under a transaction lock; keep later role changes as a separate audited process.
+10. Keep media cleanup keys owner-attributed and drain them before deleting the identity. A storage key can outlive its `media_artifacts` row, so deletion enumerates both artifact rows and the owner-scoped cleanup queue; legacy unattributed queue entries are left to the global worker sweep.
 
 ## Source references and adaptations
 
@@ -36,7 +38,7 @@ Do not carry forward source deletion behavior without the improvements recorded 
 2. Full data export: authenticated request/status/cancel/download, bounded worker processing, complete manifest, expiring private artifact, and coverage against the Rembr data map. Implemented locally with staged artifact recovery and owner-work lease renewal; systematic field coverage, browser, and hosted storage evidence remain open.
 3. Account deletion: owner request/cancel, admin approval, atomic execution claim, retry-safe data/storage cleanup, deletion audit, and prevention of job resurrection or account recreation. Implemented locally; hosted/browser evidence and complete writer-path inventory remain open.
 4. Security activity and privacy controls: log and expose only safe event metadata; keep settings tied to actual retention/provider behavior. Local owner activity and deletion controls are implemented; retention policy and browser review remain open.
-5. Admin/support: establish an explicit operator role, safe projections, denial tests, action confirmation, throttling, and immutable audit history. Local deletion queue and audit screen/API are implemented; initial operator provisioning and broader support scope remain open.
+5. Admin/support: establish an explicit operator role, safe projections, denial tests, action confirmation, throttling, and immutable audit history. Local deletion queue and audit screen/API are implemented; a one-time `npm run provision:admin --workspace @rembr/api -- --email <existing-account-email> --role admin --confirm yes` bootstrap command is available. Broader support scope and environment-specific bootstrap verification remain open.
 6. Billing/credits: implement only behind an off-by-default configuration boundary; verify provider signatures, replay safety, purchase ownership, and atomic ledger idempotency before enabling. Disabled pending explicit product and configuration approval.
 7. Retention: reconcile every new and existing data category with export/deletion and expiry rules; add cleanup recovery where needed. Seven-day export expiry and 90-day security activity pruning are implemented; deletion audit, backups, provider copies, and the complete lifecycle policy remain open.
 

@@ -8,6 +8,7 @@
     "worker": "tsx watch src/worker/index.ts",
     "start": "node dist/index.js",
     "start:worker": "node dist/worker/index.js",
+    "provision:admin": "node --import tsx scripts/provision-admin.ts",
     "smoke:meta": "node --import tsx scripts/smoke-meta-api.ts",
     "typecheck": "tsc --noEmit",
     "lint": "eslint src scripts test",

@@ -26,6 +26,8 @@ Admin listing, approval, cancellation and execution require `assertAdmin` plus a
 
 Store details (`supabaseStore.js:386-485`): freeze revokes extension tokens, disables stored provider credentials, and fails open/paused processing jobs; storage cleanup removes user-prefixed files from import, Instagram asset, note, and export buckets in batches; table deletion is grouped by content/access/profile; completed purchases are retained while pending purchases are removed; Auth deletion treats not-found as already deleted. Calls are not wrapped in one transaction. Each operation must remain retryable after earlier steps succeed.
 
+Rembr follow-up: IScraper keeps ownership in user-prefixed object paths and sweeps those prefixes before deleting account rows. Rembr's worker retry queue previously stored media keys without an owner, which meant account deletion could miss an object after its media-artifact row had already been removed. The `20261030153000_media_cleanup_queue_owner.sql` migration adds owner attribution where the source artifact still exists; all current queue writers store the owner, and deletion drains owner-scoped queue keys before identity removal. Historical queue rows without a surviving artifact cannot be attributed safely and remain eligible for the worker-wide sweep.
+
 ### Deletion risks and Rembr requirements
 
 - **Concurrent execution:** service allows `executing` requests and does not claim a processing lease. Two admin requests can run the same steps concurrently. Conditional status transitions/atomic claim and per-step idempotency need explicit design and concurrency tests.

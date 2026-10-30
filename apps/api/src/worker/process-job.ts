@@ -160,11 +160,18 @@ export async function cleanupInactiveMedia(database: DatabaseHandle, storage: Me
   await storage.removeUnknown(keys);
 }
 
-async function queueMediaCleanup(database: DatabaseHandle, keys: string[], now = new Date().toISOString()): Promise<void> {
-  for (const key of new Set(keys)) {
-    await database.prepare(`INSERT INTO media_cleanup_queue (storage_key,attempt_count,last_error,created_at,updated_at)
-      VALUES (?,0,'worker_write_fenced',?,?) ON CONFLICT(storage_key) DO NOTHING`).run(key, now, now);
-  }
+async function queueMediaCleanup(database: DatabaseHandle, ownerId: string, keys: string[], now = new Date().toISOString()): Promise<void> {
+  await database.transaction(async () => {
+    // The media artifact remains the durable cleanup intent if the owner froze
+    // after the worker lease ended; never add a late queue row after deletion drains.
+    if (!await lockActiveOwner(database, ownerId)) return;
+    for (const key of new Set(keys)) {
+      await database.prepare(`INSERT INTO media_cleanup_queue (storage_key,owner_id,attempt_count,last_error,created_at,updated_at)
+        VALUES (?,?,0,'worker_write_fenced',?,?) ON CONFLICT(storage_key) DO UPDATE
+        SET owner_id=COALESCE(media_cleanup_queue.owner_id,EXCLUDED.owner_id)`)
+        .run(key, ownerId, now, now);
+    }
+  })();
 }
 
 export async function processNextJob(database: DatabaseHandle, fetchPage: PageFetcher = fetchPublicPage,
@@ -254,7 +261,7 @@ export async function processNextJob(database: DatabaseHandle, fetchPage: PageFe
               } else {
                 await database.prepare(`UPDATE media_artifacts SET status='failed',error_code='media_cleanup_pending',active=0
                   WHERE id=? AND owner_id=?`).run(id, job.owner_id);
-                await queueMediaCleanup(database, [storageKey]);
+                await queueMediaCleanup(database, job.owner_id, [storageKey]);
               }
               mediaResults.push({ id, sourceUrl, storageKey: removed ? null : storageKey, mime: null, byteSize: 0, sha256: null,
                 status: 'failed', errorCode: cause instanceof CaptureError ? cause.code : 'media_store_failed' });
@@ -276,7 +283,7 @@ export async function processNextJob(database: DatabaseHandle, fetchPage: PageFe
             } catch {
               await database.prepare(`UPDATE media_artifacts SET status='failed',error_code='media_cleanup_pending',active=0
                 WHERE id=? AND owner_id=?`).run(media.id, job.owner_id);
-              await queueMediaCleanup(database, [media.storageKey]);
+              await queueMediaCleanup(database, job.owner_id, [media.storageKey]);
             }
           }
         }
@@ -290,13 +297,13 @@ export async function processNextJob(database: DatabaseHandle, fetchPage: PageFe
           } catch {
             await database.prepare(`UPDATE media_artifacts SET status='failed',error_code='media_cleanup_pending',active=0
               WHERE id=? AND owner_id=?`).run(media.id, job.owner_id).catch(() => undefined);
-            await queueMediaCleanup(database, [media.storageKey]).catch(() => undefined);
+            await queueMediaCleanup(database, job.owner_id, [media.storageKey]).catch(() => undefined);
           }
         }
         throw cause;
       }
     });
-    if (committed !== true && writtenMediaKeys.length) await queueMediaCleanup(database, writtenMediaKeys);
+    if (committed !== true && writtenMediaKeys.length) await queueMediaCleanup(database, job.owner_id, writtenMediaKeys);
     await cleanupInactiveMedia(database, mediaProcessor.storage);
     return committed === false ? null : job.id;
   } catch (error) {
@@ -333,7 +340,7 @@ export async function processNextJob(database: DatabaseHandle, fetchPage: PageFe
       finishImportIfIdle(database, job.owner_id, job.import_id, now);
     });
     await fail();
-    await queueMediaCleanup(database, writtenMediaKeys);
+    await queueMediaCleanup(database, job.owner_id, writtenMediaKeys);
     await cleanupInactiveMedia(database, mediaProcessor.storage);
     return job.id;
   }

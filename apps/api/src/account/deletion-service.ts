@@ -143,6 +143,7 @@ export function createAccountDeletionService(database: DatabaseHandle) {
       { name: 'assets', query: 'SELECT id,storage_key AS storage_key FROM asset_objects WHERE owner_id=? AND id>? ORDER BY id LIMIT ?', remove: (key: string) => storage.assets.remove(key) },
       { name: 'imports', query: 'SELECT id,storage_key AS storage_key FROM import_upload_files WHERE owner_id=? AND id>? ORDER BY id LIMIT ?', remove: (key: string) => storage.imports.removeFile(key) },
       { name: 'media', query: 'SELECT id,storage_key AS storage_key FROM media_artifacts WHERE owner_id=? AND id>? ORDER BY id LIMIT ?', remove: (key: string) => storage.media.remove(key) },
+      { name: 'media_cleanup_queue', query: 'SELECT storage_key AS id,storage_key FROM media_cleanup_queue WHERE owner_id=? AND storage_key>? ORDER BY storage_key LIMIT ?', remove: (key: string) => storage.media.remove(key) },
       { name: 'exports', query: 'SELECT id,artifact_key AS storage_key FROM account_data_exports WHERE owner_id=? AND artifact_key IS NOT NULL AND id>? ORDER BY id LIMIT ?', remove: (key: string) => storage.exports.remove(ownerId, key) },
     ] as const;
 
@@ -170,7 +171,10 @@ export function createAccountDeletionService(database: DatabaseHandle) {
         if (outcomes.some((result) => result.status === 'rejected')) throw new AccountDeletionError('storage_cleanup_failed');
         await database.transaction(async () => {
           await renewClaim(claim);
-          for (const row of rows) await database.prepare('DELETE FROM media_cleanup_queue WHERE storage_key=?').run(row.storage_key);
+          if (bucket.name === 'media' || bucket.name === 'media_cleanup_queue') {
+            for (const row of rows) await database.prepare('DELETE FROM media_cleanup_queue WHERE storage_key=? AND (owner_id=? OR owner_id IS NULL)')
+              .run(row.storage_key, ownerId);
+          }
           cursor = rows[rows.length - 1]!.id;
           cursors[bucket.name] = cursor;
           await database.prepare(`UPDATE account_deletion_steps SET progress_cursor=?,updated_at=?

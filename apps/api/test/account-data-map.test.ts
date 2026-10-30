@@ -32,8 +32,8 @@ test('account data map inventories current owned tables and labels uncounted byt
     assert.deepEqual(map.excludedSharedRecords.map((record) => record.table), [
       'ai_monthly_usage',
       'ai_worker_status',
-      'media_cleanup_queue',
     ]);
+    assert.deepEqual(map.excludedOperationalRecords.map((record) => record.table), ['media_cleanup_queue']);
   } finally {
     await database.close();
   }

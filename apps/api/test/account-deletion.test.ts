@@ -18,8 +18,8 @@ test('account data map inventory covers every owner_id table in the live schema'
     const rows = await database.prepare(`SELECT DISTINCT table_name FROM information_schema.columns
       WHERE table_schema='public' AND column_name='owner_id' ORDER BY table_name`).all() as Array<{ table_name: string }>;
     const inventoried = new Set(ACCOUNT_OWNER_TABLES.map(({ table }) => table));
-    // This operational drain table is deliberately excluded from exports; account deletion drains it and the user FK cascades it.
-    const excludedOperationalTables = new Set(['account_owner_work_leases']);
+    // Operational rows are excluded from exports; account deletion drains the media queue and expired work leases.
+    const excludedOperationalTables = new Set(['account_owner_work_leases', 'media_cleanup_queue']);
     const missing = rows.map(({ table_name }) => table_name)
       .filter((table) => !inventoried.has(table) && !excludedOperationalTables.has(table));
     assert.deepEqual(missing, [], `owner_id tables missing from export/deletion inventory: ${missing.join(', ')}`);
@@ -177,6 +177,36 @@ test('deletion worker retries a failed storage step and retains only a hash-back
     assert.equal((await database.prepare('SELECT count(*) AS count FROM account_deletion_audit WHERE request_id=?').get(deletionId) as { count: number }).count > 5, true);
     assert.ok(maxActiveRemovals <= 20, `storage cleanup exceeded the batch bound: ${maxActiveRemovals}`);
     assert.equal(typeof (await database.prepare("SELECT progress_cursor FROM account_deletion_steps WHERE request_id=? AND step_key='remove_storage'").get(deletionId) as { progress_cursor: string | null }).progress_cursor, 'string');
+  });
+});
+
+test('account deletion removes owner-tagged queued media bytes with no remaining artifact row', async () => {
+  await withApi(async (baseUrl, database) => {
+    const owner = await register(baseUrl, 'delete-queued-media@example.test');
+    const admin = await register(baseUrl, 'delete-queued-media-admin@example.test');
+    await database.prepare(`INSERT INTO admin_roles (user_id,role,created_at) VALUES (?,'admin',?)`).run(admin.userId, new Date().toISOString());
+    const key = 'orphaned-private-media.media';
+    await database.prepare(`INSERT INTO media_cleanup_queue (storage_key,owner_id,created_at,updated_at) VALUES (?,?,?,?)`)
+      .run(key, owner.userId, new Date().toISOString(), new Date().toISOString());
+
+    const requested = await fetch(`${baseUrl}/api/account/deletion`, {
+      method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ exportConfirmed: true }),
+    });
+    const deletionId = (await requested.json() as { deletion: { id: string } }).deletion.id;
+    const service = createAccountDeletionService(database);
+    await service.approve(deletionId, admin.userId);
+    const claim = await service.claimNext();
+    assert.ok(claim);
+    const removed: string[] = [];
+    const storage = {
+      assets: { async remove() {} }, imports: { async removeFile() {} },
+      media: { async remove(storageKey: string) { removed.push(storageKey); } },
+      exports: { async remove() {} },
+    };
+    assert.equal((await service.processClaim(claim, storage))?.status, 'completed');
+    assert.deepEqual(removed, [key]);
+    assert.equal((await database.prepare('SELECT count(*) AS count FROM media_cleanup_queue WHERE owner_id=?').get(owner.userId) as { count: number }).count, 0);
+    assert.equal((await database.prepare('SELECT count(*) AS count FROM users WHERE id=?').get(owner.userId) as { count: number }).count, 0);
   });
 });
 

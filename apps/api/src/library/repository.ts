@@ -270,7 +270,9 @@ export function createLibraryRepository(database: DatabaseHandle) {
         if (!await database.prepare('SELECT 1 FROM saved_items WHERE owner_id=? AND id=?').get(ownerId, itemId)) return false;
         const now = new Date().toISOString();
         for (const asset of assets) await database.prepare("UPDATE asset_objects SET state='deleting', updated_at=? WHERE owner_id=? AND id=?").run(new Date().toISOString(), ownerId, asset.id);
-        for (const storageKey of mediaKeys) await database.prepare(`INSERT INTO media_cleanup_queue (storage_key,created_at,updated_at) VALUES (?,?,?) ON CONFLICT DO NOTHING`).run(storageKey, now, now);
+        for (const storageKey of mediaKeys) await database.prepare(`INSERT INTO media_cleanup_queue (storage_key,owner_id,created_at,updated_at)
+          VALUES (?,?,?,?) ON CONFLICT(storage_key) DO UPDATE SET owner_id=COALESCE(media_cleanup_queue.owner_id,EXCLUDED.owner_id)`)
+          .run(storageKey, ownerId, now, now);
         await database.prepare('DELETE FROM saved_items WHERE owner_id=? AND id=?').run(ownerId, itemId);
         return true;
       })();
