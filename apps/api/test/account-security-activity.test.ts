@@ -38,6 +38,27 @@ test('security activity exposes only safe owner-scoped sign-in and sign-out labe
     const owner = await register(baseUrl, 'security-owner@example.test');
     const other = await register(baseUrl, 'security-other@example.test');
     const otherEvent = await database.prepare('SELECT id FROM account_security_events WHERE owner_id=?').get(other.userId) as { id: string };
+    const otherActivityId = 'private-other-activity';
+    await database.prepare(`INSERT INTO account_activity_events (id,owner_id,event_type,created_at) VALUES (?,?,?,?)`)
+      .run(otherActivityId, other.userId, 'data_export_requested', new Date().toISOString());
+    await database.prepare(`INSERT INTO account_activity_events (id,owner_id,event_type,created_at) VALUES (?,?,?,?)`)
+      .run('owner-analysis-activity', owner.userId, 'analysis_used', new Date(Date.now() - 60 * 60_000).toISOString());
+    const ownerHash = (await import('node:crypto')).createHash('sha256').update(owner.userId).digest('hex');
+    const otherHash = (await import('node:crypto')).createHash('sha256').update(other.userId).digest('hex');
+    for (const [id, hash, eventType] of [
+      ['owner-deletion-approved', ownerHash, 'approved'],
+      ['foreign-deletion-approved', otherHash, 'approved'],
+    ] as const) {
+      const requestId = `${id}-request`;
+      await database.prepare(`INSERT INTO account_deletion_requests
+        (id,owner_id,owner_hash,status,export_confirmed,requested_at,available_at,created_at,updated_at)
+        VALUES (?,?,?,'pending_approval',TRUE,?,?,?,?)`)
+        .run(requestId, hash === ownerHash ? owner.userId : other.userId, hash,
+          new Date().toISOString(), new Date().toISOString(), new Date().toISOString(), new Date().toISOString());
+      await database.prepare(`INSERT INTO account_deletion_audit
+        (id,request_id,owner_hash,actor_type,event_type,metadata,created_at) VALUES (?,?,?,'admin',?,'{}',?)`)
+        .run(id, requestId, hash, eventType, new Date().toISOString());
+    }
 
     const unauthenticated = await fetch(`${baseUrl}/api/account/security-activity`);
     assert.equal(unauthenticated.status, 401);
@@ -47,12 +68,14 @@ test('security activity exposes only safe owner-scoped sign-in and sign-out labe
     assert.equal(missing.headers.get('cache-control'), 'private, no-store, max-age=0');
     assert.equal(missing.headers.get('pragma'), 'no-cache');
     const missingBody = await missing.json() as { activity: Array<Record<string, unknown>> };
-    assert.equal(missingBody.activity.length, 1);
-    assert.equal(missingBody.activity[0]!.eventType, 'sign_in');
+    assert.equal(missingBody.activity.length, 3);
+    assert.deepEqual(missingBody.activity.map(({ eventType }) => eventType), ['deletion_approved', 'sign_in', 'analysis_used']);
     assert.deepEqual(Object.keys(missingBody.activity[0]!).sort(), ['createdAt', 'eventType', 'id']);
     assert.ok(!JSON.stringify(missingBody).includes(owner.userId));
     assert.ok(!JSON.stringify(missingBody).includes('security-owner@example.test'));
     assert.ok(!JSON.stringify(missingBody).includes(otherEvent.id));
+    assert.ok(!JSON.stringify(missingBody).includes(otherActivityId));
+    assert.ok(!JSON.stringify(missingBody).includes('foreign-deletion-approved'));
 
     await fetch(`${baseUrl}/api/auth/logout`, { method: 'POST', headers: { Cookie: owner.cookie } });
     const login = await fetch(`${baseUrl}/api/auth/login`, {
@@ -62,7 +85,7 @@ test('security activity exposes only safe owner-scoped sign-in and sign-out labe
     const loginCookie = (login.headers.get('set-cookie') ?? '').split(';')[0]!;
     const refreshed = await fetch(`${baseUrl}/api/account/security-activity?limit=10`, { headers: { Cookie: loginCookie } });
     const activity = (await refreshed.json() as { activity: Array<{ eventType: string }> }).activity;
-    assert.deepEqual(activity.map((event) => event.eventType), ['sign_in', 'sign_out', 'sign_in']);
+    assert.deepEqual(activity.map((event) => event.eventType), ['sign_in', 'sign_out', 'deletion_approved', 'sign_in', 'analysis_used']);
     assert.equal((await fetch(`${baseUrl}/api/account/security-activity?limit=51`, { headers: { Cookie: loginCookie } })).status, 400);
   });
 });
@@ -93,6 +116,8 @@ test('security activity reads are bounded and event writes prune entries older t
     const old = new Date(Date.now() - 100 * 24 * 60 * 60_000).toISOString();
     await database.prepare(`INSERT INTO account_security_events (id,owner_id,event_type,created_at) VALUES (?,?,?,?)`)
       .run('stale-security-event', owner.userId, 'sign_in', old);
+    await database.prepare(`INSERT INTO account_activity_events (id,owner_id,event_type,created_at) VALUES (?,?,?,?)`)
+      .run('stale-account-activity-event', owner.userId, 'analysis_used', old);
     const countBefore = await database.prepare('SELECT count(*) AS count FROM account_security_events WHERE owner_id=?')
       .get(owner.userId) as { count: number };
     assert.equal(Number(countBefore.count), 2);
@@ -102,6 +127,12 @@ test('security activity reads are bounded and event writes prune entries older t
       .all(owner.userId) as Array<{ id: string; created_at: string }>;
     assert.equal(rows.length, 2);
     assert.ok(rows.every((row) => row.id !== 'stale-security-event'));
+
+    const { cleanupExpiredAccountActivity } = await import('../src/account/retention-service.js');
+    const cleanup = await cleanupExpiredAccountActivity(database, new Date(), 10);
+    assert.equal(cleanup.accountActivityEvents, 1);
+    assert.equal((await database.prepare(`SELECT count(*) AS count FROM account_activity_events WHERE owner_id=? AND id='stale-account-activity-event'`)
+      .get(owner.userId) as { count: number }).count, 0);
 
     const cookie = owner.cookie;
     for (let index = 0; index < 52; index += 1) await recordAccountSecurityEvent(database, owner.userId, 'sign_in');

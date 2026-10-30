@@ -189,6 +189,7 @@ Each enabled integration has a complete authorization and failure contract plus 
 ### Work
 
 - Build profile/settings, data map, account summary, export request/status/download, deletion request/cancel/approval/process, security activity, and user-facing privacy controls.
+- Port source-backed account activity for export/import lifecycle, blocked/retrying work, failed search, analysis use, and safe deletion progress. Keep query, content, and provider details out of the activity projection.
 - Build admin/support capabilities only to the documented role and safe-projection contract; separate support metadata from private content and protect privileged mutations with audit events. Cross-cutting health, metrics, alerting, and runbooks are verified in Phase 8 and deployed/evidenced in Phase 9.
 - Implement billing and credit surfaces only where approved, including signed callbacks, idempotent ledger behavior, and correct access policy. Keep optional/unsafe functionality disabled until live configuration is verified.
 - Complete retention and lifecycle rules across source data, derived artifacts, vectors, logs, exports, tokens, provider copies, and in-flight jobs.
@@ -197,6 +198,7 @@ Each enabled integration has a complete authorization and failure contract plus 
 
 - Export is owner-scoped, time-limited, statusful, and complete against the data map; deletion is idempotent, recoverable after partial failure, and prevents new processing.
 - Admin access and every privileged action have negative authorization tests, sanitized response checks, and durable audit evidence.
+- Owner activity is owner-scoped, bounded, retained, included in the data map/export/deletion lifecycle, and does not duplicate import/export transitions in admin timelines.
 - Billing callbacks are signature-verified, replay-safe, and ledger-idempotent; if live credentials are unavailable, production behavior is not claimed as passed.
 - Privacy settings visibly control the corresponding behavior, and no user-facing toggle gives false assurance.
 

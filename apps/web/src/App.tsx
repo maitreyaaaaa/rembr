@@ -1075,13 +1075,23 @@ function AccountSecurityActivityPanel() {
     sign_in: 'Signed in', sign_out: 'Signed out', deletion_requested: 'Requested account deletion',
     deletion_cancelled: 'Cancelled account deletion', account_deletion_requested: 'Requested account deletion',
     account_deletion_cancelled: 'Cancelled account deletion',
+    deletion_approved: 'Account deletion approved', deletion_retried: 'Account deletion retried',
+    deletion_processing: 'Account deletion is processing', deletion_failed: 'Account deletion needs attention',
+    deletion_completed: 'Account deletion completed',
+    data_export_requested: 'Requested a data export', data_export_ready: 'Data export is ready',
+    data_export_failed: 'Data export could not be completed', data_export_cancelled: 'Cancelled a data export',
+    data_export_retried: 'Retried a data export', data_export_downloaded: 'Downloaded a data export',
+    import_started: 'Started an import', import_completed: 'Import completed', import_failed: 'Import needs attention',
+    import_status_changed: 'Import status changed', background_job_failed: 'A saved item could not be processed',
+    background_job_blocked: 'Processing was paused', background_job_retrying: 'Processing will retry',
+    search_failed: 'Search could not be completed', analysis_used: 'Saved media was analyzed',
   };
   return <section className="phase2-panel phase2-narrow" aria-labelledby="account-security-activity-title">
-    <h2 id="account-security-activity-title">Security activity</h2>
-    <p className="phase2-helper">Recent account events. This list shows event names and times only; it does not include passwords, session tokens, private content, or raw search text.</p>
+    <h2 id="account-security-activity-title">Recent account activity</h2>
+    <p className="phase2-helper">Recent account, import, search, and processing events. This list shows labels and times only; it does not include passwords, session tokens, private content, or raw search text.</p>
     {error && <p className="notice error" role="alert">{error}</p>}
-    {loading ? <p className="phase2-state" role="status">Loading security activity…</p> : activity.length ? <ul className="phase2-manage-list">{activity.map((event) =>
-      <li key={event.id}><span>{labels[event.eventType] ?? 'Account security event'}</span><time dateTime={event.createdAt}>{new Date(event.createdAt).toLocaleString()}</time></li>)}</ul> : <p className="phase2-state">No recent security activity.</p>}
+    {loading ? <p className="phase2-state" role="status">Loading account activity…</p> : activity.length ? <ul className="phase2-manage-list">{activity.map((event) =>
+      <li key={event.id}><span>{labels[event.eventType] ?? 'Account activity'}</span><time dateTime={event.createdAt}>{new Date(event.createdAt).toLocaleString()}</time></li>)}</ul> : <p className="phase2-state">No recent account activity.</p>}
   </section>;
 }
 

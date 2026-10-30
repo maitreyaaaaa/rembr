@@ -105,6 +105,24 @@ test('an expired processing lease with an open reservation is paused for uncerta
   } finally { await database.close(); }
 });
 
+test('a reclaimed AI job lease does not produce a stale retry activity event', async () => {
+  const database = await createTestDatabase();
+  try {
+    const now = new Date('2026-10-29T10:00:00.000Z');
+    await seedImport(database, 'stale-ai-import', 'stale-ai-job', now.toISOString());
+    await database.prepare(`INSERT INTO ai_analysis_preferences (owner_id,enabled,consent_version,consented_at,updated_at)
+      VALUES ('budget-user',TRUE,?,?,?)`).run(AI_DISCLOSURE_VERSION, now.toISOString(), now.toISOString());
+    const client = new Proxy({}, { get() { throw new Error('provider_must_not_be_called'); } }) as never;
+    const result = await processNextAiJob(database, client, async () => {
+      await database.prepare(`UPDATE ai_analysis_jobs SET lease_token='new-worker-token' WHERE id='stale-ai-job'`).run();
+      throw new MetaApiError('rate_limited', 'rate limit', { status: 429, retryable: true, outcomeUnknown: false });
+    }, true, now);
+    assert.equal(result, 'stale-ai-job');
+    assert.equal((await database.prepare(`SELECT status FROM ai_analysis_jobs WHERE id='stale-ai-job'`).get() as { status: string }).status, 'processing');
+    assert.equal((await database.prepare(`SELECT count(*) AS count FROM account_activity_events WHERE owner_id='budget-user'`).get() as { count: number }).count, 0);
+  } finally { await database.close(); }
+});
+
 test('reservations atomically protect the import cap and settle actual spend', async () => {
   const database = await createTestDatabase();
   try {

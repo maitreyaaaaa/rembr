@@ -5,6 +5,7 @@ import { detectSupportedMediaMime, LocalMediaStorage, type MediaStorage } from '
 import { CaptureError, fetchPublicMedia, fetchPublicPage } from '../items/safe-fetch.js';
 import { extractPage } from '../items/extract.js';
 import { lockActiveOwner, OwnerLifecycleError, withOwnerWorkLease } from '../account/owner-lifecycle.js';
+import { recordAccountActivityEvent } from '../account/activity-events.js';
 import { queueVisualEmbeddingForItem } from '../ai/visual-embedding-worker.js';
 
 interface ClaimedJob {
@@ -34,8 +35,11 @@ async function finishImportIfIdle(database: DatabaseHandle, ownerId: string, imp
     AND status IN ('partial','failed','cancelled')`).get(ownerId, importId) as { count: number };
   const parseFailures = await database.prepare('SELECT failed_count FROM imports WHERE owner_id=? AND id=?')
     .get(ownerId, importId) as { failed_count: number } | undefined;
-  await database.prepare(`UPDATE imports SET status=?,updated_at=?,completed_at=? WHERE owner_id=? AND id=?`)
-    .run(Number(failures.count) > 0 || Number(parseFailures?.failed_count ?? 0) > 0 ? 'partial' : 'completed', now, now, ownerId, importId);
+  const status = Number(failures.count) > 0 || Number(parseFailures?.failed_count ?? 0) > 0 ? 'partial' : 'completed';
+  const changed = await database.prepare(`UPDATE imports SET status=?,updated_at=?,completed_at=? WHERE owner_id=? AND id=? AND status<>?`)
+    .run(status, now, now, ownerId, importId, status);
+  if (changed.changes === 1) await recordAccountActivityEvent(database, ownerId,
+    status === 'completed' ? 'import_completed' : 'import_status_changed', now);
 }
 
 export async function claimNextJob(database: DatabaseHandle, now = new Date()): Promise<ClaimedJob | undefined> {
@@ -330,8 +334,10 @@ export async function processNextJob(database: DatabaseHandle, fetchPage: PageFe
         await finishImportIfIdle(database, job.owner_id, job.import_id, now);
         return;
       }
-      await database.prepare(`UPDATE processing_jobs SET status=?,available_at=?,lease_token=NULL,lease_expires_at=NULL,error_code=?,updated_at=?
+      const changed = await database.prepare(`UPDATE processing_jobs SET status=?,available_at=?,lease_token=NULL,lease_expires_at=NULL,error_code=?,updated_at=?
         WHERE id=? AND owner_id=? AND lease_token=?`).run(retry ? 'retry_wait' : 'failed', retry ? availableAt : now, code, now, job.id, job.owner_id, job.lease_token);
+      if (changed.changes === 1) await recordAccountActivityEvent(database, job.owner_id,
+        retry ? 'background_job_retrying' : 'background_job_failed', now);
       await database.prepare(`UPDATE saved_items SET status=?,error_code=?,updated_at=? WHERE id=? AND owner_id=?`)
         .run(retry ? 'queued' : 'failed', retry ? null : code, now, job.item_id, job.owner_id);
       await database.prepare(`UPDATE import_entries SET status=?,error_code=? WHERE owner_id=? AND import_id=? AND job_id=?`)
@@ -339,7 +345,7 @@ export async function processNextJob(database: DatabaseHandle, fetchPage: PageFe
       await database.prepare(`UPDATE job_attempts SET status='failed',error_code=?,finished_at=?
         WHERE owner_id=? AND job_id=? AND generation=? AND attempt_number=? AND status='running'`)
         .run(code, now, job.owner_id, job.id, job.generation, job.attempts);
-      finishImportIfIdle(database, job.owner_id, job.import_id, now);
+      await finishImportIfIdle(database, job.owner_id, job.import_id, now);
     });
     await fail();
     await queueMediaCleanup(database, job.owner_id, writtenMediaKeys);

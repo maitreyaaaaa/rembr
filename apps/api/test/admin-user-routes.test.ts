@@ -261,6 +261,8 @@ test('admin audit browser filters and paginates redacted records without exposin
     const ownerHash = createHash('sha256').update(target.userId).digest('hex');
     await database.prepare(`INSERT INTO account_security_events (id,owner_id,event_type,created_at) VALUES (?,?,?,?)`)
       .run('private-security-event-id', target.userId, 'sign_in', timestamp(1_000));
+    await database.prepare(`INSERT INTO account_activity_events (id,owner_id,event_type,created_at) VALUES (?,?,?,?)`)
+      .run('private-activity-event-id', target.userId, 'analysis_used', timestamp(2_500));
     await database.prepare(`INSERT INTO account_deletion_requests
       (id,owner_id,owner_hash,status,export_confirmed,requested_at,available_at,created_at,updated_at)
       VALUES (?,?,?,'pending_approval',TRUE,?,?,?,?)`).run('private-deletion-request-id', target.userId, ownerHash,
@@ -289,26 +291,34 @@ test('admin audit browser filters and paginates redacted records without exposin
     const secondPageResponse = await fetch(`${route}?limit=2&cursor=${encodeURIComponent(firstPage.nextCursor!)}`, { headers: { Cookie: admin.cookie } });
     const secondPage = await secondPageResponse.json() as { auditEvents: AdminAuditEventForTest[]; nextCursor: string | null };
     assert.equal(secondPageResponse.status, 200);
-    assert.equal(secondPage.auditEvents.length, 1);
-    assert.equal(secondPage.auditEvents[0]!.source, 'admin_access');
-    assert.equal(secondPage.auditEvents[0]!.eventType, 'admin_summary_viewed');
+    assert.equal(secondPage.auditEvents.length, 2);
+    assert.equal(secondPage.auditEvents[0]!.source, 'activity');
+    assert.equal(secondPage.auditEvents[0]!.eventType, 'analysis_used');
+    assert.equal(secondPage.auditEvents[1]!.source, 'admin_access');
+    assert.equal(secondPage.auditEvents[1]!.eventType, 'admin_summary_viewed');
     assert.equal(secondPage.nextCursor, null);
     const filteredResponse = await fetch(`${route}?source=security&eventType=sign_in&targetUserId=${target.userId}`, { headers: { Cookie: admin.cookie } });
     const filtered = await filteredResponse.json() as { auditEvents: AdminAuditEventForTest[] };
     assert.equal(filteredResponse.status, 200);
     assert.equal(filtered.auditEvents.length, 1);
     assert.equal(filtered.auditEvents[0]!.targetReference, ownerHash.slice(0, 16));
+    const activityFilteredResponse = await fetch(`${route}?source=activity&eventType=analysis_used&targetUserId=${target.userId}`, { headers: { Cookie: admin.cookie } });
+    const activityFiltered = await activityFilteredResponse.json() as { auditEvents: AdminAuditEventForTest[] };
+    assert.equal(activityFilteredResponse.status, 200);
+    assert.equal(activityFiltered.auditEvents.length, 1);
+    assert.equal(activityFiltered.auditEvents[0]!.source, 'activity');
+    assert.equal(activityFiltered.auditEvents[0]!.targetReference, ownerHash.slice(0, 16));
     assert.equal((await fetch(`${route}?eventType=account_blocked`, { headers: { Cookie: admin.cookie } })).status, 400);
     assert.equal((await fetch(`${route}?targetUserId=not-a-uuid`, { headers: { Cookie: admin.cookie } })).status, 400);
     assert.equal((await fetch(`${route}?cursor=not-a-cursor`, { headers: { Cookie: admin.cookie } })).status, 400);
 
-    const serialized = JSON.stringify([firstPage, secondPage, filtered]);
+    const serialized = JSON.stringify([firstPage, secondPage, filtered, activityFiltered]);
     for (const sensitive of [target.userId, target.cookie, target.email, admin.userId, 'private-security-event-id', 'private-deletion-request-id',
-      'private-deletion-event-id', 'private-admin-event-id', 'private-audit-metadata', 'private-admin-metadata', 'actor_user_id', 'request_id', 'ip_hash']) {
+      'private-deletion-event-id', 'private-activity-event-id', 'private-admin-event-id', 'private-audit-metadata', 'private-admin-metadata', 'actor_user_id', 'request_id', 'ip_hash']) {
       assert.equal(serialized.includes(sensitive), false);
     }
     const readAudit = await database.prepare(`SELECT metadata FROM admin_access_audit WHERE event_type='admin_audit_events_viewed'`).all() as Array<{ metadata: Record<string, unknown> }>;
-    assert.equal(readAudit.length, 3);
+    assert.equal(readAudit.length, 4);
     assert.ok(readAudit.every(({ metadata }) => !JSON.stringify(metadata).includes(target.userId)));
     assert.ok(readAudit.some(({ metadata }) => metadata.hasTargetFilter === true));
     assert.ok(readAudit.every(({ metadata }) => Object.keys(metadata).every((key) =>
@@ -330,6 +340,12 @@ test('admin per-user timeline merges safe events, keyset-paginates, and audits a
     const ownerHash = createHash('sha256').update(target.userId).digest('hex');
     await database.prepare(`INSERT INTO account_security_events (id,owner_id,event_type,created_at) VALUES (?,?,?,?)`)
       .run('private-timeline-security-id', target.userId, 'sign_out', timestamp(1_000));
+    await database.prepare(`INSERT INTO account_activity_events (id,owner_id,event_type,created_at) VALUES (?,?,?,?)`)
+      .run('private-timeline-activity-id', target.userId, 'analysis_used', timestamp(2_500));
+    await database.prepare(`INSERT INTO account_activity_events (id,owner_id,event_type,created_at) VALUES (?,?,?,?)`)
+      .run('private-timeline-activity-export-duplicate', target.userId, 'data_export_failed', timestamp(3_000));
+    await database.prepare(`INSERT INTO account_activity_events (id,owner_id,event_type,created_at) VALUES (?,?,?,?)`)
+      .run('private-timeline-activity-import-duplicate', target.userId, 'import_status_changed', timestamp(4_000));
     await database.prepare(`INSERT INTO account_deletion_requests
       (id,owner_id,owner_hash,status,export_confirmed,requested_at,available_at,created_at,updated_at)
       VALUES (?,?,?,'pending_approval',TRUE,?,?,?,?)`).run('private-timeline-deletion-id', target.userId, ownerHash,
@@ -364,14 +380,15 @@ test('admin per-user timeline merges safe events, keyset-paginates, and audits a
     assert.equal(secondResponse.status, 200);
     const secondPage = await secondResponse.json() as { timeline: AdminTimelineEventForTest[]; nextCursor: string | null };
     assert.deepEqual(secondPage.timeline.map(({ source, eventType }) => ({ source, eventType })), [
+      { source: 'activity', eventType: 'analysis_used' },
       { source: 'export', eventType: 'export_failed' },
-      { source: 'import', eventType: 'import_partial' },
     ]);
     assert.ok(secondPage.nextCursor);
     const thirdResponse = await fetch(`${route}?limit=2&cursor=${encodeURIComponent(secondPage.nextCursor!)}`, { headers: { Cookie: admin.cookie } });
     assert.equal(thirdResponse.status, 200);
     const thirdPage = await thirdResponse.json() as { timeline: AdminTimelineEventForTest[]; nextCursor: string | null };
     assert.deepEqual(thirdPage.timeline.map(({ source, eventType }) => ({ source, eventType })), [
+      { source: 'import', eventType: 'import_partial' },
       { source: 'deletion', eventType: 'step_completed' },
     ]);
     assert.equal(thirdPage.nextCursor, null);
@@ -380,9 +397,10 @@ test('admin per-user timeline merges safe events, keyset-paginates, and audits a
     assert.equal((await fetch(`${route}?cursor=not-a-cursor`, { headers: { Cookie: admin.cookie } })).status, 400);
 
     const serialized = JSON.stringify([firstPage, secondPage, thirdPage]);
-    for (const sensitive of [target.userId, target.cookie, target.email, admin.userId, 'private-timeline-security-id',
+    for (const sensitive of [target.userId, target.cookie, target.email, admin.userId, 'private-timeline-security-id', 'private-timeline-activity-id',
       'private-timeline-deletion-id', 'private-timeline-deletion-event-id', 'private-timeline-export-id',
-      'private-timeline-import-id', 'private-timeline-admin-event-id', 'private-export-error', 'private-import-error',
+      'private-timeline-import-id', 'private-timeline-activity-export-duplicate', 'private-timeline-activity-import-duplicate',
+      'private-timeline-admin-event-id', 'private-export-error', 'private-import-error',
       'private-admin-metadata', 'secret/path', 'storageKey', 'request_id', 'actor_user_id']) {
       assert.equal(serialized.includes(sensitive), false);
     }

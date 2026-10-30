@@ -5,6 +5,7 @@ import { z } from 'zod';
 import type { DatabaseHandle } from '../db/database.js';
 import { OwnerLifecycleError, withOwnerWorkLease } from '../account/owner-lifecycle.js';
 import { lockActiveOwner } from '../account/owner-lifecycle.js';
+import { recordAccountActivityEvent } from '../account/activity-events.js';
 import { requireUser } from '../auth/sessions.js';
 import { createProfileGate } from '../account/routes.js';
 import type { AssetStorage } from '../assets/storage.js';
@@ -163,6 +164,7 @@ export function createVisualSearchRouter(database: DatabaseHandle, assetStorage:
         searchEventId: searchResults.searchEventId,
       });
     } catch (error) {
+      await recordAccountActivityEvent(database, ownerId, 'search_failed').catch(() => undefined);
       if (reservation) {
         try {
           if (providerReturned || (error instanceof MetaApiError && error.outcomeUnknown)) await usage.holdSearch(reservation);

@@ -129,6 +129,8 @@ test('deletion worker retries a failed storage step and retains only a hash-back
       VALUES(?,?,?,?,?,?,?)`).run(owner.userId, itemId, 'local-visual-test', 'e'.repeat(64), [1, 0], now, now);
     await database.prepare(`INSERT INTO visual_embedding_jobs(id,owner_id,item_id,status,available_at,created_at,updated_at)
       VALUES(?,?,?,'queued',?,?,?)`).run(`${owner.userId}:${itemId}`, owner.userId, itemId, now, now, now);
+    await database.prepare(`INSERT INTO account_activity_events(id,owner_id,event_type,created_at) VALUES(?,?,?,?)`)
+      .run('delete-activity-event', owner.userId, 'data_export_requested', now);
     const assetKey = '11111111-1111-4111-8111-111111111111.asset';
     await database.prepare(`INSERT INTO asset_objects
       (id,owner_id,kind,storage_key,detected_mime,byte_size,sha256,state,created_at,updated_at)
@@ -173,6 +175,7 @@ test('deletion worker retries a failed storage step and retains only a hash-back
     assert.equal((await database.prepare('SELECT count(*) AS count FROM asset_objects WHERE owner_id=?').get(owner.userId) as { count: number }).count, 0);
     assert.equal((await database.prepare('SELECT count(*) AS count FROM visual_item_embeddings WHERE owner_id=?').get(owner.userId) as { count: number }).count, 0);
     assert.equal((await database.prepare('SELECT count(*) AS count FROM visual_embedding_jobs WHERE owner_id=?').get(owner.userId) as { count: number }).count, 0);
+    assert.equal((await database.prepare('SELECT count(*) AS count FROM account_activity_events WHERE owner_id=?').get(owner.userId) as { count: number }).count, 0);
     const retained = await database.prepare('SELECT owner_id,status,owner_hash FROM account_deletion_requests WHERE id=?').get(deletionId) as
       { owner_id: string | null; status: string; owner_hash: string };
     assert.equal(retained.owner_id, null);

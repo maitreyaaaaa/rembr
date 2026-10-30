@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { basename } from 'node:path';
 import { lockActiveOwner } from '../account/owner-lifecycle.js';
+import { recordAccountActivityEvent } from '../account/activity-events.js';
 import type { DatabaseHandle } from '../db/database.js';
 import { AI_DISCLOSURE_VERSION, LOCAL_ASR_DISCLOSURE_VERSION, LOCAL_OCR_DISCLOSURE_VERSION } from '../ai/preferences.js';
 import type { ParsedImportItem } from './parser.js';
@@ -66,6 +67,7 @@ export function createImportRepository(database: DatabaseHandle) {
         }));
         await database.prepare('UPDATE imports SET total_bytes=? WHERE id=? AND owner_id=?')
           .run(files.reduce((total, file) => total + file.size, 0), id, ownerId);
+        await recordAccountActivityEvent(database, ownerId, 'import_started', now);
         return { id, status: 'uploading', files: result };
       });
       return await transaction();
@@ -386,6 +388,8 @@ export function createImportRepository(database: DatabaseHandle) {
         const errorCode = failedCount ? 'some_files_failed' : parsedCount ? null : 'no_supported_items';
         await database.prepare(`UPDATE imports SET source=?,status=?,parsed_count=?,new_count=?,duplicate_count=?,skipped_count=?,failed_count=?,error_code=?,updated_at=?,completed_at=?,lease_token=NULL,lease_expires_at=NULL WHERE owner_id=? AND id=? AND lease_token=?`)
           .run(source, status, parsedCount, newCount, duplicateCount, instagramSkippedCount, failedCount, errorCode, now, newCount ? null : now, ownerId, importId, leaseToken);
+        await recordAccountActivityEvent(database, ownerId,
+          status === 'failed' ? 'import_failed' : status === 'completed' ? 'import_completed' : 'import_status_changed', now);
         await database.prepare(`UPDATE import_upload_files SET state='accepted',updated_at=? WHERE owner_id=? AND import_id=?`).run(now, ownerId, importId);
         return { status, parsedCount, newCount, duplicateCount, skippedCount: instagramSkippedCount, failedCount };
       });
@@ -394,9 +398,10 @@ export function createImportRepository(database: DatabaseHandle) {
 
     async fail(ownerId: string, importId: string, code: string, leaseToken?: string) {
       const now = new Date().toISOString();
-      await database.prepare(`UPDATE imports SET status='failed',error_code=?,failed_count=GREATEST(failed_count,1),updated_at=?,completed_at=?
+      const changed = await database.prepare(`UPDATE imports SET status='failed',error_code=?,failed_count=GREATEST(failed_count,1),updated_at=?,completed_at=?
         ,lease_token=NULL,lease_expires_at=NULL WHERE owner_id=? AND id=? AND status IN ('uploading','staged','parsing')
         AND (? IS NULL OR lease_token=?)`).run(code, now, now, ownerId, importId, leaseToken ?? null, leaseToken ?? null);
+      if (changed.changes === 1) await recordAccountActivityEvent(database, ownerId, 'import_failed', now);
       await database.prepare(`UPDATE import_upload_files SET state='failed',updated_at=? WHERE owner_id=? AND import_id=? AND state!='deleted'`).run(now, ownerId, importId);
     },
 

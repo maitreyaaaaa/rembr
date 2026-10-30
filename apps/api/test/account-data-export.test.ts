@@ -85,6 +85,18 @@ test('personal export packages only the requested owner and excludes password an
     await seedUser(database, 'admin-granter', 'granting-admin@example.test');
     await seedItem(database, 'item-a', 'owner-a', 'A only');
     await seedItem(database, 'item-b', 'owner-b', 'B private');
+    await database.prepare(`INSERT INTO imports
+      (id,owner_id,request_id,idempotency_key,source,status,lease_token,lease_expires_at,created_at,updated_at)
+      VALUES ('export-import','owner-a','export-request','export-idempotency','instagram','processing','private-import-lease-token','2099-01-01T00:00:00.000Z',?,?)`)
+      .run(start.toISOString(), start.toISOString());
+    await database.prepare(`INSERT INTO processing_jobs
+      (id,owner_id,item_id,import_id,correlation_id,status,attempts,available_at,lease_token,lease_expires_at,heartbeat_at,created_at,updated_at)
+      VALUES ('export-processing-job','owner-a','item-a','export-import','export-correlation','processing',1,?,'private-job-lease-token',?,? ,?,?)`)
+      .run(start.toISOString(), '2099-01-02T00:00:00.000Z', '2099-01-03T00:00:00.000Z', start.toISOString(), start.toISOString());
+    await database.prepare(`INSERT INTO ai_analysis_jobs
+      (id,owner_id,import_id,item_id,status,available_at,lease_token,lease_expires_at,created_at,updated_at)
+      VALUES ('export-ai-job','owner-a','export-import','item-a','processing',?,'private-ai-lease-token','2099-01-04T00:00:00.000Z',?,?)`)
+      .run(start.toISOString(), start.toISOString(), start.toISOString());
     await database.prepare(`INSERT INTO visual_item_embeddings(owner_id,item_id,model,content_hash,embedding,created_at,updated_at)
       VALUES(?,?,?,?,?,?,?)`).run('owner-a', 'item-a', 'local-visual-test', 'd'.repeat(64), [0.125, 0.875], start.toISOString(), start.toISOString());
     await database.prepare('INSERT INTO admin_roles (user_id,role,granted_by,created_at) VALUES (?,?,?,?)')
@@ -121,6 +133,8 @@ test('personal export packages only the requested owner and excludes password an
     const library = await archive.file('data/saved_library.json')!.async('string');
     const account = await archive.file('data/account.json')!.async('string');
     const privacyRequests = await archive.file('data/privacy_requests.json')!.async('string');
+    const productActivity = await archive.file('data/product_activity.json')!.async('string');
+    const importProcessing = await archive.file('data/imports_and_processing.json')!.async('string');
     const manifest = await archive.file('manifest.json')!.async('string');
     assert.match(library, /A only/);
     assert.doesNotMatch(library, /B private/);
@@ -132,6 +146,10 @@ test('personal export packages only the requested owner and excludes password an
     assert.match(account, /"role": "admin"/);
     assert.doesNotMatch(account, /admin-granter|granted_by|user_id/);
     assert.match(privacyRequests, /pending_approval/);
+    assert.match(productActivity, /data_export_requested/);
+    assert.doesNotMatch(productActivity, /owner-b|b@example\.test/);
+    assert.doesNotMatch(importProcessing, /private-import-lease-token|private-job-lease-token|private-ai-lease-token/);
+    assert.doesNotMatch(importProcessing, /lease_expires_at|heartbeat_at|2099-01-0[1-4]T00:00:00\.000Z/);
     assert.doesNotMatch(privacyRequests, /secret-storage-key-marker|progress_cursor/);
     assert.match(manifest, /Session credentials and token hashes are excluded/);
     assert.match(manifest, /local visual vectors are operational similarity indexes and are excluded/);
@@ -141,6 +159,27 @@ test('personal export packages only the requested owner and excludes password an
     assert.ok(archive.file('files/import/0002-private.txt'));
     assert.ok(archive.file('files/media/0003-private.txt'));
     assert.equal(await service.getStatus('owner-b', otherExport.id).then((status) => status?.status), 'queued');
+  } finally {
+    await database.close();
+  }
+});
+
+test('an unavailable export artifact records a bounded failure activity event', async () => {
+  const database = await createTestDatabase();
+  const storage = fakeStorage();
+  storage.read = async () => { throw new Error('private storage failure'); };
+  try {
+    await seedUser(database, 'owner-a', 'a@example.test');
+    const service = createAccountDataExportService(database, storage, fakeFileSource().source);
+    const requested = await service.request('owner-a', false, start);
+    const claim = await service.claimNext(start);
+    assert.ok(claim);
+    assert.equal((await service.processClaim(claim, start))?.status, 'ready');
+    assert.equal(await service.getDownload('owner-a', requested.id, new Date(start.getTime() + 1)), null);
+    assert.equal((await service.getStatus('owner-a', requested.id))?.errorCode, 'artifact_unavailable');
+    const eventTypes = (await database.prepare(`SELECT event_type FROM account_activity_events`).all() as Array<{ event_type: string }>)
+      .map(({ event_type }) => event_type).sort();
+    assert.deepEqual(eventTypes, ['data_export_failed', 'data_export_ready', 'data_export_requested']);
   } finally {
     await database.close();
   }

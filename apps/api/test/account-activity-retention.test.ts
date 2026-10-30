@@ -30,6 +30,15 @@ test('activity cleanup enforces the shared 90-day window in bounded batches', as
         VALUES (?, 'activity-owner', 'sign_in', ?)`).run(id, createdAt);
     }
     for (const [id, createdAt] of [
+      ['product-old-a', new Date(Date.parse(cutoff) - 2).toISOString()],
+      ['product-old-b', new Date(Date.parse(cutoff) - 1).toISOString()],
+      ['product-boundary', cutoff],
+      ['product-active', new Date(Date.parse(cutoff) + 1).toISOString()],
+    ] as const) {
+      await database.prepare(`INSERT INTO account_activity_events (id,owner_id,event_type,created_at)
+        VALUES (?, 'activity-owner', 'analysis_used', ?)`).run(id, createdAt);
+    }
+    for (const [id, createdAt] of [
       ['admin-old-a', new Date(Date.parse(cutoff) - 2).toISOString()],
       ['admin-old-b', new Date(Date.parse(cutoff) - 1).toISOString()],
       ['admin-boundary', cutoff],
@@ -68,15 +77,18 @@ test('activity cleanup enforces the shared 90-day window in bounded batches', as
         VALUES (?,'activity-owner',?,?,?,?)`).run(id, status, artifactKey, old, updatedAt);
     }
 
-    const emptyCleanup = { searchEvents: 0, securityEvents: 0, adminAccessEvents: 0, exportHistory: 0, deletionRequests: 0, deletionAudits: 0 };
-    assert.deepEqual(await cleanupExpiredAccountActivity(database, now, 1), { searchEvents: 1, securityEvents: 1, adminAccessEvents: 1, exportHistory: 1, deletionRequests: 1, deletionAudits: 1 });
-    assert.deepEqual(await cleanupExpiredAccountActivity(database, now, 1), { searchEvents: 1, securityEvents: 1, adminAccessEvents: 1, exportHistory: 1, deletionRequests: 1, deletionAudits: 1 });
+    const emptyCleanup = { searchEvents: 0, securityEvents: 0, accountActivityEvents: 0, adminAccessEvents: 0, exportHistory: 0, deletionRequests: 0, deletionAudits: 0 };
+    assert.deepEqual(await cleanupExpiredAccountActivity(database, now, 1), { searchEvents: 1, securityEvents: 1, accountActivityEvents: 1, adminAccessEvents: 1, exportHistory: 1, deletionRequests: 1, deletionAudits: 1 });
+    assert.deepEqual(await cleanupExpiredAccountActivity(database, now, 1), { searchEvents: 1, securityEvents: 1, accountActivityEvents: 1, adminAccessEvents: 1, exportHistory: 1, deletionRequests: 1, deletionAudits: 1 });
     assert.deepEqual(await cleanupExpiredAccountActivity(database, now, 1), emptyCleanup);
     assert.deepEqual(await database.prepare('SELECT id FROM search_events ORDER BY id').all(), [
       { id: 'search-active' }, { id: 'search-boundary' },
     ]);
     assert.deepEqual(await database.prepare('SELECT id FROM account_security_events ORDER BY id').all(), [
       { id: 'security-active' }, { id: 'security-boundary' },
+    ]);
+    assert.deepEqual(await database.prepare('SELECT id FROM account_activity_events ORDER BY id').all(), [
+      { id: 'product-active' }, { id: 'product-boundary' },
     ]);
     assert.deepEqual(await database.prepare('SELECT id FROM admin_access_audit ORDER BY id').all(), [
       { id: 'admin-active' }, { id: 'admin-boundary' },

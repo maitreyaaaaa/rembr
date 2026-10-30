@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { lockActiveOwner } from '../account/owner-lifecycle.js';
 import type { DatabaseHandle } from '../db/database.js';
 import { OwnerLifecycleError, withOwnerWorkLease } from '../account/owner-lifecycle.js';
+import { recordAccountActivityEvent } from '../account/activity-events.js';
 import { AI_DISCLOSURE_VERSION, LOCAL_ASR_DISCLOSURE_VERSION, LOCAL_OCR_DISCLOSURE_VERSION } from './preferences.js';
 import type { LocalOcrImage } from './local-ocr.js';
 import type { LocalAsrAudio } from './local-asr.js';
@@ -220,6 +221,7 @@ async function saveResult(database: DatabaseHandle, job: ClaimedAiJob, data: {
     await database.prepare(`UPDATE ai_analysis_jobs SET status=?,lease_token=NULL,lease_expires_at=NULL,error_code=?,
       updated_at=?,completed_at=? WHERE id=? AND owner_id=? AND lease_token=?`)
       .run(data.status, data.status === 'partial' ? 'partial_analysis' : null, now, now, job.id, job.owner_id, job.lease_token);
+    await recordAccountActivityEvent(database, job.owner_id, 'analysis_used', now);
     return true;
   })();
 }
@@ -497,21 +499,24 @@ export async function processNextAiJob(database: DatabaseHandle, client: AiModel
     return job.id;
   }
   if (pausedForBudget) {
-    await database.prepare(`UPDATE ai_analysis_jobs SET status='paused',pause_reason=?,lease_token=NULL,lease_expires_at=NULL,
+    const changed = await database.prepare(`UPDATE ai_analysis_jobs SET status='paused',pause_reason=?,lease_token=NULL,lease_expires_at=NULL,
       error_code=?,updated_at=? WHERE id=? AND owner_id=? AND lease_token=?`)
       .run(pausedForBudget, pausedForBudget, now.toISOString(), job.id, job.owner_id, job.lease_token);
+    if (changed.changes === 1) await recordAccountActivityEvent(database, job.owner_id, 'background_job_blocked', now.toISOString());
     return job.id;
   }
   if (unknownUsage) {
-    await database.prepare(`UPDATE ai_analysis_jobs SET status='paused',pause_reason='uncertain_usage',lease_token=NULL,lease_expires_at=NULL,
+    const changed = await database.prepare(`UPDATE ai_analysis_jobs SET status='paused',pause_reason='uncertain_usage',lease_token=NULL,lease_expires_at=NULL,
       error_code='uncertain_usage',updated_at=? WHERE id=? AND owner_id=? AND lease_token=?`)
       .run(now.toISOString(), job.id, job.owner_id, job.lease_token);
+    if (changed.changes === 1) await recordAccountActivityEvent(database, job.owner_id, 'background_job_blocked', now.toISOString());
     return job.id;
   }
   if (retryableFailure) {
-    await database.prepare(`UPDATE ai_analysis_jobs SET status='queued',pause_reason=NULL,lease_token=NULL,lease_expires_at=NULL,
+    const changed = await database.prepare(`UPDATE ai_analysis_jobs SET status='queued',pause_reason=NULL,lease_token=NULL,lease_expires_at=NULL,
       error_code='rate_limited',available_at=?,updated_at=? WHERE id=? AND owner_id=? AND lease_token=?`)
       .run(new Date(now.getTime() + retryDelayMs(job.attempts)).toISOString(), now.toISOString(), job.id, job.owner_id, job.lease_token);
+    if (changed.changes === 1) await recordAccountActivityEvent(database, job.owner_id, 'background_job_retrying', now.toISOString());
     return job.id;
   }
   if (partial) {

@@ -103,8 +103,14 @@ const categories: readonly DataMapCategoryDefinition[] = [
   {
     id: 'security_activity',
     label: 'Account security activity',
-    description: 'Recent sign-in, sign-out, and deletion request events. Only event labels and timestamps are stored.',
+    description: 'Recent sign-in, sign-out, and deletion-request events. Only event labels and timestamps are stored.',
     records: [{ table: 'account_security_events', ownerColumn: 'owner_id' }],
+  },
+  {
+    id: 'product_activity',
+    label: 'Product activity',
+    description: 'Allowlisted export, import, processing, search, and analysis event labels and timestamps.',
+    records: [{ table: 'account_activity_events', ownerColumn: 'owner_id' }],
   },
   {
     id: 'private_file_references',

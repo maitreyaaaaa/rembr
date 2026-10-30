@@ -15,6 +15,7 @@ import { checkPublicPage } from '../items/safe-fetch.js';
 import { createAiSearchPreferenceRepository, AI_SEARCH_DISCLOSURE_VERSION } from './ai-search-preferences.js';
 import { createAiUsageRepository, sparkCostMicroUsd, AiBudgetExceededError } from '../ai/usage.js';
 import { MAX_OUTPUT_TOKENS, MetaApiError, MUSE_SPARK_MODEL } from '../ai/meta-client.js';
+import { recordAccountActivityEvent } from '../account/activity-events.js';
 import { createSavedItemSummaryRepository, type SavedItemSummaryContext } from './summaries.js';
 import { z } from 'zod';
 
@@ -219,6 +220,9 @@ export function createKnowledgeRouter(database: DatabaseHandle, storage: AssetSt
         if (error instanceof AiBudgetExceededError) fallbackReason = 'The shared monthly AI budget is full; showing saved evidence excerpts.';
         else if (error instanceof MetaApiError && error.outcomeUnknown) fallbackReason = 'Meta response status is unknown; showing saved evidence excerpts.';
         else fallbackReason = 'Grounded AI is unavailable; showing saved evidence excerpts.';
+        if (!(error instanceof AiBudgetExceededError)) {
+          await recordAccountActivityEvent(database, ownerId, 'search_failed').catch(() => undefined);
+        }
       }
       if (fallbackReason) res.setHeader('X-Rembr-AI-Fallback', fallbackReason);
     }

@@ -103,6 +103,9 @@ test('Phase 3 import manifests precede chunks, auto-queue parsed items, deduplic
     assert.equal(created.status, 201);
     const manifest = await created.json() as { importId: string; status: string; files: Array<{ fileId: string }> };
     assert.equal(manifest.status, 'uploading');
+    const ownerId = (await database.prepare(`SELECT id FROM users WHERE email='importer@example.test'`).get() as { id: string }).id;
+    assert.equal((await database.prepare(`SELECT event_type FROM account_activity_events WHERE owner_id=? ORDER BY created_at DESC,id DESC LIMIT 1`)
+      .get(ownerId) as { event_type: string }).event_type, 'import_started');
     assert.equal((await database.prepare('SELECT count(*) AS count FROM imports').get() as { count: number }).count, 1);
     const fileId = manifest.files[0]!.fileId;
     const first = csv.subarray(0, 15); const second = csv.subarray(15);

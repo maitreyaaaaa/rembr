@@ -4,6 +4,7 @@ import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import type { DatabaseHandle } from '../db/database.js';
 import { lockActiveOwner, OwnerLifecycleError, withOwnerWorkLease } from '../account/owner-lifecycle.js';
+import { recordAccountActivityEvent } from '../account/activity-events.js';
 import { ACCOUNT_ACTIVITY_RETENTION_MS } from '../account/retention-service.js';
 import { requireUser } from '../auth/sessions.js';
 import { createProfileGate } from '../account/routes.js';
@@ -233,6 +234,7 @@ export function createSemanticSearchRouter(input: {
         return fail(res, 403, 'account_disabled', 'This account is disabled while deletion is being reviewed.', req.requestId);
       }
       if (cause instanceof AiBudgetExceededError) return res.json(await fallback('budget_exhausted'));
+      await recordAccountActivityEvent(database, ownerId, 'search_failed').catch(() => undefined);
       console.warn('semantic_search_failed', { requestId: req.requestId, errorType: cause instanceof Error ? cause.name : 'unknown' });
       return res.json(await fallback('provider_error'));
     }

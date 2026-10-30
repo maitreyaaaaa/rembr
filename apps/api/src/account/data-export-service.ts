@@ -3,6 +3,7 @@ import JSZip from 'jszip';
 import { lockActiveOwner, OwnerLifecycleError, withOwnerWorkLease } from './owner-lifecycle.js';
 import type { DatabaseHandle } from '../db/database.js';
 import { ACCOUNT_OWNER_TABLES, createAccountDataMapService } from './data-map-service.js';
+import { recordAccountActivityEvent } from './activity-events.js';
 
 export const ACCOUNT_DATA_EXPORT_LIMITS = {
   maxAttempts: 3,
@@ -89,9 +90,9 @@ type OwnerColumn = 'id' | 'owner_id' | 'user_id';
 
 const excludedTables = new Set<string>(['visual_item_embeddings']);
 const excludedColumns: Record<string, ReadonlySet<string>> = {
-  imports: new Set(['lease_token']),
-  processing_jobs: new Set(['lease_token']),
-  ai_analysis_jobs: new Set(['lease_token']),
+  imports: new Set(['lease_token', 'lease_expires_at']),
+  processing_jobs: new Set(['lease_token', 'lease_expires_at', 'heartbeat_at']),
+  ai_analysis_jobs: new Set(['lease_token', 'lease_expires_at']),
   visual_embedding_jobs: new Set(['lease_token', 'lease_expires_at']),
   asset_objects: new Set(['storage_key']),
   import_upload_files: new Set(['storage_key']),
@@ -290,6 +291,7 @@ export function createAccountDataExportService(
         if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
         await database.prepare(`INSERT INTO account_data_exports (id,owner_id,status,include_files,attempt_count,created_at,updated_at)
           VALUES (?,?,'queued',?,0,?,?)`).run(id, ownerId, includeFiles, timestamp, timestamp);
+        await recordAccountActivityEvent(database, ownerId, 'data_export_requested', timestamp);
       });
       await transaction();
       return (await getStatus(ownerId, id))!;
@@ -318,18 +320,26 @@ export function createAccountDataExportService(
     async cancel(ownerId: string, exportId: string, now = new Date()): Promise<AccountDataExportStatus | null> {
       ownerIdRequired(ownerId);
       const timestamp = now.toISOString();
-      const changed = await database.prepare(`UPDATE account_data_exports SET status='cancelled',updated_at=?,error_code=NULL
-        WHERE owner_id=? AND id=? AND status IN ('queued','failed')`).run(timestamp, ownerId, exportId);
-      if (changed.changes === 0) return null;
+      const changed = await database.transaction(async () => {
+        const result = await database.prepare(`UPDATE account_data_exports SET status='cancelled',updated_at=?,error_code=NULL
+          WHERE owner_id=? AND id=? AND status IN ('queued','failed')`).run(timestamp, ownerId, exportId);
+        if (result.changes === 1) await recordAccountActivityEvent(database, ownerId, 'data_export_cancelled', timestamp);
+        return result.changes;
+      })();
+      if (changed === 0) return null;
       return getStatus(ownerId, exportId);
     },
 
     async retry(ownerId: string, exportId: string, now = new Date()): Promise<AccountDataExportStatus | null> {
       ownerIdRequired(ownerId);
       const timestamp = now.toISOString();
-      const changed = await database.prepare(`UPDATE account_data_exports SET status='queued',updated_at=?,error_code=NULL
-        WHERE owner_id=? AND id=? AND status='failed' AND attempt_count<?`).run(timestamp, ownerId, exportId, limits.maxAttempts);
-      if (changed.changes === 0) return null;
+      const changed = await database.transaction(async () => {
+        const result = await database.prepare(`UPDATE account_data_exports SET status='queued',updated_at=?,error_code=NULL
+          WHERE owner_id=? AND id=? AND status='failed' AND attempt_count<?`).run(timestamp, ownerId, exportId, limits.maxAttempts);
+        if (result.changes === 1) await recordAccountActivityEvent(database, ownerId, 'data_export_retried', timestamp);
+        return result.changes;
+      })();
+      if (changed === 0) return null;
       return getStatus(ownerId, exportId);
     },
 
@@ -455,6 +465,7 @@ export function createAccountDataExportService(
                 completed_at=?,updated_at=?,lease_token=NULL,lease_expires_at=NULL,error_code=NULL
                 WHERE owner_id=? AND id=? AND status='processing' AND lease_token=? AND lease_expires_at>?`)
                 .run(expiresAt, completedAt, completedAt, claim.ownerId, claim.id, claim.leaseToken, completedAt);
+              if (update.changes === 1) await recordAccountActivityEvent(database, claim.ownerId, 'data_export_ready', completedAt);
               return update.changes === 1;
             })();
             if (!committed) {
@@ -488,9 +499,12 @@ export function createAccountDataExportService(
         }
         const accountInactive = cause instanceof OwnerLifecycleError && cause.code === 'account_inactive';
         const code = accountInactive ? 'account_inactive' : cause instanceof AccountDataExportError ? cause.code : 'export_failed';
-        await database.prepare(`UPDATE account_data_exports SET status=?,error_code=?,updated_at=?,lease_token=NULL,lease_expires_at=NULL
+        const updated = await database.prepare(`UPDATE account_data_exports SET status=?,error_code=?,updated_at=?,lease_token=NULL,lease_expires_at=NULL
           WHERE owner_id=? AND id=? AND status='processing' AND lease_token=?`)
           .run(accountInactive ? 'cancelled' : 'failed', code, now.toISOString(), claim.ownerId, claim.id, claim.leaseToken);
+        if (updated.changes === 1 && !accountInactive) {
+          await recordAccountActivityEvent(database, claim.ownerId, 'data_export_failed', now.toISOString());
+        }
       }
       return getStatus(claim.ownerId, claim.id);
     },
@@ -502,13 +516,17 @@ export function createAccountDataExportService(
       const row = await database.prepare(`SELECT artifact_key FROM account_data_exports WHERE owner_id=? AND id=?
         AND status='ready' AND expires_at>?`).get(ownerId, exportId, timestamp) as { artifact_key: string } | undefined;
       if (!row?.artifact_key) return null;
+      let bytes: Buffer;
       try {
-        return { bytes: await artifactStorage.read(ownerId, row.artifact_key), contentType: 'application/zip', fileName: 'rembr-personal-data.zip' };
+        bytes = await artifactStorage.read(ownerId, row.artifact_key);
       } catch {
-        await database.prepare("UPDATE account_data_exports SET status='failed',error_code='artifact_unavailable',artifact_key=NULL,updated_at=? WHERE owner_id=? AND id=? AND status='ready'")
+        const changed = await database.prepare("UPDATE account_data_exports SET status='failed',error_code='artifact_unavailable',artifact_key=NULL,updated_at=? WHERE owner_id=? AND id=? AND status='ready'")
           .run(timestamp, ownerId, exportId);
+        if (changed.changes === 1) await recordAccountActivityEvent(database, ownerId, 'data_export_failed', timestamp).catch(() => undefined);
         return null;
       }
+      await recordAccountActivityEvent(database, ownerId, 'data_export_downloaded', timestamp).catch(() => undefined);
+      return { bytes, contentType: 'application/zip', fileName: 'rembr-personal-data.zip' };
     },
 
     async cleanupExpiredArtifacts(limit = 100, now = new Date()): Promise<number> {

@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { requireUser } from '../auth/sessions.js';
 import type { DatabaseHandle } from '../db/database.js';
 import { createAccountDataMapService } from './data-map-service.js';
+import { ACCOUNT_ACTIVITY_EVENT_TYPES } from './activity-events.js';
 import { ACCOUNT_ACTIVITY_RETENTION_MS } from './retention-service.js';
 
 const MAX_USER_OFFSET = 100_000;
@@ -14,13 +15,14 @@ const searchSchema = z.object({
   offset: z.coerce.number().int().min(0).max(MAX_USER_OFFSET).default(0),
 }).strict();
 const userIdSchema = z.string().uuid();
-const auditSources = ['security', 'deletion', 'admin_access'] as const;
+const auditSources = ['security', 'activity', 'deletion', 'admin_access'] as const;
 const auditEventTypes = [
   'sign_in', 'sign_out', 'deletion_requested', 'deletion_cancelled',
   'requested', 'cancelled', 'approved', 'retry_requested', 'claim_acquired', 'step_started', 'step_completed', 'step_failed', 'completed',
   'admin_summary_viewed', 'admin_worker_status_viewed', 'admin_import_list_viewed', 'admin_audit_events_viewed', 'admin_user_list_viewed', 'admin_user_detail_viewed', 'admin_user_timeline_viewed',
+  ...ACCOUNT_ACTIVITY_EVENT_TYPES,
 ] as const;
-const timelineSources = ['security', 'deletion', 'export', 'import', 'admin_access'] as const;
+const timelineSources = ['security', 'activity', 'deletion', 'export', 'import', 'admin_access'] as const;
 const auditCursorSchema = z.object({
   version: z.literal(1), createdAt: z.iso.datetime(), id: z.string().min(1).max(128), source: z.enum(auditSources),
 }).strict();
@@ -214,8 +216,10 @@ export function createAdminUserRouter(database: DatabaseHandle) {
       if (cursor === null) return error(res, 400, 'invalid_audit_cursor', 'The audit page cursor is invalid.', req.requestId);
       const branches: string[] = [];
       const parameters: unknown[] = [];
-      const addBranch = (branchSource: typeof auditSources[number], table: string, actorSql: string, targetColumn: string, targetValue: string | null) => {
-        const where: string[] = [];
+      const addBranch = (branchSource: typeof auditSources[number], table: string, actorSql: string, targetColumn: string, targetValue: string | null,
+        extraWhere?: string, extraParameters: unknown[] = []) => {
+        const where: string[] = extraWhere ? [extraWhere] : [];
+        parameters.push(...extraParameters);
         if (source && source !== branchSource) where.push('FALSE');
         if (eventType) { where.push('event_type=?'); parameters.push(eventType); }
         if (targetValue) { where.push(`${targetColumn}=?`); parameters.push(targetValue); }
@@ -227,6 +231,8 @@ export function createAdminUserRouter(database: DatabaseHandle) {
           FROM ${table}${where.length ? ` WHERE ${where.join(' AND ')}` : ''}`);
       };
       addBranch('security', 'account_security_events', "'owner'::text", 'owner_id', targetUserId ?? null);
+      addBranch('activity', 'account_activity_events', "'owner'::text", 'owner_id', targetUserId ?? null,
+        'created_at>=?', [new Date(Date.now() - ACCOUNT_ACTIVITY_RETENTION_MS).toISOString()]);
       const hashedTarget = targetUserId ? hash(targetUserId) : null;
       addBranch('deletion', 'account_deletion_audit', 'actor_type', 'owner_hash', hashedTarget);
       addBranch('admin_access', 'admin_access_audit', "'admin'::text", 'target_hash', hashedTarget);
@@ -342,6 +348,10 @@ export function createAdminUserRouter(database: DatabaseHandle) {
         parameters.push(...branchParameters, parsed.data.limit + 1);
       };
       addBranch('security', 'account_security_events', 'created_at', 'event_type', "'owner'::text", 'owner_id=? AND created_at>=?',
+        [userId, new Date(Date.now() - ACCOUNT_ACTIVITY_RETENTION_MS).toISOString()]);
+      addBranch('activity', 'account_activity_events', 'created_at', 'event_type', "'owner'::text", `owner_id=? AND created_at>=?
+        AND event_type NOT IN ('data_export_requested','data_export_ready','data_export_failed','data_export_cancelled','data_export_retried',
+          'import_started','import_completed','import_failed','import_status_changed')`,
         [userId, new Date(Date.now() - ACCOUNT_ACTIVITY_RETENTION_MS).toISOString()]);
       addBranch('deletion', 'account_deletion_audit', 'created_at', 'event_type', 'actor_type', 'owner_hash=?', [ownerHash]);
       addBranch('export', 'account_data_exports', 'updated_at', `CASE status WHEN 'queued' THEN 'export_queued' WHEN 'processing' THEN 'export_processing' WHEN 'ready' THEN 'export_ready'

@@ -10,6 +10,7 @@ import type { MediaStorage } from '../media/storage.js';
 import { createLibraryService, LibraryServiceError } from './service.js';
 import { findSimilarVisuals, type SimilarVisualProfile, type SimilarVisualVector } from './similar-visuals.js';
 import { LOCAL_VISUAL_DISCLOSURE_VERSION } from '../ai/preferences.js';
+import { recordAccountActivityEvent } from '../account/activity-events.js';
 
 const noteUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 5, fields: 3, fieldSize: 50_000 } });
 const updateItemSchema = z.object({ titleOverride: z.string().trim().max(240).nullable().optional(), descriptionOverride: z.string().trim().max(2000).nullable().optional() }).strict();
@@ -60,6 +61,7 @@ export function createLibraryRouter(database: DatabaseHandle, storage: AssetStor
       return res.json(await library.list(req.user!.id, query, cursor));
     } catch (cause) {
       if (serviceError(res, cause, req.requestId)) return;
+      await recordAccountActivityEvent(database, req.user!.id, 'search_failed').catch(() => undefined);
       throw cause;
     }
   });
