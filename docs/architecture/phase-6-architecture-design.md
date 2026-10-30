@@ -25,7 +25,7 @@ Phase 6 implementation is in progress on `feat/phase-6-account-privacy-admin-bil
 8. Billing remains optional and fail-closed. No live checkout is enabled until prices, credentials, callback secret, access policy, and test evidence are configured and approved.
 9. Bootstrap the first admin through a one-time server-side CLI, not an app endpoint. Require an existing active account, explicit operator confirmation, and an empty `admin_roles` table under a transaction lock. Later role grants, changes, and revocations use a separate admin-only, confirmed, rate-limited, audited flow that serializes changes and protects the last active administrator.
 10. Keep media cleanup keys owner-attributed and drain them before deleting the identity. A storage key can outlive its `media_artifacts` row, so deletion enumerates both artifact rows and the owner-scoped cleanup queue; legacy unattributed queue entries are left to the global worker sweep.
-11. Inventory every foreign key that references `users(id)`. Classify it either as an owner data-map reference or as an explicit operational, audit, or operator-identity exception with a lifecycle reason; enforce the classification against the migrated schema in tests.
+11. Inventory every `owner_id`/`user_id` schema column and every foreign key that references `users(id)`. Classify ownership columns in the owner data map or as explicit operational exceptions, and classify direct user references as owner data or operational, audit, or operator-identity exceptions with lifecycle reasons. Enforce both classifications against the migrated schema in tests.
 
 ## Source references and adaptations
 

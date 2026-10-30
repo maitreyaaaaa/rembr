@@ -76,6 +76,31 @@ test('every schema foreign key to a user has an owner inventory or explicit life
   }
 });
 
+test('every schema owner and user column is in the data map or has an explicit lifecycle exception', async () => {
+  const database = await createTestDatabase();
+  try {
+    const columns = await database.prepare(`SELECT table_name,column_name
+      FROM information_schema.columns
+      WHERE table_schema='public' AND column_name IN ('owner_id','user_id')
+      ORDER BY table_name,column_name`).all() as Array<{ table_name: string; column_name: string }>;
+    const key = (table: string, column: string) => `${table}.${column}`;
+    const actual = columns.map(({ table_name, column_name }) => key(table_name, column_name)).sort();
+    const actualSet = new Set(actual);
+    const mapped = ACCOUNT_OWNER_TABLES.filter(({ table, ownerColumn }) =>
+      actualSet.has(key(table, ownerColumn))).map(({ table, ownerColumn }) => key(table, ownerColumn)).sort();
+    const exceptions = ACCOUNT_USER_REFERENCE_EXCEPTIONS
+      .map(({ table, column }) => key(table, column)).filter((entry) => actualSet.has(entry)).sort();
+
+    assert.equal(new Set(actual).size, actual.length, 'the schema inventory has no duplicate owner columns');
+    assert.equal(new Set([...mapped, ...exceptions]).size, mapped.length + exceptions.length,
+      'each owner column has one lifecycle classification');
+    assert.deepEqual([...mapped, ...exceptions].sort(), actual,
+      'every owner_id/user_id column is in the account data map or explicitly classified as operational');
+  } finally {
+    await database.close();
+  }
+});
+
 test('account data map counts only the requested owner and separates file references from binary bytes', async () => {
   const database = await createTestDatabase();
   try {
