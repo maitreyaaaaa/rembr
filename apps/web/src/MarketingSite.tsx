@@ -292,7 +292,7 @@ const publicInfo: Partial<Record<Page, InfoContent>> = {
     { title: 'Information in your account', body: <>Rembr stores account and profile details, saved items, imports, notes, and related organization data needed to provide your library. The account data map in Settings shows categories and counts Rembr can report.</> },
     { title: 'Optional processing', body: <>AI-assisted features have separate opt-in controls. When enabled and used, relevant text or images may be sent to the provider described in Settings. You can turn these controls off.</> },
     { title: 'Export and deletion', body: <>Settings lets you request an export or account deletion. Some cleanup is processed asynchronously. See <a href="/data-deletion">Data deletion</a> for current details.</> },
-    { title: 'Retention and providers', body: <>Session, activity, and export cleanup have configured limits. Retention for backups, deletion audit records, and some provider-held copies is still being finalized; this page does not promise their immediate removal.</> },
+    { title: 'Retention and providers', body: <>Export files become unavailable after seven days and are queued for cleanup. Terminal export history and completed or cancelled deletion workflow records are scheduled for cleanup after 90 days; unresolved deletion requests remain available for recovery. We have not verified retention windows for backups or provider-held copies, which may follow their providers’ policies.</> },
   ] },
   security: { title: <>Built around<br/>careful</>, accent: 'boundaries.', description: 'Rembr applies account checks and operational safeguards to protect private library data.', heading: 'How access is handled', sections: [
     { title: 'Private account access', body: <>Account and library operations are scoped to the signed-in owner. Administrative support tools use limited roles and record privileged actions.</> },
@@ -303,7 +303,7 @@ const publicInfo: Partial<Record<Page, InfoContent>> = {
   'data-deletion': { title: <>Your data.<br/>Your</>, accent: 'decision.', description: 'Review account data, request an export, or start account deletion from Settings.', heading: 'Requesting deletion', sections: [
     { title: 'Start from Settings', body: <>Open <a href="/app/settings/profile">Settings</a> and use the account deletion controls. A pending request freezes account activity.</> },
     { title: 'Cancel or continue', body: <>You can cancel a pending request where the control is available. Approved deletion is processed in steps and can be retried if storage cleanup fails.</> },
-    { title: 'Removal boundaries', body: <>The workflow removes account-owned records and associated stored files it can identify. Retention for some audit records, backups, and provider-held copies remains subject to their policies and is still being finalized.</> },
+    { title: 'Removal boundaries', body: <>The workflow removes account-owned records and associated stored files it can identify. Minimal deletion audit and checkpoint records are scheduled for cleanup 90 days after completion or cancellation; unresolved requests remain for recovery. Backup and provider-held copy retention has not been verified and may follow their providers’ policies.</> },
     { title: 'Need assistance?', body: <>Visit <a href="/help">Help</a> or <a href="/contact">Contact Rembr</a>.</> },
   ] },
   cookies: { title: <>A small note<br/>about</>, accent: 'cookies.', description: 'Rembr uses a session cookie to recognize your signed-in account.', heading: 'Browser storage', sections: [
