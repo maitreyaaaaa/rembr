@@ -384,7 +384,7 @@ export function createAdminUserRouter(database: DatabaseHandle) {
       addBranch('security', 'account_security_events', 'created_at', 'event_type', "'owner'::text", 'owner_id=? AND created_at>=?',
         [userId, new Date(Date.now() - ACCOUNT_ACTIVITY_RETENTION_MS).toISOString()]);
       addBranch('activity', 'account_activity_events', 'created_at', 'event_type', "'owner'::text", `owner_id=? AND created_at>=?
-        AND event_type NOT IN ('data_export_requested','data_export_ready','data_export_failed','data_export_cancelled','data_export_retried',
+        AND event_type NOT IN ('data_export_requested','data_export_ready','data_export_partial','data_export_failed','data_export_cancelled','data_export_retried',
           'import_started','import_completed','import_failed','import_status_changed')`,
         [userId, new Date(Date.now() - ACCOUNT_ACTIVITY_RETENTION_MS).toISOString()]);
       addBranch('deletion', 'account_deletion_audit', 'created_at', 'event_type', 'actor_type', 'owner_hash=?', [ownerHash]);

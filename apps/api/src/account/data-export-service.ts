@@ -460,7 +460,8 @@ export function createAccountDataExportService(
                 completed_at=?,updated_at=?,lease_token=NULL,lease_expires_at=NULL,error_code=NULL
                 WHERE owner_id=? AND id=? AND status='processing' AND lease_token=? AND lease_expires_at>?`)
                 .run(resultStatus, expiresAt, completedAt, completedAt, claim.ownerId, claim.id, claim.leaseToken, completedAt);
-              if (update.changes === 1) await recordAccountActivityEvent(database, claim.ownerId, 'data_export_ready', completedAt);
+              if (update.changes === 1) await recordAccountActivityEvent(database, claim.ownerId,
+                resultStatus === 'partial' ? 'data_export_partial' : 'data_export_ready', completedAt);
               return update.changes === 1;
             })();
             if (!committed) {

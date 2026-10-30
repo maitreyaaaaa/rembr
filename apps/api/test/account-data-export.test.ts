@@ -247,6 +247,8 @@ test('known file omissions produce a downloadable partial export with a reason m
     assert.equal(manifest.omittedFileCountAtLeast, 2);
     assert.deepEqual(manifest.omittedFiles.map(({ reason }) => reason), ['single_file_limit_exceeded', 'file_count_limit_exceeded']);
     assert.ok(manifest.omittedFiles.every(({ name }) => !name.includes('../')));
+    assert.equal((await database.prepare(`SELECT count(*) AS count FROM account_activity_events WHERE owner_id=? AND event_type='data_export_partial'`)
+      .get('owner-a') as { count: number }).count, 1);
   } finally {
     await database.close();
   }

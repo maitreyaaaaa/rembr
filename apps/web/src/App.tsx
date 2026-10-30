@@ -1080,6 +1080,7 @@ function AccountSecurityActivityPanel() {
     deletion_processing: 'Account deletion is processing', deletion_failed: 'Account deletion needs attention',
     deletion_completed: 'Account deletion completed',
     data_export_requested: 'Requested a data export', data_export_ready: 'Data export is ready',
+    data_export_partial: 'Data export is ready with some files omitted',
     data_export_failed: 'Data export could not be completed', data_export_cancelled: 'Cancelled a data export',
     data_export_retried: 'Retried a data export', data_export_downloaded: 'Downloaded a data export',
     import_started: 'Started an import', import_completed: 'Import completed', import_failed: 'Import needs attention',
