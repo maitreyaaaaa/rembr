@@ -29,6 +29,13 @@ interface AdminUserDetail {
   recentSecurityActivity: Array<{ eventType: string; createdAt: string }>;
   latestDeletion: { status: string; requestedAt: string; completedAt: string | null } | null;
 }
+interface AdminUserTimelineEvent {
+  reference: string;
+  source: 'security' | 'deletion' | 'export' | 'import' | 'admin_access';
+  eventType: string;
+  actorType: string;
+  createdAt: string;
+}
 interface AdminOverviewGroup { total: number; byStatus: Record<string, number> }
 interface AdminOverview {
   accounts: { total: number; active: number; disabled: number; new_last_24_hours: number; new_last_7_days: number };
@@ -101,6 +108,13 @@ export function AdminSupportPage({ request }: { request: Request }) {
   const [selectedUser, setSelectedUser] = useState<AdminUserDetail | null>(null);
   const [selectedUserLoading, setSelectedUserLoading] = useState(false);
   const [selectedUserError, setSelectedUserError] = useState('');
+  const [timelineEvents, setTimelineEvents] = useState<AdminUserTimelineEvent[]>([]);
+  const [timelineLoadedUserId, setTimelineLoadedUserId] = useState('');
+  const [timelineLoading, setTimelineLoading] = useState(false);
+  const [timelineError, setTimelineError] = useState('');
+  const [timelineNextCursor, setTimelineNextCursor] = useState<string | null>(null);
+  const [timelineCurrentCursor, setTimelineCurrentCursor] = useState<string | undefined>();
+  const [timelinePreviousCursors, setTimelinePreviousCursors] = useState<Array<string | undefined>>([]);
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [overviewLoading, setOverviewLoading] = useState(false);
   const [overviewError, setOverviewError] = useState('');
@@ -122,6 +136,7 @@ export function AdminSupportPage({ request }: { request: Request }) {
   const [auditPreviousCursors, setAuditPreviousCursors] = useState<Array<string | undefined>>([]);
   const userSearchSequence = useRef(0);
   const userDetailSequence = useRef(0);
+  const userTimelineSequence = useRef(0);
   const auditEventsSequence = useRef(0);
 
   const load = useCallback(async (isRefresh = false) => {
@@ -138,6 +153,8 @@ export function AdminSupportPage({ request }: { request: Request }) {
         setImports([]);
         setAuditEvents([]);
         setAuditEventsLoaded(false);
+        userTimelineSequence.current += 1;
+        setTimelineEvents([]); setTimelineLoadedUserId(''); setTimelineNextCursor(null); setTimelinePreviousCursors([]);
         return;
       }
       const body = await request<{ deletions: QueueEntry[] }>('/api/admin/account-deletions?limit=50');
@@ -221,7 +238,9 @@ export function AdminSupportPage({ request }: { request: Request }) {
     if (query.length < 3) { setUserError('Enter at least three characters of the account email.'); return; }
     const sequence = ++userSearchSequence.current;
     userDetailSequence.current += 1;
+    userTimelineSequence.current += 1;
     setUserLoading(true); setUserError(''); setSelectedUser(null); setSelectedUserLoading(false); setSelectedUserError('');
+    setTimelineEvents([]); setTimelineLoadedUserId(''); setTimelineNextCursor(null); setTimelinePreviousCursors([]);
     try {
       const params = new URLSearchParams({ query, limit: '25', offset: String(offset) });
       const result = await request<{ users: AdminUserSummary[]; nextOffset: number | null }>(`/api/admin/users?${params}`);
@@ -237,6 +256,9 @@ export function AdminSupportPage({ request }: { request: Request }) {
 
   async function loadUser(userId: string) {
     const sequence = ++userDetailSequence.current;
+    userTimelineSequence.current += 1;
+    setTimelineEvents([]); setTimelineLoadedUserId(''); setTimelineError(''); setTimelineNextCursor(null);
+    setTimelineCurrentCursor(undefined); setTimelinePreviousCursors([]);
     setSelectedUserLoading(true); setSelectedUserError(''); setSelectedUser(null);
     try {
       const result = await request<{ user: AdminUserDetail }>(`/api/admin/users/${encodeURIComponent(userId)}`);
@@ -247,6 +269,38 @@ export function AdminSupportPage({ request }: { request: Request }) {
       const failure = cause as RequestError;
       setSelectedUserError(failure.message || 'Could not load account details.');
     } finally { if (sequence === userDetailSequence.current) setSelectedUserLoading(false); }
+  }
+
+  async function loadUserTimeline(userId: string, cursor?: string) {
+    const sequence = ++userTimelineSequence.current;
+    setTimelineLoading(true); setTimelineError(''); setTimelineCurrentCursor(cursor);
+    try {
+      const params = new URLSearchParams({ limit: '50' });
+      if (cursor) params.set('cursor', cursor);
+      const result = await request<{ timeline: AdminUserTimelineEvent[]; nextCursor: string | null }>(
+        `/api/admin/users/${encodeURIComponent(userId)}/timeline?${params}`,
+      );
+      if (sequence !== userTimelineSequence.current) return;
+      setTimelineEvents(result.timeline); setTimelineNextCursor(result.nextCursor); setTimelineLoadedUserId(userId);
+    } catch (cause) {
+      if (sequence !== userTimelineSequence.current) return;
+      const failure = cause as RequestError;
+      setTimelineError(failure.message || 'Could not load the account timeline.');
+      setTimelineEvents([]); setTimelineNextCursor(null); setTimelineLoadedUserId(userId);
+    } finally { if (sequence === userTimelineSequence.current) setTimelineLoading(false); }
+  }
+
+  function nextUserTimelinePage(userId: string) {
+    if (!timelineNextCursor) return;
+    setTimelinePreviousCursors((previous) => [...previous, timelineCurrentCursor]);
+    void loadUserTimeline(userId, timelineNextCursor);
+  }
+
+  function previousUserTimelinePage(userId: string) {
+    if (!timelinePreviousCursors.length) return;
+    const previous = timelinePreviousCursors.at(-1);
+    setTimelinePreviousCursors((current) => current.slice(0, -1));
+    void loadUserTimeline(userId, previous);
   }
 
   async function loadAuditEvents(cursor?: string) {
@@ -302,7 +356,7 @@ export function AdminSupportPage({ request }: { request: Request }) {
         <div className="admin-queue-heading"><div><h2 id="admin-users-title">Account lookup</h2><p className="phase2-helper">Admin-only directory with basic account details and record counts. Search terms are not retained in the audit log.</p></div></div>
         <form className="admin-user-search" onSubmit={(event) => { event.preventDefault(); void searchUsers(); }}>
           <label htmlFor="admin-user-query">Account email starts with</label>
-          <input id="admin-user-query" type="search" autoComplete="off" maxLength={254} minLength={3} value={userQuery} onChange={(event) => { userSearchSequence.current += 1; userDetailSequence.current += 1; setUserQuery(event.target.value); setUserRows([]); setUserOffset(0); setUserNextOffset(null); setUserLoading(false); setSelectedUser(null); setSelectedUserLoading(false); }} placeholder="name@example.com" />
+          <input id="admin-user-query" type="search" autoComplete="off" maxLength={254} minLength={3} value={userQuery} onChange={(event) => { userSearchSequence.current += 1; userDetailSequence.current += 1; userTimelineSequence.current += 1; setUserQuery(event.target.value); setUserRows([]); setUserOffset(0); setUserNextOffset(null); setUserLoading(false); setSelectedUser(null); setSelectedUserLoading(false); setTimelineEvents([]); setTimelineLoadedUserId(''); setTimelineNextCursor(null); setTimelinePreviousCursors([]); }} placeholder="name@example.com" />
           <button className="primary-button" type="submit" disabled={userLoading}>{userLoading ? 'Searching…' : 'Search accounts'}</button>
         </form>
         {userError && <p className="notice error" role="alert">{userError}</p>}
@@ -321,6 +375,17 @@ export function AdminSupportPage({ request }: { request: Request }) {
           <h4>Account data categories</h4><dl className="admin-user-counts">{selectedUser.dataCategories.map(({ id, label, rowCount }) => <div key={id}><dt>{label}</dt><dd>{rowCount.toLocaleString()}</dd></div>)}</dl>
           {selectedUser.latestDeletion && <p className="admin-audit-note">Latest deletion request: {selectedUser.latestDeletion.status.replaceAll('_', ' ')} · Requested {formatDate(selectedUser.latestDeletion.requestedAt)}{selectedUser.latestDeletion.completedAt ? ` · Completed ${formatDate(selectedUser.latestDeletion.completedAt)}` : ''}</p>}
           <h4>Recent security activity</h4>{selectedUser.recentSecurityActivity.length ? <ol className="admin-audit-list">{selectedUser.recentSecurityActivity.map((event, index) => <li key={`${event.createdAt}-${index}`}><strong>{event.eventType.replaceAll('_', ' ')}</strong><time dateTime={event.createdAt}>{formatDate(event.createdAt)}</time></li>)}</ol> : <p className="admin-empty">No recent security events.</p>}
+          <div className="admin-user-timeline">
+            <h4>Account activity timeline</h4>
+            <p className="admin-audit-note">Shows event labels, operator role, and time only. Saved content, URLs, filenames, and raw metadata are excluded.</p>
+            {timelineLoadedUserId !== selectedUser.userId ? <button className="quiet-button" type="button" disabled={timelineLoading} onClick={() => void loadUserTimeline(selectedUser.userId)}>{timelineLoading ? 'Loading timeline…' : 'Load timeline'}</button>
+              : <>
+                {timelineLoading && <p className="phase2-state" role="status">Loading account activity…</p>}
+                {timelineError && <p className="notice error" role="alert">{timelineError} <button className="quiet-button" type="button" disabled={timelineLoading} onClick={() => void loadUserTimeline(selectedUser.userId, timelineCurrentCursor)}>Retry</button></p>}
+                {!timelineLoading && !timelineError && (timelineEvents.length ? <ol className="admin-audit-list">{timelineEvents.map((event) => <li key={event.reference}><strong>{event.eventType.replaceAll('_', ' ')}</strong><span className="admin-audit-meta">{event.source.replaceAll('_', ' ')} · {event.actorType}</span><time dateTime={event.createdAt}>{formatDate(event.createdAt)}</time></li>)}</ol> : <p className="admin-empty" role="status">No recent account activity is available.</p>)}
+                <div className="admin-user-pagination"><button className="quiet-button" type="button" disabled={timelineLoading || timelinePreviousCursors.length === 0} onClick={() => previousUserTimelinePage(selectedUser.userId)}>Previous</button><button className="quiet-button" type="button" disabled={timelineLoading || timelineNextCursor === null} onClick={() => nextUserTimelinePage(selectedUser.userId)}>Next</button></div>
+              </>}
+          </div>
         </section>}
       </section>}
       {role === 'admin' && <section className="phase2-panel admin-overview-panel" aria-labelledby="admin-overview-title">
@@ -376,7 +441,7 @@ export function AdminSupportPage({ request }: { request: Request }) {
           <label htmlFor="admin-audit-event-type">Event type</label>
           <select id="admin-audit-event-type" value={auditEventTypeFilter} onChange={(event) => setAuditEventTypeFilter(event.target.value)}>
             <option value="">All event types</option>
-            {['sign_in', 'sign_out', 'deletion_requested', 'deletion_cancelled', 'requested', 'cancelled', 'approved', 'retry_requested', 'claim_acquired', 'step_started', 'step_completed', 'step_failed', 'completed', 'admin_summary_viewed', 'admin_worker_status_viewed', 'admin_import_list_viewed', 'admin_audit_events_viewed', 'admin_user_list_viewed', 'admin_user_detail_viewed'].map((type) => <option key={type} value={type}>{type.replaceAll('_', ' ')}</option>)}
+            {['sign_in', 'sign_out', 'deletion_requested', 'deletion_cancelled', 'requested', 'cancelled', 'approved', 'retry_requested', 'claim_acquired', 'step_started', 'step_completed', 'step_failed', 'completed', 'admin_summary_viewed', 'admin_worker_status_viewed', 'admin_import_list_viewed', 'admin_audit_events_viewed', 'admin_user_list_viewed', 'admin_user_detail_viewed', 'admin_user_timeline_viewed'].map((type) => <option key={type} value={type}>{type.replaceAll('_', ' ')}</option>)}
           </select>
           <label htmlFor="admin-audit-target">Target account ID (optional)</label>
           <input id="admin-audit-target" type="text" autoComplete="off" maxLength={36} value={auditTargetUserFilter} onChange={(event) => setAuditTargetUserFilter(event.target.value)} placeholder="Account UUID" />

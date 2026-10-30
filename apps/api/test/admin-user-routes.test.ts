@@ -306,6 +306,83 @@ test('admin audit browser filters and paginates redacted records without exposin
   });
 });
 
+test('admin per-user timeline merges safe events, keyset-paginates, and audits access without exposing content', async () => {
+  await withApi(async (baseUrl, database) => {
+    const target = await register(baseUrl, 'timeline-target@example.test');
+    const member = await register(baseUrl, 'timeline-member@example.test');
+    const support = await register(baseUrl, 'timeline-support@example.test');
+    const admin = await register(baseUrl, 'timeline-admin@example.test');
+    const now = new Date();
+    const timestamp = (delta: number) => new Date(now.getTime() - delta).toISOString();
+    await database.prepare(`INSERT INTO admin_roles (user_id,role,created_at) VALUES (?,'support',?)`).run(support.userId, now.toISOString());
+    await database.prepare(`INSERT INTO admin_roles (user_id,role,created_at) VALUES (?,'admin',?)`).run(admin.userId, now.toISOString());
+    await database.prepare('DELETE FROM account_security_events WHERE owner_id=?').run(target.userId);
+    const ownerHash = createHash('sha256').update(target.userId).digest('hex');
+    await database.prepare(`INSERT INTO account_security_events (id,owner_id,event_type,created_at) VALUES (?,?,?,?)`)
+      .run('private-timeline-security-id', target.userId, 'sign_out', timestamp(1_000));
+    await database.prepare(`INSERT INTO account_deletion_requests
+      (id,owner_id,owner_hash,status,export_confirmed,requested_at,available_at,created_at,updated_at)
+      VALUES (?,?,?,'pending_approval',TRUE,?,?,?,?)`).run('private-timeline-deletion-id', target.userId, ownerHash,
+      timestamp(5_000), timestamp(5_000), timestamp(5_000), timestamp(5_000));
+    await database.prepare(`INSERT INTO account_deletion_audit
+      (id,request_id,owner_hash,actor_type,event_type,metadata,created_at) VALUES (?,?,?,'worker','step_completed',?,?)`)
+      .run('private-timeline-deletion-event-id', 'private-timeline-deletion-id', ownerHash,
+        JSON.stringify({ step: 'delete_owner_records', storageKey: 'secret/path' }), timestamp(5_000));
+    await database.prepare(`INSERT INTO account_data_exports (id,owner_id,status,error_code,created_at,updated_at)
+      VALUES (?,?,'failed','private-export-error',?,?)`).run('private-timeline-export-id', target.userId, timestamp(3_000), timestamp(3_000));
+    await database.prepare(`INSERT INTO imports (id,owner_id,request_id,source,status,created_at,updated_at,completed_at,error_code)
+      VALUES (?,?,'private-import-request','x','partial',?,?,?,'private-import-error')`)
+      .run('private-timeline-import-id', target.userId, timestamp(4_000), timestamp(4_000), timestamp(4_000));
+    await database.prepare(`INSERT INTO admin_access_audit (id,actor_user_id,event_type,target_hash,metadata,created_at)
+      VALUES (?,?,'admin_user_detail_viewed',?,?,?)`).run('private-timeline-admin-event-id', admin.userId, ownerHash,
+      JSON.stringify({ privateDetail: 'private-admin-metadata' }), timestamp(2_000));
+
+    const route = `${baseUrl}/api/admin/users/${encodeURIComponent(target.userId)}/timeline`;
+    assert.equal((await fetch(route)).status, 401);
+    assert.equal((await fetch(route, { headers: { Cookie: member.cookie } })).status, 403);
+    assert.equal((await fetch(route, { headers: { Cookie: support.cookie } })).status, 403);
+    const firstResponse = await fetch(`${route}?limit=2`, { headers: { Cookie: admin.cookie } });
+    assert.equal(firstResponse.status, 200);
+    assert.equal(firstResponse.headers.get('cache-control'), 'private, no-store, max-age=0');
+    const firstPage = await firstResponse.json() as { timeline: AdminTimelineEventForTest[]; nextCursor: string | null };
+    assert.deepEqual(firstPage.timeline.map(({ source, eventType }) => ({ source, eventType })), [
+      { source: 'security', eventType: 'sign_out' },
+      { source: 'admin_access', eventType: 'admin_user_detail_viewed' },
+    ]);
+    assert.ok(firstPage.nextCursor);
+    const secondResponse = await fetch(`${route}?limit=2&cursor=${encodeURIComponent(firstPage.nextCursor!)}`, { headers: { Cookie: admin.cookie } });
+    assert.equal(secondResponse.status, 200);
+    const secondPage = await secondResponse.json() as { timeline: AdminTimelineEventForTest[]; nextCursor: string | null };
+    assert.deepEqual(secondPage.timeline.map(({ source, eventType }) => ({ source, eventType })), [
+      { source: 'export', eventType: 'export_failed' },
+      { source: 'import', eventType: 'import_partial' },
+    ]);
+    assert.ok(secondPage.nextCursor);
+    const thirdResponse = await fetch(`${route}?limit=2&cursor=${encodeURIComponent(secondPage.nextCursor!)}`, { headers: { Cookie: admin.cookie } });
+    assert.equal(thirdResponse.status, 200);
+    const thirdPage = await thirdResponse.json() as { timeline: AdminTimelineEventForTest[]; nextCursor: string | null };
+    assert.deepEqual(thirdPage.timeline.map(({ source, eventType }) => ({ source, eventType })), [
+      { source: 'deletion', eventType: 'step_completed' },
+    ]);
+    assert.equal(thirdPage.nextCursor, null);
+    assert.match(firstPage.timeline[0]!.reference, /^[0-9a-f]{16}$/);
+    assert.equal((await fetch(`${route}?limit=0`, { headers: { Cookie: admin.cookie } })).status, 400);
+    assert.equal((await fetch(`${route}?cursor=not-a-cursor`, { headers: { Cookie: admin.cookie } })).status, 400);
+
+    const serialized = JSON.stringify([firstPage, secondPage, thirdPage]);
+    for (const sensitive of [target.userId, target.cookie, target.email, admin.userId, 'private-timeline-security-id',
+      'private-timeline-deletion-id', 'private-timeline-deletion-event-id', 'private-timeline-export-id',
+      'private-timeline-import-id', 'private-timeline-admin-event-id', 'private-export-error', 'private-import-error',
+      'private-admin-metadata', 'secret/path', 'storageKey', 'request_id', 'actor_user_id']) {
+      assert.equal(serialized.includes(sensitive), false);
+    }
+    const readAudits = await database.prepare(`SELECT target_hash,metadata FROM admin_access_audit WHERE event_type='admin_user_timeline_viewed'`).all() as Array<{ target_hash: string; metadata: Record<string, unknown> }>;
+    assert.equal(readAudits.length, 3);
+    assert.ok(readAudits.every(({ target_hash, metadata }) => target_hash === ownerHash &&
+      !JSON.stringify(metadata).includes(target.userId) && Object.keys(metadata).every((key) => ['limit', 'hasCursor', 'resultCount'].includes(key))));
+  });
+});
+
 interface AdminImportRowForTest {
   reference: string; source: string; status: string; fileCount: number; totalBytes: number;
   entries: { accepted: number; duplicate: number; skipped: number; failed: number };
@@ -315,3 +392,5 @@ interface AdminImportRowForTest {
 interface AdminAuditEventForTest {
   reference: string; source: string; eventType: string; actorType: string; targetReference: string | null; createdAt: string;
 }
+
+interface AdminTimelineEventForTest { reference: string; source: string; eventType: string; actorType: string; createdAt: string }

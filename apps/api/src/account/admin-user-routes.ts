@@ -18,11 +18,16 @@ const auditSources = ['security', 'deletion', 'admin_access'] as const;
 const auditEventTypes = [
   'sign_in', 'sign_out', 'deletion_requested', 'deletion_cancelled',
   'requested', 'cancelled', 'approved', 'retry_requested', 'claim_acquired', 'step_started', 'step_completed', 'step_failed', 'completed',
-  'admin_summary_viewed', 'admin_worker_status_viewed', 'admin_import_list_viewed', 'admin_audit_events_viewed', 'admin_user_list_viewed', 'admin_user_detail_viewed',
+  'admin_summary_viewed', 'admin_worker_status_viewed', 'admin_import_list_viewed', 'admin_audit_events_viewed', 'admin_user_list_viewed', 'admin_user_detail_viewed', 'admin_user_timeline_viewed',
 ] as const;
+const timelineSources = ['security', 'deletion', 'export', 'import', 'admin_access'] as const;
 const auditCursorSchema = z.object({
   version: z.literal(1), createdAt: z.iso.datetime(), id: z.string().min(1).max(128), source: z.enum(auditSources),
 }).strict();
+const timelineCursorSchema = z.object({
+  version: z.literal(1), createdAt: z.iso.datetime(), id: z.string().min(1).max(128), source: z.enum(timelineSources),
+}).strict();
+const timelineSchema = z.object({ limit: z.coerce.number().int().min(1).max(100).default(50), cursor: z.string().max(512).optional() }).strict();
 const auditEventSchema = z.object({
   source: z.enum(auditSources).optional(),
   eventType: z.enum(auditEventTypes).optional(),
@@ -52,6 +57,19 @@ function encodeAuditCursor(value: { createdAt: string; id: string; source: typeo
   return Buffer.from(JSON.stringify({ version: 1, ...value })).toString('base64url');
 }
 
+function decodeTimelineCursor(value: string | undefined) {
+  if (!value) return undefined;
+  try {
+    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as unknown;
+    const result = timelineCursorSchema.safeParse(parsed);
+    return result.success ? result.data : null;
+  } catch { return null; }
+}
+
+function encodeTimelineCursor(value: { createdAt: string; id: string; source: typeof timelineSources[number] }): string {
+  return Buffer.from(JSON.stringify({ version: 1, ...value })).toString('base64url');
+}
+
 export function createAdminUserRouter(database: DatabaseHandle) {
   const router = express.Router();
   const auth = requireUser(database) as RequestHandler;
@@ -70,7 +88,7 @@ export function createAdminUserRouter(database: DatabaseHandle) {
     return false;
   }
 
-  async function audit(actorId: string, eventType: 'admin_summary_viewed' | 'admin_worker_status_viewed' | 'admin_import_list_viewed' | 'admin_audit_events_viewed' | 'admin_user_list_viewed' | 'admin_user_detail_viewed', targetId: string | null,
+  async function audit(actorId: string, eventType: 'admin_summary_viewed' | 'admin_worker_status_viewed' | 'admin_import_list_viewed' | 'admin_audit_events_viewed' | 'admin_user_list_viewed' | 'admin_user_detail_viewed' | 'admin_user_timeline_viewed', targetId: string | null,
     metadata: Record<string, boolean | number>, now = new Date()) {
     await database.prepare(`INSERT INTO admin_access_audit (id,actor_user_id,event_type,target_hash,metadata,created_at)
       VALUES (?,?,?,?,?,?)`).run(randomUUID(), actorId, eventType, targetId ? hash(targetId) : null, JSON.stringify(metadata), now.toISOString());
@@ -288,6 +306,65 @@ export function createAdminUserRouter(database: DatabaseHandle) {
         recentSecurityActivity: activity.map((event) => ({ eventType: event.event_type, createdAt: event.created_at })),
         latestDeletion: deletion ? { status: deletion.status, requestedAt: deletion.requested_at, completedAt: deletion.completed_at } : null,
       } });
+    } catch (cause) { return next(cause); }
+  });
+
+  router.get('/admin/users/:userId/timeline', auth, readLimit, async (req, res, next) => {
+    const userId = req.params.userId;
+    if (typeof userId !== 'string' || !userIdSchema.safeParse(userId).success) return error(res, 404, 'not_found', 'This account does not exist.', req.requestId);
+    const parsed = timelineSchema.safeParse(req.query);
+    if (!parsed.success) return error(res, 400, 'invalid_timeline_filter', 'Use a page size from 1 to 100 and a valid timeline cursor.', req.requestId);
+    const cursor = decodeTimelineCursor(parsed.data.cursor);
+    if (cursor === null) return error(res, 400, 'invalid_timeline_cursor', 'The timeline page cursor is invalid.', req.requestId);
+    try {
+      if (!await requireAdmin(req.user!.id, res, req.requestId)) return;
+      const exists = await database.prepare('SELECT id FROM users WHERE id=?').get(userId) as { id: string } | undefined;
+      if (!exists) return error(res, 404, 'not_found', 'This account does not exist.', req.requestId);
+      const ownerHash = hash(userId);
+      const branches: string[] = [];
+      const parameters: unknown[] = [];
+      const addBranch = (source: typeof timelineSources[number], table: string, timestampColumn: string, eventSql: string, actorSql: string,
+        whereSql: string, whereParameters: unknown[]) => {
+        const where = [whereSql];
+        const branchParameters = [...whereParameters];
+        if (cursor) {
+          where.push(`(${timestampColumn},id,'${source}') < (?,?,?)`);
+          branchParameters.push(cursor.createdAt, cursor.id, cursor.source);
+        }
+        branches.push(`SELECT id,created_at,'${source}'::text AS source,event_type,actor_type FROM (
+          SELECT id,${timestampColumn} AS created_at,${eventSql} AS event_type,${actorSql} AS actor_type
+          FROM ${table} WHERE ${where.join(' AND ')} ORDER BY ${timestampColumn} DESC,id DESC LIMIT ?
+        ) ${source}`);
+        parameters.push(...branchParameters, parsed.data.limit + 1);
+      };
+      addBranch('security', 'account_security_events', 'created_at', 'event_type', "'owner'::text", 'owner_id=? AND created_at>=?',
+        [userId, new Date(Date.now() - ACCOUNT_ACTIVITY_RETENTION_MS).toISOString()]);
+      addBranch('deletion', 'account_deletion_audit', 'created_at', 'event_type', 'actor_type', 'owner_hash=?', [ownerHash]);
+      addBranch('export', 'account_data_exports', 'updated_at', `CASE status WHEN 'queued' THEN 'export_queued' WHEN 'processing' THEN 'export_processing' WHEN 'ready' THEN 'export_ready'
+        WHEN 'failed' THEN 'export_failed' WHEN 'cancelled' THEN 'export_cancelled' WHEN 'expired' THEN 'export_expired' ELSE 'export_status' END`, "'owner'::text", 'owner_id=?', [userId]);
+      addBranch('import', 'imports', 'updated_at', `CASE status WHEN 'uploading' THEN 'import_uploading' WHEN 'staged' THEN 'import_staged' WHEN 'parsing' THEN 'import_parsing'
+        WHEN 'queued' THEN 'import_queued' WHEN 'processing' THEN 'import_processing' WHEN 'completed' THEN 'import_completed'
+        WHEN 'partial' THEN 'import_partial' WHEN 'failed' THEN 'import_failed' WHEN 'expired' THEN 'import_expired' ELSE 'import_status' END`, "'owner'::text", 'owner_id=?', [userId]);
+      addBranch('admin_access', 'admin_access_audit', 'created_at', 'event_type', "'admin'::text", "target_hash=? AND event_type<>'admin_user_timeline_viewed'", [ownerHash]);
+      parameters.push(parsed.data.limit + 1);
+      const rows = await database.prepare(`SELECT id,created_at,source,event_type,actor_type FROM (${branches.join('\nUNION ALL\n')}) timeline
+        ORDER BY created_at DESC,id DESC,source DESC LIMIT ?`).all(...parameters) as Array<{
+          id: string; created_at: string; source: typeof timelineSources[number]; event_type: string; actor_type: string;
+        }>;
+      const hasMore = rows.length > parsed.data.limit;
+      const pageRows = rows.slice(0, parsed.data.limit);
+      const timeline = pageRows.map((row) => ({
+        reference: hash(`${row.source}:${row.id}`).slice(0, 16),
+        source: row.source,
+        eventType: row.event_type,
+        actorType: row.actor_type,
+        createdAt: row.created_at,
+      }));
+      await audit(req.user!.id, 'admin_user_timeline_viewed', userId, {
+        limit: parsed.data.limit, hasCursor: Boolean(cursor), resultCount: timeline.length,
+      });
+      const last = pageRows.at(-1);
+      return res.json({ timeline, nextCursor: hasMore && last ? encodeTimelineCursor({ createdAt: last.created_at, id: last.id, source: last.source }) : null });
     } catch (cause) { return next(cause); }
   });
 
