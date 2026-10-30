@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import JSZip from 'jszip';
 import { test } from 'node:test';
 import { createTestDatabase } from '../src/db/database.js';
+import { ACCOUNT_OWNER_TABLES } from '../src/account/data-map-service.js';
+import { ACCOUNT_EXPORT_FIELD_POLICY } from '../src/account/account-export-field-policy.js';
 import {
   createAccountDataExportService,
   PrivateExportFileUnavailableError,
@@ -70,6 +72,33 @@ function fakeFileSource(initial: PrivateExportFileReference[] = []) {
 function fileReference(ownerId: string, key: string, byteSize = Buffer.byteLength('private-file')): PrivateExportFileReference {
   return { ownerId, kind: 'asset', key, fileName: '../private.txt', contentType: 'text/plain', byteSize };
 }
+
+test('export field policy classifies every current data-map schema column', async () => {
+  const database = await createTestDatabase();
+  try {
+    const tables = [...new Set(ACCOUNT_OWNER_TABLES.map(({ table }) => table))].sort();
+    assert.deepEqual(Object.keys(ACCOUNT_EXPORT_FIELD_POLICY).sort(), tables);
+    for (const table of tables) {
+      const policy = ACCOUNT_EXPORT_FIELD_POLICY[table]!;
+      const schemaColumns = await database.prepare(`SELECT column_name FROM information_schema.columns
+        WHERE table_schema='public' AND table_name=? ORDER BY ordinal_position`).all(table) as Array<{ column_name: string }>;
+      const actual = schemaColumns.map(({ column_name }) => column_name).sort();
+      assert.ok(actual.length > 0, `${table} should exist in the migrated schema`);
+      if (policy.excludedTableReason) {
+        assert.equal(policy.included.length, 0, `${table} is excluded as an operational table`);
+        assert.ok(policy.excludedTableReason.trim().length > 0);
+        continue;
+      }
+      const included = [...policy.included];
+      const excluded = Object.keys(policy.excluded);
+      assert.equal(new Set([...included, ...excluded]).size, included.length + excluded.length, `${table} has no duplicate field classifications`);
+      assert.deepEqual([...included, ...excluded].sort(), actual, `${table} classifies every current column exactly once`);
+      assert.ok(Object.values(policy.excluded).every((reason) => reason.trim().length > 0), `${table} explains every excluded field`);
+    }
+  } finally {
+    await database.close();
+  }
+});
 
 test('personal export packages only the requested owner and excludes password and session credentials', async () => {
   const database = await createTestDatabase();

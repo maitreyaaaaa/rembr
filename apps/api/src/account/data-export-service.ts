@@ -4,6 +4,7 @@ import { lockActiveOwner, OwnerLifecycleError, withOwnerWorkLease } from './owne
 import type { DatabaseHandle } from '../db/database.js';
 import { ACCOUNT_OWNER_TABLES, createAccountDataMapService } from './data-map-service.js';
 import { recordAccountActivityEvent } from './activity-events.js';
+import { ACCOUNT_EXPORT_FIELD_POLICY } from './account-export-field-policy.js';
 
 export const ACCOUNT_DATA_EXPORT_LIMITS = {
   maxAttempts: 3,
@@ -92,30 +93,8 @@ type ExportRow = {
 
 type OwnerColumn = 'id' | 'owner_id' | 'user_id';
 
-const excludedTables = new Set<string>(['visual_item_embeddings']);
-const excludedColumns: Record<string, ReadonlySet<string>> = {
-  imports: new Set(['lease_token', 'lease_expires_at']),
-  processing_jobs: new Set(['lease_token', 'lease_expires_at', 'heartbeat_at']),
-  ai_analysis_jobs: new Set(['lease_token', 'lease_expires_at']),
-  visual_embedding_jobs: new Set(['lease_token', 'lease_expires_at']),
-  asset_objects: new Set(['storage_key']),
-  import_upload_files: new Set(['storage_key']),
-  import_upload_chunks: new Set(['storage_key']),
-  media_artifacts: new Set(['storage_key']),
-  account_data_exports: new Set(['lease_token', 'lease_expires_at', 'artifact_key']),
-  account_deletion_requests: new Set(['owner_hash', 'approved_by', 'lease_token', 'lease_expires_at']),
-  account_deletion_steps: new Set(['error_code', 'progress_cursor']),
-  admin_roles: new Set(['user_id', 'granted_by']),
-};
-
 function ownerColumnFor(table: string): OwnerColumn {
   return ACCOUNT_OWNER_TABLES.find((record) => record.table === table)?.ownerColumn ?? 'owner_id';
-}
-
-function sanitizeRow(table: string, row: Record<string, unknown>): Record<string, unknown> {
-  const excluded = excludedColumns[table];
-  if (!excluded) return row;
-  return Object.fromEntries(Object.entries(row).filter(([key]) => !excluded.has(key)));
 }
 
 function safeFileName(value: string): string {
@@ -168,7 +147,7 @@ export function createAccountDataExportService(
       await database.prepare('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY').run();
       const dataMap = await dataMapService.getForOwner(ownerId);
       const rowCounts = new Map(dataMap.categories.flatMap((category) => category.records.map((record) => [record.table, record.rowCount] as const)));
-      const countedRows = [...rowCounts.entries()].filter(([table]) => !excludedTables.has(table)).reduce((total, [, count]) => total + count, 0);
+      const countedRows = [...rowCounts.entries()].filter(([table]) => !ACCOUNT_EXPORT_FIELD_POLICY[table as keyof typeof ACCOUNT_EXPORT_FIELD_POLICY]?.excludedTableReason).reduce((total, [, count]) => total + count, 0);
       const exportRequests = await database.prepare(`SELECT id,status,include_files,attempt_count,error_code,created_at,updated_at,expires_at
         FROM account_data_exports WHERE owner_id=? ORDER BY created_at, id LIMIT ?`).all(ownerId, limits.maxRows + 1) as Array<Record<string, unknown>>;
       const totalRows = countedRows;
@@ -183,27 +162,30 @@ export function createAccountDataExportService(
         const tableCounts: Record<string, number> = {};
         for (const record of category.records) {
           const table = record.table;
-          if (excludedTables.has(table)) continue;
+          const fieldPolicy = ACCOUNT_EXPORT_FIELD_POLICY[table as keyof typeof ACCOUNT_EXPORT_FIELD_POLICY];
+          if (!fieldPolicy) throw new AccountDataExportError('export_field_policy_missing', `The export field policy is missing for ${table}.`);
+          if (fieldPolicy.excludedTableReason) continue;
+          if (fieldPolicy.included.length === 0) throw new AccountDataExportError('export_field_policy_empty', `The export field policy has no included fields for ${table}.`);
+          const projection = fieldPolicy.included.join(',');
           const column = ownerColumnFor(table);
           const expected = rowCounts.get(table) ?? 0;
           const records: Record<string, unknown>[] = [];
           if (table === 'users') {
-            const user = await database.prepare('SELECT id,email,account_status,created_at FROM users WHERE id=?').get(ownerId) as Record<string, unknown> | undefined;
+            const user = await database.prepare(`SELECT ${projection} FROM users WHERE id=?`).get(ownerId) as Record<string, unknown> | undefined;
             if (user) records.push(user);
           } else if (table === 'sessions') {
-            const sessions = await database.prepare('SELECT created_at,expires_at FROM sessions WHERE user_id=? ORDER BY created_at,expires_at')
+            const sessions = await database.prepare(`SELECT ${projection} FROM sessions WHERE user_id=? ORDER BY created_at,expires_at`)
               .all(ownerId) as Array<Record<string, unknown>>;
             records.push(...sessions);
           } else {
             for (let offset = 0; offset < expected; offset += limits.readBatchSize) {
               const limit = Math.min(limits.readBatchSize, expected - offset);
-              const batch = await database.prepare(`SELECT * FROM ${table} WHERE ${column}=? ORDER BY ctid LIMIT ? OFFSET ?`)
+              const batch = await database.prepare(`SELECT ${projection} FROM ${table} WHERE ${column}=? ORDER BY ctid LIMIT ? OFFSET ?`)
                 .all(ownerId, limit, offset) as Array<Record<string, unknown>>;
               for (const raw of batch) {
-                const sanitized = sanitizeRow(table, raw);
-                totalJsonBytes += Buffer.byteLength(JSON.stringify(sanitized));
+                totalJsonBytes += Buffer.byteLength(JSON.stringify(raw));
                 if (totalJsonBytes > limits.maxJsonBytes) throw new AccountDataExportError('json_size_limit_exceeded', 'The account data is too large for the configured JSON export limit.');
-                records.push(sanitized);
+                records.push(raw);
               }
             }
           }
