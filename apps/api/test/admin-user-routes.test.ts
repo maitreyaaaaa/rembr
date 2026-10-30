@@ -191,3 +191,53 @@ test('worker status is admin-only, aggregate-only, no-store, and durably audited
     assert.deepEqual(audit, { actor_user_id: admin.userId, event_type: 'admin_worker_status_viewed', target_hash: null, metadata: {} });
   });
 });
+
+test('admin import list is bounded, role-restricted, redacted, no-store, and audited', async () => {
+  await withApi(async (baseUrl, database) => {
+    const owner = await register(baseUrl, 'imports-owner@example.test');
+    const member = await register(baseUrl, 'imports-member@example.test');
+    const support = await register(baseUrl, 'imports-support@example.test');
+    const admin = await register(baseUrl, 'imports-admin@example.test');
+    const now = new Date().toISOString();
+    await database.prepare(`INSERT INTO admin_roles (user_id,role,created_at) VALUES (?,'support',?)`).run(support.userId, now);
+    await database.prepare(`INSERT INTO admin_roles (user_id,role,created_at) VALUES (?,'admin',?)`).run(admin.userId, now);
+    await database.prepare(`INSERT INTO imports (id,owner_id,request_id,source,status,file_count,total_bytes,parsed_count,new_count,duplicate_count,skipped_count,failed_count,created_at,updated_at,completed_at)
+      VALUES (?,?,?,'x','partial',2,9000,4,2,1,1,0,?,?,?)`).run('private-import-key', owner.userId, 'private-request-id', now, now, now);
+    await database.prepare(`INSERT INTO import_entries (id,owner_id,import_id,source_platform,status,created_at)
+      VALUES (?,?,?,'x','duplicate',?)`).run('private-entry-id', owner.userId, 'private-import-key', now);
+    await database.prepare(`INSERT INTO saved_items (id,owner_id,original_url,canonical_url,title,status,created_at,updated_at)
+      VALUES (?,?,?,?,?,'queued',?,?)`).run('private-import-item', owner.userId, 'https://example.test/private-url', 'https://example.test/private-url', 'Private import title', now, now);
+    await database.prepare(`INSERT INTO processing_jobs (id,owner_id,item_id,import_id,correlation_id,status,available_at,created_at,updated_at)
+      VALUES (?,?,?,?,?,'retry_wait',?,?,?)`).run('private-import-job', owner.userId, 'private-import-item', 'private-import-key', 'private-correlation', now, now, now);
+
+    const route = `${baseUrl}/api/admin/imports`;
+    assert.equal((await fetch(route)).status, 401);
+    assert.equal((await fetch(route, { headers: { Cookie: member.cookie } })).status, 403);
+    assert.equal((await fetch(route, { headers: { Cookie: support.cookie } })).status, 403);
+    const response = await fetch(route, { headers: { Cookie: admin.cookie } });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get('cache-control'), 'private, no-store, max-age=0');
+    const body = await response.json() as { imports: Array<AdminImportRowForTest> };
+    assert.equal(body.imports.length, 1);
+    assert.match(body.imports[0]!.reference, /^[0-9a-f]{16}$/);
+    assert.equal(body.imports[0]!.source, 'x');
+    assert.equal(body.imports[0]!.status, 'partial');
+    assert.equal(body.imports[0]!.fileCount, 2);
+    assert.equal(body.imports[0]!.totalBytes, 9000);
+    assert.deepEqual(body.imports[0]!.entries, { accepted: 0, duplicate: 1, skipped: 0, failed: 0 });
+    assert.deepEqual(body.imports[0]!.jobs, { waiting: 1, processing: 0, completed: 0, failed: 0 });
+    const serialized = JSON.stringify(body);
+    for (const sensitive of ['private-import-key', 'private-request-id', 'private-entry-id', 'private-import-job', 'private-url', 'Private import title', owner.userId, owner.cookie, 'fileNames', 'error_code']) {
+      assert.equal(serialized.includes(sensitive), false);
+    }
+    const audit = await database.prepare(`SELECT actor_user_id,event_type,target_hash,metadata FROM admin_access_audit
+      WHERE event_type='admin_import_list_viewed'`).get() as { actor_user_id: string; event_type: string; target_hash: string | null; metadata: unknown };
+    assert.deepEqual(audit, { actor_user_id: admin.userId, event_type: 'admin_import_list_viewed', target_hash: null, metadata: { limit: 50, resultCount: 1 } });
+  });
+});
+
+interface AdminImportRowForTest {
+  reference: string; source: string; status: string; fileCount: number; totalBytes: number;
+  entries: { accepted: number; duplicate: number; skipped: number; failed: number };
+  jobs: { waiting: number; processing: number; completed: number; failed: number };
+}

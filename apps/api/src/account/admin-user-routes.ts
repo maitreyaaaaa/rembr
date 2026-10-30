@@ -41,7 +41,7 @@ export function createAdminUserRouter(database: DatabaseHandle) {
     return false;
   }
 
-  async function audit(actorId: string, eventType: 'admin_summary_viewed' | 'admin_worker_status_viewed' | 'admin_user_list_viewed' | 'admin_user_detail_viewed', targetId: string | null,
+  async function audit(actorId: string, eventType: 'admin_summary_viewed' | 'admin_worker_status_viewed' | 'admin_import_list_viewed' | 'admin_user_list_viewed' | 'admin_user_detail_viewed', targetId: string | null,
     metadata: Record<string, boolean | number>, now = new Date()) {
     await database.prepare(`INSERT INTO admin_access_audit (id,actor_user_id,event_type,target_hash,metadata,created_at)
       VALUES (?,?,?,?,?,?)`).run(randomUUID(), actorId, eventType, targetId ? hash(targetId) : null, JSON.stringify(metadata), now.toISOString());
@@ -108,6 +108,48 @@ export function createAdminUserRouter(database: DatabaseHandle) {
         aiAnalysisJobs: queue(aiJobs),
         exports: queue(exports),
       } });
+    } catch (cause) { return next(cause); }
+  });
+
+  router.get('/admin/imports', auth, readLimit, async (req, res, next) => {
+    try {
+      if (!await requireAdmin(req.user!.id, res, req.requestId)) return;
+      const rows = await database.prepare(`WITH recent_imports AS (
+          SELECT id,owner_id,source,status,created_at,completed_at,file_count,total_bytes,parsed_count,new_count,duplicate_count,skipped_count,failed_count
+          FROM imports ORDER BY created_at DESC,id DESC LIMIT 50
+        )
+        SELECT i.id,i.source,i.status,i.created_at,i.completed_at,i.file_count,i.total_bytes,
+          i.parsed_count,i.new_count,i.duplicate_count,i.skipped_count,i.failed_count,
+          entries.accepted AS accepted_entries,entries.duplicate AS duplicate_entries,
+          entries.skipped AS skipped_entries,entries.failed AS failed_entries,
+          jobs.waiting AS waiting_jobs,jobs.processing AS processing_jobs,
+          jobs.completed AS completed_jobs,jobs.failed AS failed_jobs
+        FROM recent_imports i
+        LEFT JOIN LATERAL (SELECT
+          count(*) FILTER (WHERE status='queued') AS accepted,
+          count(*) FILTER (WHERE status='duplicate') AS duplicate,
+          count(*) FILTER (WHERE status='skipped') AS skipped,
+          count(*) FILTER (WHERE status='failed') AS failed
+          FROM import_entries WHERE owner_id=i.owner_id AND import_id=i.id) entries ON TRUE
+        LEFT JOIN LATERAL (SELECT
+          count(*) FILTER (WHERE status IN ('queued','retry_wait','cancel_requested')) AS waiting,
+          count(*) FILTER (WHERE status='processing') AS processing,
+          count(*) FILTER (WHERE status IN ('completed','partial')) AS completed,
+          count(*) FILTER (WHERE status='failed') AS failed
+          FROM processing_jobs WHERE owner_id=i.owner_id AND import_id=i.id) jobs ON TRUE
+        ORDER BY i.created_at DESC,i.id DESC`).all() as Array<Record<string, unknown> & { id: string; source: string; status: string; created_at: string; completed_at: string | null }>;
+      const count = (value: unknown) => Number(value ?? 0);
+      const imports = rows.map((row) => ({
+        reference: hash(row.id).slice(0, 16), source: row.source, status: row.status,
+        createdAt: row.created_at, completedAt: row.completed_at,
+        fileCount: count(row.file_count), totalBytes: count(row.total_bytes),
+        parsedCount: count(row.parsed_count), newCount: count(row.new_count), duplicateCount: count(row.duplicate_count),
+        skippedCount: count(row.skipped_count), failedCount: count(row.failed_count),
+        entries: { accepted: count(row.accepted_entries), duplicate: count(row.duplicate_entries), skipped: count(row.skipped_entries), failed: count(row.failed_entries) },
+        jobs: { waiting: count(row.waiting_jobs), processing: count(row.processing_jobs), completed: count(row.completed_jobs), failed: count(row.failed_jobs) },
+      }));
+      await audit(req.user!.id, 'admin_import_list_viewed', null, { limit: 50, resultCount: imports.length });
+      return res.json({ imports });
     } catch (cause) { return next(cause); }
   });
 

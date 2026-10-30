@@ -45,6 +45,22 @@ interface AdminWorkerStatus {
   aiAnalysisJobs: AdminQueueStatus;
   exports: AdminQueueStatus;
 }
+interface AdminImportRow {
+  reference: string;
+  source: string;
+  status: string;
+  createdAt: string;
+  completedAt: string | null;
+  fileCount: number;
+  totalBytes: number;
+  parsedCount: number;
+  newCount: number;
+  duplicateCount: number;
+  skippedCount: number;
+  failedCount: number;
+  entries: { accepted: number; duplicate: number; skipped: number; failed: number };
+  jobs: { waiting: number; processing: number; completed: number; failed: number };
+}
 interface RequestError extends Error { status?: number }
 type Request = <T>(path: string, init?: RequestInit) => Promise<T>;
 
@@ -82,6 +98,9 @@ export function AdminSupportPage({ request }: { request: Request }) {
   const [workerStatus, setWorkerStatus] = useState<AdminWorkerStatus | null>(null);
   const [workerStatusLoading, setWorkerStatusLoading] = useState(false);
   const [workerStatusError, setWorkerStatusError] = useState('');
+  const [imports, setImports] = useState<AdminImportRow[]>([]);
+  const [importsLoading, setImportsLoading] = useState(false);
+  const [importsError, setImportsError] = useState('');
   const userSearchSequence = useRef(0);
   const userDetailSequence = useRef(0);
 
@@ -96,6 +115,7 @@ export function AdminSupportPage({ request }: { request: Request }) {
         setQueue([]);
         setOverview(null);
         setWorkerStatus(null);
+        setImports([]);
         return;
       }
       const body = await request<{ deletions: QueueEntry[] }>('/api/admin/account-deletions?limit=50');
@@ -105,9 +125,12 @@ export function AdminSupportPage({ request }: { request: Request }) {
         setOverviewError('');
         setWorkerStatusLoading(true);
         setWorkerStatusError('');
-        const [summaryResult, statusResult] = await Promise.allSettled([
+        setImportsLoading(true);
+        setImportsError('');
+        const [summaryResult, statusResult, importsResult] = await Promise.allSettled([
           request<{ summary: AdminOverview }>('/api/admin/summary'),
           request<{ workerStatus: AdminWorkerStatus }>('/api/admin/worker/status'),
+          request<{ imports: AdminImportRow[] }>('/api/admin/imports'),
         ]);
         if (summaryResult.status === 'fulfilled') setOverview(summaryResult.value.summary);
         else {
@@ -121,9 +144,16 @@ export function AdminSupportPage({ request }: { request: Request }) {
           setWorkerStatusError(failure.message || 'Could not load worker status.');
           setWorkerStatus(null);
         }
+        if (importsResult.status === 'fulfilled') setImports(importsResult.value.imports);
+        else {
+          const failure = importsResult.reason as RequestError;
+          setImportsError(failure.message || 'Could not load recent imports.');
+          setImports([]);
+        }
         setOverviewLoading(false);
         setWorkerStatusLoading(false);
-      } else { setOverview(null); setWorkerStatus(null); }
+        setImportsLoading(false);
+      } else { setOverview(null); setWorkerStatus(null); setImports([]); }
     } catch (cause) {
       const failure = cause as RequestError;
       setError(failure.message || 'Could not load the operator queue. Try again.');
@@ -262,6 +292,18 @@ export function AdminSupportPage({ request }: { request: Request }) {
               </dl>
               <p className="admin-audit-note">Snapshot updated {formatDate(workerStatus.sampledAt)}.</p>
             </> : <p className="admin-empty">Worker queue counts are unavailable.</p>}
+      </section>}
+      {role === 'admin' && <section className="phase2-panel admin-overview-panel" aria-labelledby="admin-imports-title">
+        <div className="admin-queue-heading"><div><h2 id="admin-imports-title">Recent imports</h2><p className="phase2-helper">Operational import outcomes only. Account identifiers, filenames, saved URLs, item titles, and error content are excluded.</p></div></div>
+        {importsLoading ? <p className="phase2-state" role="status">Loading recent imports…</p>
+          : importsError ? <p className="notice error" role="alert">{importsError}</p>
+            : imports.length ? <ul className="admin-user-results">{imports.map((entry) => <li key={entry.reference}>
+              <div><strong>{entry.source} · {entry.status.replaceAll('_', ' ')}</strong>
+                <span>Import ref {entry.reference} · Created {formatDate(entry.createdAt)}{entry.completedAt ? ` · Completed ${formatDate(entry.completedAt)}` : ''}</span>
+                <span>{entry.fileCount} files · {Math.round(entry.totalBytes / (1024 * 1024))} MiB · {entry.parsedCount} parsed · {entry.newCount} new · {entry.duplicateCount} duplicates · {entry.skippedCount} skipped · {entry.failedCount} failed</span>
+                <span>Jobs: {entry.jobs.waiting} waiting · {entry.jobs.processing} processing · {entry.jobs.completed} completed · {entry.jobs.failed} failed</span>
+              </div>
+            </li>)}</ul> : <p className="admin-empty" role="status">No imports have been recorded.</p>}
       </section>}
       <section className="phase2-panel admin-queue-panel" aria-labelledby="admin-queue-title">
         <div className="admin-queue-heading"><div><h2 id="admin-queue-title">Account deletion queue</h2><p className="phase2-helper">The queue hides email addresses and account IDs. Support can review requests; only admins can approve or retry them.</p></div><button className="quiet-button" type="button" disabled={refreshing} onClick={() => void load(true)}>{refreshing ? 'Refreshing…' : 'Refresh'}</button></div>
