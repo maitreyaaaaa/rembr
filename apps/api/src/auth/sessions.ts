@@ -6,6 +6,17 @@ import { lockActiveOwner } from '../account/owner-lifecycle.js';
 
 const COOKIE_NAME = 'rembr_session';
 export const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+const MAX_EXPIRED_SESSION_CLEANUP_BATCH = 500;
+
+export async function cleanupExpiredSessions(database: DatabaseHandle, now = new Date(), limit = MAX_EXPIRED_SESSION_CLEANUP_BATCH): Promise<number> {
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > MAX_EXPIRED_SESSION_CLEANUP_BATCH) {
+    throw new TypeError(`Expired-session cleanup limit must be between 1 and ${MAX_EXPIRED_SESSION_CLEANUP_BATCH}.`);
+  }
+  const result = await database.prepare(`WITH expired AS MATERIALIZED (
+    SELECT id FROM sessions WHERE expires_at<=? ORDER BY expires_at,id LIMIT ?
+  ) DELETE FROM sessions WHERE id IN (SELECT id FROM expired)`).run(now.toISOString(), limit);
+  return result.changes;
+}
 
 export interface AuthenticatedUser {
   id: string;

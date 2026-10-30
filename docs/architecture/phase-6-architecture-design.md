@@ -40,7 +40,7 @@ Do not carry forward source deletion behavior without the improvements recorded 
 4. Security activity and privacy controls: log and expose only safe event metadata; keep settings tied to actual retention/provider behavior. Local owner activity and deletion controls are implemented; retention policy and browser review remain open.
 5. Admin/support: establish an explicit operator role, safe projections, denial tests, action confirmation, throttling, and immutable audit history. Local deletion queue and audit screen/API are implemented; a one-time `npm run provision:admin --workspace @rembr/api -- --email <existing-account-email> --role admin --confirm yes` bootstrap command is available. Broader support scope and environment-specific bootstrap verification remain open.
 6. Billing/credits: implement only behind an off-by-default configuration boundary; verify provider signatures, replay safety, purchase ownership, and atomic ledger idempotency before enabling. Disabled pending explicit product and configuration approval.
-7. Retention: reconcile every new and existing data category with export/deletion and expiry rules; add cleanup recovery where needed. Seven-day export expiry and 90-day security activity pruning are implemented; deletion audit, backups, provider copies, and the complete lifecycle policy remain open.
+7. Retention: reconcile every new and existing data category with export/deletion and expiry rules; add cleanup recovery where needed. Worker sweeps now remove expired 12-hour sessions, 90-day search/security events, and seven-day export artifacts in bounded batches; deletion audit, backups, provider copies, export-history metadata, and the complete lifecycle policy remain open.
 
 ## Exit criteria
 

@@ -4,14 +4,14 @@ import { rateLimit } from 'express-rate-limit';
 import { z } from 'zod';
 import type { DatabaseHandle } from '../db/database.js';
 import { requireAccountLifecycleUser } from '../auth/sessions.js';
+import { ACCOUNT_ACTIVITY_RETENTION_MS } from './retention-service.js';
 
-const SECURITY_ACTIVITY_RETENTION_MS = 90 * 24 * 60 * 60_000;
 export type AccountSecurityEventType = 'sign_in' | 'sign_out' | 'deletion_requested' | 'deletion_cancelled';
 
 export async function recordAccountSecurityEvent(database: DatabaseHandle, ownerId: string,
   eventType: AccountSecurityEventType, now = new Date()): Promise<void> {
   const createdAt = now.toISOString();
-  const cutoff = new Date(now.getTime() - SECURITY_ACTIVITY_RETENTION_MS).toISOString();
+  const cutoff = new Date(now.getTime() - ACCOUNT_ACTIVITY_RETENTION_MS).toISOString();
   await database.transaction(async () => {
     await database.prepare(`INSERT INTO account_security_events (id,owner_id,event_type,created_at) VALUES (?,?,?,?)`)
       .run(randomUUID(), ownerId, eventType, createdAt);
@@ -34,7 +34,7 @@ export function createAccountSecurityActivityRouter(database: DatabaseHandle) {
       return;
     }
     try {
-      const cutoff = new Date(Date.now() - SECURITY_ACTIVITY_RETENTION_MS).toISOString();
+      const cutoff = new Date(Date.now() - ACCOUNT_ACTIVITY_RETENTION_MS).toISOString();
       const rows = await database.prepare(`SELECT id,event_type,created_at FROM account_security_events
         WHERE owner_id=? AND created_at>=? ORDER BY created_at DESC,id DESC LIMIT ?`)
         .all(req.user!.id, cutoff, parsedLimit.data) as Array<{ id: string; event_type: AccountSecurityEventType; created_at: string }>;

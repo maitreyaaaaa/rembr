@@ -12,6 +12,8 @@ import { createStorageAdapters } from '../storage/adapters.js';
 import { createAccountDataExportService } from '../account/data-export-service.js';
 import { createOwnerScopedPrivateFileSource } from '../account/private-file-source.js';
 import { createAccountDeletionService } from '../account/deletion-service.js';
+import { cleanupExpiredSessions } from '../auth/sessions.js';
+import { cleanupExpiredAccountActivity } from '../account/retention-service.js';
 
 const database = await createDatabase();
 const { assets: assetStorage, imports: importStorage, media: mediaStorage, exports: exportStorage } = createStorageAdapters();
@@ -44,9 +46,13 @@ async function run() {
   await imports.retryCleanup();
   await cleanupInactiveMedia(database, mediaStorage);
   await dataExports.cleanupExpiredArtifacts(100).catch(() => 0);
+await cleanupExpiredSessions(database).catch(() => 0);
+await cleanupExpiredAccountActivity(database).catch(() => undefined);
   await cleanupStalePrivateMediaTempDirectories();
   await writeAiWorkerStatus(Boolean(config.META_API_KEY));
   let lastTempSweepAt = Date.now();
+let lastExpiredSessionSweepAt = Date.now();
+let lastExpiredActivitySweepAt = Date.now();
   const statusHeartbeat = setInterval(() => {
     void (async () => {
       await writeAiWorkerStatus(Boolean(config.META_API_KEY)).catch(() => undefined);
@@ -54,6 +60,14 @@ async function run() {
         await cleanupStalePrivateMediaTempDirectories().catch(() => 0);
         await dataExports.cleanupExpiredArtifacts(100).catch(() => 0);
         lastTempSweepAt = Date.now();
+      }
+      if (Date.now() - lastExpiredSessionSweepAt >= 15 * 60_000) {
+        await cleanupExpiredSessions(database).catch(() => 0);
+        lastExpiredSessionSweepAt = Date.now();
+      }
+      if (Date.now() - lastExpiredActivitySweepAt >= 15 * 60_000) {
+        await cleanupExpiredAccountActivity(database).catch(() => undefined);
+        lastExpiredActivitySweepAt = Date.now();
       }
     })();
   }, 30_000);

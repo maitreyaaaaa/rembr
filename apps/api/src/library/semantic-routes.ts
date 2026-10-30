@@ -4,6 +4,7 @@ import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import type { DatabaseHandle } from '../db/database.js';
 import { lockActiveOwner, OwnerLifecycleError, withOwnerWorkLease } from '../account/owner-lifecycle.js';
+import { ACCOUNT_ACTIVITY_RETENTION_MS } from '../account/retention-service.js';
 import { requireUser } from '../auth/sessions.js';
 import { createProfileGate } from '../account/routes.js';
 import type { AssetStorage } from '../assets/storage.js';
@@ -246,7 +247,7 @@ async function recordSearchEvent(database: DatabaseHandle, ownerId: string, quer
   try {
     await database.transaction(async () => {
         if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
-      const retentionCutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+      const retentionCutoff = new Date(Date.now() - ACCOUNT_ACTIVITY_RETENTION_MS).toISOString();
       await database.prepare('DELETE FROM search_events WHERE owner_id=? AND created_at<?').run(ownerId, retentionCutoff);
       await database.prepare(`INSERT INTO search_events (id,owner_id,query_hash,query_length,filters_json,result_count,created_at)
         VALUES (?,?,?,?,?,?,?)`).run(id, ownerId, createHash('sha256').update(query.trim().toLowerCase()).digest('hex'),

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import ipaddr from 'ipaddr.js';
 import type { DatabaseHandle } from '../db/database.js';
 import { lockActiveOwner } from '../account/owner-lifecycle.js';
+import { ACCOUNT_ACTIVITY_RETENTION_MS } from '../account/retention-service.js';
 import { createAssetService } from '../assets/service.js';
 import { detectImageMime, imageExtensionMatches, type AssetStorage } from '../assets/storage.js';
 import type { MediaStorage } from '../media/storage.js';
@@ -69,7 +70,7 @@ export function createLibraryService(database: DatabaseHandle, storage: AssetSto
         try {
           await database.transaction(async () => {
             if (!await lockActiveOwner(database, ownerId)) throw new Error('account_inactive');
-            const retentionCutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+            const retentionCutoff = new Date(Date.now() - ACCOUNT_ACTIVITY_RETENTION_MS).toISOString();
             await database.prepare('DELETE FROM search_events WHERE owner_id=? AND created_at<?').run(ownerId, retentionCutoff);
             await database.prepare(`INSERT INTO search_events (id,owner_id,query_hash,query_length,filters_json,result_count,created_at)
               VALUES (?,?,?,?,?,?,?)`).run(id, ownerId, createHash('sha256').update(query.search.trim().toLowerCase()).digest('hex'),
