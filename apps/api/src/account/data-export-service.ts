@@ -98,7 +98,7 @@ const excludedColumns: Record<string, ReadonlySet<string>> = {
   media_artifacts: new Set(['storage_key']),
   account_data_exports: new Set(['lease_token', 'lease_expires_at', 'artifact_key']),
   account_deletion_requests: new Set(['owner_hash', 'approved_by', 'lease_token', 'lease_expires_at']),
-  account_deletion_steps: new Set(['error_code']),
+  account_deletion_steps: new Set(['error_code', 'progress_cursor']),
   admin_roles: new Set(['user_id', 'granted_by']),
 };
 

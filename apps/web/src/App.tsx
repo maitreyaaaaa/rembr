@@ -31,7 +31,7 @@ type AiSearchPreference = AiPreference;
 type VisualSearchPreference = AiPreference;
 interface SemanticSearchPreference extends AiPreference { indexedItems: number; eligibleItems: number }
 interface AccountDataMapCategory { id: string; label: string; description: string; rowCount: number }
-interface AccountDataMap { generatedAt: string; categories: AccountDataMapCategory[]; privateFileBytes: { counted: false; note: string }; externalProviderCopies: { counted: false; note: string; providers: string[] } }
+interface AccountDataMap { generatedAt: string; categories: AccountDataMapCategory[]; privateFileBytes: { counted: false; note: string }; externalProviderCopies: { counted: false; note: string; providers: string[] }; excludedOperationalRecords: Array<{ table: string; reason: string }> }
 interface VisualSearchResult { query: string; visualDescription: string; results: SavedItem[]; searchEventId: string | null }
 interface AiAnalysisView { status: string; pauseReason: string | null; errorCode: string | null; updatedAt: string | null; result: null | { status: string; model: string; summary: string; visualDescription: string; ocrText: string; transcript: string; keywords: string[]; tags: string[]; brands: string[]; tools: string[]; people: string[]; repositories: string[]; imageCount: number; imageBytes: number; videoCount: number; videoBytes: number; createdAt: string } }
 interface KnowledgeGraphItem { id: string; title: string; status: string; createdAt: string }
@@ -919,6 +919,7 @@ function AccountDataMapPanel() {
       <dl className="phase2-definition-list">{dataMap.categories.map((category) => <div key={category.id}><dt>{category.label}</dt><dd>{category.rowCount.toLocaleString()}</dd><dd className="phase2-helper">{category.description}</dd></div>)}</dl>
       <p className="field-note">Private files: {dataMap.privateFileBytes.note}</p>
       <p className="field-note">External processing boundaries: {dataMap.externalProviderCopies.providers.join(', ')} may receive selected data only when you enable and use the relevant feature. {dataMap.externalProviderCopies.note}</p>
+      <div className="field-note"><strong>Operational records not counted in this overview:</strong><ul>{dataMap.excludedOperationalRecords.map(({ table, reason }) => <li key={table}><code>{table}</code>: {reason}</li>)}</ul></div>
       <p className="field-note">Updated {new Date(dataMap.generatedAt).toLocaleString()}.</p>
     </>}
   </section><AccountDataExportPanel /></>;

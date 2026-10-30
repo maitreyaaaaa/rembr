@@ -9,6 +9,9 @@
 
 ### Account-freeze groundwork
 
+- 2026-10-30 follow-up: the export sanitizer now omits `account_deletion_steps.progress_cursor`, which can contain private storage-key traversal state. A regression test plants a sentinel cursor and confirms it is absent from the personal export.
+- The account data map and Settings panel explicitly disclose that deletion step checkpoints, deletion audit events, owner work leases, and the media cleanup queue are operational records excluded from counted categories. Deletion-audit retention is still undecided.
+
 - Shared active-owner locks fence account, library, import, AI, knowledge, and export writes against a concurrent account freeze. Provider work uses expiring owner leases with heartbeats; capture media and export artifacts persist planned storage keys before writing so deletion and recovery can find orphaned objects.
 - Account data map, personal-data export, request/cancel/approve/retry deletion, security activity, and a redacted admin deletion queue/audit screen are implemented locally on this branch.
 - This is not a completed Phase 6 gate. Hosted Supabase migration/storage behavior, authenticated browser and accessibility review, full data-field coverage, environment-specific verification of the first-admin bootstrap, later role management, complete retention policy, and approved billing remain open.

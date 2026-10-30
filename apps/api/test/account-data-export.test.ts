@@ -89,6 +89,14 @@ test('personal export packages only the requested owner and excludes password an
       .run('owner-a', 'admin', 'admin-granter', start.toISOString());
     await database.prepare(`INSERT INTO sessions (id,user_id,token_hash,expires_at,created_at) VALUES (?,?,?,?,?)`)
       .run('session-a', 'owner-a', 'a'.repeat(64), '2027-01-01T00:00:00.000Z', start.toISOString());
+    await database.prepare(`INSERT INTO account_deletion_requests
+      (id,owner_id,owner_hash,status,export_confirmed,requested_at,available_at,created_at,updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?)`).run('deletion-a', 'owner-a', 'c'.repeat(64), 'pending_approval', true,
+      start.toISOString(), start.toISOString(), start.toISOString(), start.toISOString());
+    await database.prepare(`INSERT INTO account_deletion_steps
+      (id,request_id,step_key,status,attempt_count,updated_at,progress_cursor)
+      VALUES (?,?,?,?,?,?,?)`).run('deletion-step-a', 'deletion-a', 'remove_storage', 'completed', 1,
+      start.toISOString(), JSON.stringify({ assets: 'secret-storage-key-marker' }));
 
     const service = createAccountDataExportService(database, storage, files.source);
     const ownerExport = await service.request('owner-a', true, start);
@@ -110,6 +118,7 @@ test('personal export packages only the requested owner and excludes password an
     const archive = await JSZip.loadAsync(download.bytes);
     const library = await archive.file('data/saved_library.json')!.async('string');
     const account = await archive.file('data/account.json')!.async('string');
+    const privacyRequests = await archive.file('data/privacy_requests.json')!.async('string');
     const manifest = await archive.file('manifest.json')!.async('string');
     assert.match(library, /A only/);
     assert.doesNotMatch(library, /B private/);
@@ -120,6 +129,8 @@ test('personal export packages only the requested owner and excludes password an
     assert.match(account, /2027-01-01T00:00:00.000Z/);
     assert.match(account, /"role": "admin"/);
     assert.doesNotMatch(account, /admin-granter|granted_by|user_id/);
+    assert.match(privacyRequests, /pending_approval/);
+    assert.doesNotMatch(privacyRequests, /secret-storage-key-marker|progress_cursor/);
     assert.match(manifest, /Session credentials and token hashes are excluded/);
     assert.match(manifest, /outside Rembr storage/);
     assert.ok(archive.file('files/asset/0001-private.txt'));

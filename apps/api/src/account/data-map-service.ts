@@ -197,6 +197,9 @@ export function createAccountDataMapService(database: DatabaseHandle) {
         ],
         excludedOperationalRecords: [
           { table: 'media_cleanup_queue', reason: 'Contains private storage keys and internal retry state; owner-tagged entries are drained during account deletion, while legacy unattributed entries remain in the worker-wide cleanup sweep.' },
+          { table: 'account_deletion_steps', reason: 'Contains internal deletion checkpoints and storage progress cursors; user-facing request status is included separately.' },
+          { table: 'account_deletion_audit', reason: 'Contains minimal operational deletion events and actor metadata; its retention policy is still being defined.' },
+          { table: 'account_owner_work_leases', reason: 'Contains short-lived worker coordination leases used to fence account writes and cleanup.' },
         ],
       };
     },
