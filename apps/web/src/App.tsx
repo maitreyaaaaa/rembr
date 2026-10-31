@@ -1,14 +1,20 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { Archive, BookOpen, Folder, LogOut, Network, Plus, ScanSearch, Settings, Sparkles, Tag, Workflow } from 'lucide-react';
 import {
   BrowserRouter, Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useOutletContext,
   useParams, useSearchParams,
 } from 'react-router-dom';
-import { MarketingSite } from './MarketingSite.js';
 import { AvatarUpload } from './components/AvatarUpload.js';
-import { PasswordStrengthField } from './components/PasswordStrengthField.js';
 import { Progress } from './components/ui/progress.js';
 import { SavedItemLink } from './components/SavedItemLink.js';
-import { SmartCollectionsPage } from './components/SmartCollectionsPage.js';
+
+const MarketingSite = lazy(() => import('./MarketingSite.js').then(({ MarketingSite: page }) => ({ default: page })));
+const HowToUsePage = lazy(() => import('./components/HowToUsePage.js').then(({ HowToUsePage: page }) => ({ default: page })));
+const HelpPage = lazy(() => import('./components/SupportPages.js').then(({ HelpPage: page }) => ({ default: page })));
+const PricingPage = lazy(() => import('./components/SupportPages.js').then(({ PricingPage: page }) => ({ default: page })));
+const LegalPage = lazy(() => import('./components/SupportPages.js').then(({ LegalPage: page }) => ({ default: page })));
+const PasswordStrengthField = lazy(() => import('./components/PasswordStrengthField.js').then(({ PasswordStrengthField: field }) => ({ default: field })));
+const SmartCollectionsPage = lazy(() => import('./components/SmartCollectionsPage.js').then(({ SmartCollectionsPage: page }) => ({ default: page })));
 
 type Status = 'queued' | 'processing' | 'retry_wait' | 'cancel_requested' | 'cancelled' | 'paused' | 'partial' | 'ready' | 'failed';
 interface User { id: string; email: string }
@@ -161,10 +167,19 @@ function sameAppPath(value: string | null | undefined): string {
 }
 
 function AppRoutes() {
-  return <BrowserRouter><Routes>
+  return <BrowserRouter><Suspense fallback={<main className="center-state" role="status">Loading Rembr…</main>}><Routes>
     <Route path="/" element={<MarketingSite />} />
     <Route path="/features" element={<MarketingSite />} />
+    <Route path="/about" element={<MarketingSite />} />
     <Route path="/contact" element={<MarketingSite />} />
+    <Route path="/how-to-use" element={<HowToUsePage />} />
+    <Route path="/help" element={<HelpPage />} />
+    <Route path="/pricing" element={<PricingPage />} />
+    <Route path="/terms" element={<LegalPage kind="terms" />} />
+    <Route path="/privacy" element={<LegalPage kind="privacy" />} />
+    <Route path="/security" element={<LegalPage kind="security" />} />
+    <Route path="/data-deletion" element={<LegalPage kind="data-deletion" />} />
+    <Route path="/cookies" element={<LegalPage kind="cookies" />} />
     <Route path="/login" element={<AuthPage />} />
     <Route path="/app/setup/profile" element={<SetupRoute />} />
     <Route path="/app/setup/onboarding" element={<Navigate to="/app" replace />} />
@@ -184,11 +199,16 @@ function AppRoutes() {
       <Route path="tags" element={<TagsPage />} />
       <Route path="graph" element={<KnowledgeGraphPage />} />
       <Route path="checkup" element={<LibraryCheckupPage />} />
+      <Route path="workflows" element={<PlannedWorkflowPage />} />
       <Route path="settings/profile" element={<SettingsPage />} />
       <Route path="settings/preferences" element={<SettingsPage />} />
     </Route>
-    <Route path="*" element={<MarketingSite />} />
-  </Routes></BrowserRouter>;
+    <Route path="*" element={<NotFoundPage />} />
+  </Routes></Suspense></BrowserRouter>;
+}
+
+function NotFoundPage() {
+  return <main className="rg-page"><div className="rg-main"><section className="rg-intro"><p className="rg-kicker">404 / NOT FOUND</p><h1>This page is not here.</h1><p>Check the address or return to your Rembr library.</p><div className="rg-not-found-actions"><Link className="rg-button rg-button-primary" to="/">Go to Rembr home</Link><Link className="rg-button rg-button-secondary" to="/app">Open your library</Link></div></section></div></main>;
 }
 
 function AuthPage() {
@@ -272,11 +292,42 @@ function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promi
   const [logoutBusy, setLogoutBusy] = useState(false);
   const location = useLocation();
   const activeMoreLink = [{ path: '/app/imports', label: 'Imports' }, { path: '/app/tags', label: 'Tags' }, { path: '/app/graph', label: 'Connections' }, { path: '/app/checkup', label: 'Review' }, { path: '/app/settings', label: 'Settings' }].find(({ path }) => location.pathname.startsWith(path));
-  return <header className="phase2-topbar"><Link className="wordmark" to="/app">rembr<span>.</span></Link><nav aria-label="Workspace navigation" className="phase2-nav"><NavLink to="/app" label="Library" /><NavLink to="/app/collections" label="Collections" /><NavLink to="/app/smart-collections" label="Smart collections" /><details className={`phase2-nav-more${activeMoreLink ? ' active' : ''}`}><summary>{activeMoreLink ? `More · ${activeMoreLink.label}` : 'More'} <span aria-hidden="true">⌄</span></summary><div className="phase2-nav-menu"><NavLink to="/app/imports" label="Imports" /><NavLink to="/app/tags" label="Tags" /><NavLink to="/app/graph" label="Connections" /><NavLink to="/app/checkup" label="Review" /><NavLink to="/app/settings/profile" label="Settings" /></div></details></nav><div className="phase2-account"><span>{session.profile?.username ? `@${session.profile.username}` : session.user.email}</span><button type="button" className="quiet-button" disabled={logoutBusy} onClick={() => { setLogoutBusy(true); void onLogout().finally(() => setLogoutBusy(false)); }}>Sign out</button></div></header>;
+  const accountLabel = session.profile?.username ? `@${session.profile.username}` : session.user.email;
+  return <header className="phase2-topbar">
+    <Link className="wordmark" to="/app" aria-label="Rembr library">rembr<span aria-hidden="true">.</span></Link>
+    <nav aria-label="Workspace navigation" className="phase2-nav">
+      <NavLink to="/app" label="Library" icon={<BookOpen />} />
+      <NavLink to="/app/collections" label="Collections" icon={<Folder />} />
+      <NavLink to="/app/smart-collections" label="Smart collections" icon={<Sparkles />} />
+      <NavLink to="/app/add" label="Add saves" icon={<Plus />} />
+      <details className={`phase2-nav-more${activeMoreLink ? ' active' : ''}`}>
+        <summary aria-label={activeMoreLink ? `More navigation, ${activeMoreLink.label} selected` : 'More navigation'} title={activeMoreLink?.label ?? 'More navigation'}>
+          <Archive aria-hidden="true" /><span className="visually-hidden">More navigation</span>
+        </summary>
+        <div className="phase2-nav-menu">
+          <NavLink to="/app/imports" label="Imports" icon={<Archive />} />
+          <NavLink to="/app/tags" label="Tags" icon={<Tag />} />
+          <NavLink to="/app/graph" label="Connections" icon={<Network />} />
+          <NavLink to="/app/checkup" label="Review" icon={<ScanSearch />} />
+          <NavLink to="/app/settings/profile" label="Settings" icon={<Settings />} />
+        </div>
+      </details>
+      <NavLink to="/app/workflows" label="Workflows (planned)" icon={<Workflow />} />
+    </nav>
+    <div className="phase2-account" title={accountLabel}>
+      <span className="phase2-user-mark" aria-hidden="true">{(session.profile?.username ?? session.user.email).slice(0, 1).toUpperCase()}</span>
+      <span className="visually-hidden">{accountLabel}</span>
+      <button type="button" className="quiet-button phase2-signout" aria-label="Sign out" title="Sign out" disabled={logoutBusy} onClick={() => { setLogoutBusy(true); void onLogout().finally(() => setLogoutBusy(false)); }}><LogOut aria-hidden="true" /></button>
+    </div>
+  </header>;
 }
-function NavLink({ to, label }: { to: string; label: string }) {
+function NavLink({ to, label, icon }: { to: string; label: string; icon: ReactNode }) {
   const location = useLocation(); const active = to === '/app' ? location.pathname === '/app' : location.pathname.startsWith(to);
-  return <Link to={to} className={active ? 'phase2-nav-link active' : 'phase2-nav-link'} aria-current={active ? 'page' : undefined}>{label}</Link>;
+  return <Link to={to} className={active ? 'phase2-nav-link active' : 'phase2-nav-link'} aria-label={label} title={label} aria-current={active ? 'page' : undefined}>{icon}<span className="visually-hidden">{label}</span></Link>;
+}
+
+function PlannedWorkflowPage() {
+  return <div className="phase2-centered phase2-planned-screen"><section className="phase2-card"><p className="eyebrow"><span className="eyebrow-mark" aria-hidden="true" />PLANNED SURFACE</p><h1>Workflows are not available in Rembr yet.</h1><p className="phase2-helper">This workspace will stay empty until Rembr has an approved, working workflow service. Your saved library and current tools are ready to use.</p><Link className="primary-button" to="/app">Back to library</Link></section></div>;
 }
 
 function SetupRoute() {
@@ -905,6 +956,6 @@ async function saveSemanticSearchPreference(enabled: boolean) { setAiBusy(true);
 function PageHeader({ title, description, actions }: { title: string; description: string; actions?: ReactNode }) {
   return <div className="phase2-page-heading"><div><h1>{title}</h1><p>{description}</p></div>{actions && <div className="phase2-heading-actions">{actions}</div>}</div>;
 }
-function ErrorState({ message }: { message: string }) { return <div className="phase2-state phase2-error-state" role="alert"><h2>We could not open this view.</h2><p>{message}</p><Link className="quiet-button" to="/app">Back to library</Link></div>; }
+function ErrorState({ message }: { message: string }) { return <div className="phase2-state phase2-error-state" role="alert"><h2>We could not open this view.</h2><p>{message}</p><div className="phase2-heading-actions"><button className="quiet-button" type="button" onClick={() => window.location.reload()}>Try again</button><Link className="quiet-button" to="/app">Back to library</Link></div></div>; }
 
 export function App() { return <AppRoutes />; }

@@ -64,9 +64,9 @@ function SiteHeader({ page }: { page: Page }) {
         <span>{menuOpen ? 'Close' : 'Menu'}</span><span className="menu-glyph" aria-hidden="true">{menuOpen ? '×' : '＋'}</span>
       </button>
       <nav id="site-nav" className={menuOpen ? 'site-nav is-open' : 'site-nav'} aria-label="Main navigation">
-        <a aria-current={page === 'features' ? 'page' : undefined} href="/features" onClick={() => setMenuOpen(false)}>The library</a>
-        <a aria-current={page === 'about' ? 'page' : undefined} href="/about" onClick={() => setMenuOpen(false)}>Our point of view</a>
-        <a aria-current={page === 'contact' ? 'page' : undefined} href="/contact" onClick={() => setMenuOpen(false)}>Say hello</a>
+        <a href="/pricing" onClick={() => setMenuOpen(false)}>Pricing</a>
+        <a aria-current={page === 'contact' ? 'page' : undefined} href="/contact" onClick={() => setMenuOpen(false)}>Contact us</a>
+        <a href="/how-to-use" onClick={() => setMenuOpen(false)}>How to use</a>
         <a className="nav-cta" href="/app" onClick={() => setMenuOpen(false)}>Open Rembr <Arrow diagonal/></a>
       </nav>
     </div>
@@ -77,8 +77,9 @@ function SiteFooter() {
   return <footer className="site-footer">
     <div className="footer-main">
       <div className="footer-brand-block"><Brand/><p>A little more room for what matters.</p></div>
-      <div className="footer-link-group"><span>EXPLORE</span><a href="/features">The library</a><a href="/about">Our point of view</a><a href="/contact">Say hello</a></div>
-      <div className="footer-link-group"><span>YOUR SPACE</span><a href="/app">Open Rembr</a><a href="/app?tab=settings">Account & settings</a></div>
+      <div className="footer-link-group"><span>EXPLORE</span><a href="/features">The library</a><a href="/how-to-use">How to use</a><a href="/help">Help</a><a href="/pricing">Pricing</a></div>
+      <div className="footer-link-group"><span>REMBR</span><a href="/about">About</a><a href="/contact">Contact us</a><a href="/app">Open Rembr</a><a href="/app/settings/profile">Account settings</a></div>
+      <div className="footer-link-group"><span>POLICIES</span><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/security">Security</a><a href="/data-deletion">Data deletion</a><a href="/cookies">Cookies</a></div>
     </div>
     <div className="footer-bottom"><span>© {new Date().getFullYear()} Rembr</span><span>Keep what catches you. Find it when it matters.</span><a href="#top">Back to top ↑</a></div>
   </footer>;
@@ -111,7 +112,7 @@ function HomePage() {
       <div className="hero-grain" aria-hidden="true"/>
       <div className="hero-layout">
         <div className="hero-copy">
-          <h1 data-hero-copy>Never lose<br/>a post saved<br/>on <RotatingPlatformLogo/></h1>
+          <h1 data-hero-copy><span className="hero-wordline">Never <span className="hero-word-ring">Lose</span></span><span className="hero-wordline hero-post-line"><span className="hero-highlight">a Post</span></span><span className="hero-wordline hero-saved-line">Saved on <RotatingPlatformLogo/></span></h1>
           <p className="hero-lede" data-hero-copy>Bring saved posts from Instagram, Pinterest, and X into one library. Save links from Facebook, LinkedIn, or anywhere on the web. Keep the source, add a note, and find it again.</p>
           <div className="hero-actions" data-hero-copy>
             <a className="button button-ink" href="/app">Keep your saved posts <Arrow diagonal/></a>
@@ -181,8 +182,8 @@ function HomePage() {
       <div className="faq-list" data-reveal>
         <details><summary>Can I bring in posts I already saved?<span>＋</span></summary><p>Yes. Import saved-post exports from Instagram, Pinterest, and X. You can also save a public link from Facebook, LinkedIn, or another site.</p></details>
         <details><summary>How do I find a saved page?<span>＋</span></summary><p>Search your library or browse your collections. Answers about your library link back to the saved sources they use.</p></details>
-        <details><summary>Will Rembr take action for me?<span>＋</span></summary><p>No action reaches another service without your approval. Review it first, then choose whether to continue.</p></details>
-        <details><summary>Can I export or delete my library?<span>＋</span></summary><p>Yes. Review what will be included before you confirm an export or deletion.</p></details>
+        <details><summary>Does Rembr post on my behalf?<span>＋</span></summary><p>No. Rembr helps you keep and find saved posts and links. It does not publish to other services.</p></details>
+        <details><summary>Can I export or delete my library?<span>＋</span></summary><p>Open Account &amp; settings in your library to see the controls available in this release. Contact us if you need help with your data.</p></details>
         <details><summary>Will every page save perfectly?<span>＋</span></summary><p>No. Some sites limit what Rembr can read. When a page is incomplete, its source link stays available.</p></details>
       </div>
     </section>
@@ -201,7 +202,7 @@ function FeaturesPage() {
     <section className="feature-story feature-story-yellow" data-reveal><div className="feature-story-number">01</div><div className="feature-story-copy"><h2>Bring in the posts you saved.</h2><p>Import Instagram, Pinterest, and X saved-post exports, or save a public page link directly.</p></div><div className="feature-story-art capture-art" aria-hidden="true"><span>POST</span><i>↘</i><b>KEPT</b></div></section>
     <section className="feature-story feature-story-orange" data-reveal><div className="feature-story-number">02</div><div className="feature-story-copy"><h2>Keep related things together.</h2><p>Add notes, tags, or collections to shape your library.</p></div><div className="feature-story-art connect-art" aria-hidden="true"><span>IDEA</span><i/><i/><i/><b>THREAD</b></div></section>
     <section className="feature-story feature-story-ink" data-reveal><div className="feature-story-number">03</div><div className="feature-story-copy"><h2>Find the page you need.</h2><p>Search what you saved. Ask questions and follow answers to their sources.</p></div><div className="feature-story-art return-art" aria-hidden="true"><span>⌕</span><b>FOUND<br/>AGAIN</b></div></section>
-    <section className="feature-trust" data-reveal><h2>You stay in control.</h2><p>Review an external action before it runs. Approve it when you're ready.</p><a className="underlined-link" href="/about">How Rembr handles actions <span aria-hidden="true">↗</span></a></section>
+    <section className="feature-trust" data-reveal><h2>Your library, your way.</h2><p>Choose what to save, add your own context, and open the original source whenever you need it.</p><a className="underlined-link" href="/about">Why Rembr keeps the source <span aria-hidden="true">↗</span></a></section>
     <section className="feature-limit" data-reveal><p>Some sites limit what Rembr can save. External actions always need your approval.</p><a href="/contact">Ask us a question <Arrow diagonal/></a></section>
   </main>;
 }
@@ -250,7 +251,7 @@ export function MarketingSite() {
     };
     document.title = titles[page];
     document.querySelector('meta[name="description"]')?.setAttribute('content', descriptions[page]);
-    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#FBE02E');
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', '#030503');
   }, [page]);
 
   useGSAP(() => {

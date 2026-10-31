@@ -369,3 +369,204 @@ a:hover .arrow-mark, button:hover .arrow-mark { transform: translate(3px,-2px); 
   .platform-ticker-icon { animation: none; }
   .marketing-site *, .marketing-site *::before, .marketing-site *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+
+/* Rembr's IScraper-inspired dark editorial pass. The tokens stay scoped so the
+   authenticated app can keep its own product-level treatments where needed. */
+.marketing-site {
+  --sun: #a5ff18;
+  --orange: #ff6900;
+  --ink: #030503;
+  --paper: #050705;
+  --paper-deep: #10140d;
+  --muted: #aeb5a9;
+  --line: rgb(255 255 255 / 16%);
+  --font-display: 'Space Grotesk', sans-serif;
+  --font-body: 'DM Sans', sans-serif;
+  background: #030503;
+  color: #f5f7f3;
+}
+
+.marketing-site h1, .marketing-site h2, .marketing-site h3 { color: #f5f7f3; }
+.marketing-site p { color: #b8beb5; }
+.marketing-site .site-header { position: sticky; top: 0; border-bottom: 1px solid rgb(255 255 255 / 9%); background: rgb(3 5 3 / 94%); backdrop-filter: blur(14px); }
+.marketing-site .brand-mark { color: #f5f7f3; }
+.marketing-site .brand-mark span { color: var(--sun); }
+.marketing-site .site-nav > a:not(.nav-cta) { color: #e4e9df; }
+.marketing-site .site-nav > a:not(.nav-cta):hover, .marketing-site .site-nav > a[aria-current='page'] { color: var(--sun); opacity: 1; }
+.marketing-site .nav-cta { border-color: var(--sun); background: var(--sun); color: #050705 !important; }
+.marketing-site .nav-cta:hover { background: #b4ff43; }
+.marketing-site .arrow-mark { color: inherit; }
+.marketing-site .button-ink { border-color: var(--sun); background: var(--sun); color: #050705 !important; box-shadow: 0 0 0 1px rgb(165 255 24 / 12%); }
+.marketing-site .button-ink:hover { background: #b4ff43; box-shadow: 0 0 22px rgb(165 255 24 / 22%); }
+.marketing-site .button-yellow { border-color: var(--orange); background: transparent; color: var(--orange) !important; box-shadow: none; }
+.marketing-site .button-yellow:hover { background: var(--orange); color: #050705 !important; }
+.marketing-site .button-yellow .arrow-mark { background: var(--orange); color: #050705; }
+.marketing-site .underlined-link, .marketing-site .text-link { color: #f5f7f3; }
+.marketing-site :focus-visible { outline-color: var(--sun); }
+.marketing-site ::selection { background: var(--sun); color: #050705; }
+
+.marketing-site .hero-section { min-height: min(820px, calc(100svh - 82px)); background: radial-gradient(ellipse at 74% 53%, rgb(36 84 0 / 30%), transparent 38%), #030503; }
+.marketing-site .hero-section::before { position: absolute; inset: 0; pointer-events: none; background-image: linear-gradient(rgb(255 255 255 / 4%) 1px, transparent 1px), linear-gradient(90deg, rgb(255 255 255 / 4%) 1px, transparent 1px); background-size: 56px 56px; mask-image: linear-gradient(180deg, #000 0%, transparent 94%); content: ''; }
+.marketing-site .hero-grain { opacity: .06; background-image: radial-gradient(rgb(255 255 255 / 65%) .5px, transparent .65px); mask-image: linear-gradient(90deg, #000 0%, transparent 70%); }
+.marketing-site .hero-layout { min-height: inherit; padding-top: clamp(48px, 7vw, 88px); }
+.marketing-site .hero-copy h1 { display: grid; max-width: 790px; gap: .04em; color: #f6f7f4; font-size: clamp(58px, 7.8vw, 108px); letter-spacing: -.085em; line-height: .93; }
+.marketing-site .hero-wordline { display: block; white-space: nowrap; }
+.marketing-site .hero-word-ring { position: relative; z-index: 0; display: inline-block; padding: 0 .08em; }
+.marketing-site .hero-word-ring::after { position: absolute; z-index: -1; inset: -.13em -.04em -.07em; border: 3px solid var(--orange); border-radius: 50%; content: ''; transform: rotate(-7deg); }
+.marketing-site .hero-highlight { display: inline-block; padding: .02em .1em .07em; background: var(--orange); color: #050705; transform: rotate(-1.2deg); }
+.marketing-site .hero-post-line { padding-left: .08em; }
+.marketing-site .hero-saved-line { display: flex; align-items: center; gap: .16em; }
+.marketing-site .platform-ticker { width: .72em; height: .72em; border: 2px solid #f3f4f0; box-shadow: 0 0 0 .06em #030503, 0 0 0 .1em rgb(255 255 255 / 38%); }
+.marketing-site .hero-lede { max-width: 510px; margin-top: 27px; color: #b8beb5; }
+.marketing-site .hero-footnote, .marketing-site .hero-scroll-cue { color: #b8beb5; }
+.marketing-site .footnote-mark, .marketing-site .hero-scroll-cue b { border-color: rgb(255 255 255 / 35%); }
+.marketing-site .hero-scroll-cue b { color: var(--sun); }
+.marketing-site .archive-sun { background: radial-gradient(circle, rgb(165 255 24 / 30%), rgb(165 255 24 / 8%) 52%, transparent 73%); }
+.marketing-site .archive-sun::before, .marketing-site .archive-sun::after { border-color: rgb(165 255 24 / 24%); }
+.marketing-site .archive-sun span { background: rgb(165 255 24 / 20%); }
+.marketing-site .archive-orbit { border-color: rgb(165 255 24 / 43%); }
+.marketing-site .archive-paper { border: 1px solid rgb(255 255 255 / 18%); border-radius: 12px; background: #090c08; box-shadow: 10px 12px 0 rgb(165 255 24 / 70%); color: #f4f7f0; }
+.marketing-site .archive-paper-back { background: #12170f; color: var(--sun); box-shadow: 8px 9px 0 var(--orange); }
+.marketing-site .archive-window-top, .marketing-site .archive-window-top > span:nth-child(2) { color: #b8beb5; }
+.marketing-site .archive-window-top > b, .marketing-site .archive-search > span:first-child { color: var(--sun); }
+.marketing-site .archive-search { border-color: rgb(255 255 255 / 18%); color: #aeb5a9; }
+.marketing-site .archive-search kbd { border-color: rgb(255 255 255 / 18%); color: #d5dacf; }
+.marketing-site .archive-saved-item { border-color: rgb(255 255 255 / 16%); background: #10140e; }
+.marketing-site .saved-copy > span, .marketing-site .saved-copy small { color: #aeb5a9; }
+.marketing-site .archive-tags span { border-color: rgb(255 255 255 / 22%); background: #161b13; color: #e2e8dc; }
+.marketing-site .archive-tags span:first-child { background: var(--sun); color: #050705; }
+.marketing-site .archive-bottomline { color: #bbc2b5; }
+
+.marketing-site .signal-strip { border-top: 1px solid rgb(255 255 255 / 9%); border-bottom: 1px solid rgb(255 255 255 / 9%); background: #080a08; color: var(--sun); }
+.marketing-site .signal-inner p { color: #e9eee6; }
+.marketing-site .idea-section { background: #050705; color: #f5f7f3; }
+.marketing-site .idea-heading h2 span, .marketing-site .control-intro h2 span { color: var(--sun); }
+.marketing-site .idea-aside, .marketing-site .idea-aside .idea-answer { color: #b8beb5; }
+.marketing-site .idea-aside .idea-answer { color: var(--sun); }
+.marketing-site .ritual-section { background: #0b0e0a; }
+.marketing-site .ritual-header h2 span { background: var(--orange); color: #050705; }
+.marketing-site .ritual-step { border-color: rgb(255 255 255 / 14%); }
+.marketing-site .step-capture { background: #11160e; color: #f3f6ef; }
+.marketing-site .step-organize { background: #18100a; color: #f3f6ef; }
+.marketing-site .step-return { background: #030503; color: var(--sun); }
+.marketing-site .step-copy p { color: #b8beb5; }
+.marketing-site .glyph-capture i { border-color: rgb(255 255 255 / 42%); }
+.marketing-site .glyph-capture i:nth-of-type(2) { background: var(--orange); }
+.marketing-site .glyph-capture i:nth-of-type(3) { background: #252b20; }
+.marketing-site .glyph-organize i { border-color: rgb(255 255 255 / 42%); }
+.marketing-site .glyph-organize i:nth-child(1) { background: var(--sun); }
+.marketing-site .glyph-organize i:nth-child(2) { background: #24291f; }
+.marketing-site .glyph-organize i:nth-child(3) { background: var(--orange); }
+.marketing-site .glyph-organize b { color: #050705; }
+.marketing-site .constellation-section { background: #070907; }
+.marketing-site .constellation-copy h2 span { background: var(--sun); color: #050705; }
+.marketing-site .constellation-copy > p { color: #b8beb5; }
+.marketing-site .constellation-line { stroke: rgb(165 255 24 / 65%); }
+.marketing-site .constellation-art circle { fill: #10150d; stroke: var(--sun); }
+.marketing-site .constellation-art circle:nth-of-type(5) { fill: var(--orange); }
+.marketing-site .constellation-art circle:nth-of-type(7) { fill: var(--sun); }
+.marketing-site .constellation-note { border-color: rgb(255 255 255 / 19%); background: #11150f; color: #f3f6ef; box-shadow: 5px 6px 0 rgb(165 255 24 / 50%); }
+.marketing-site .constellation-note > span, .marketing-site .constellation-note small { color: #b8beb5; }
+.marketing-site .constellation-tag { border-color: #b7ff59; background: var(--sun); color: #050705; }
+.marketing-site .constellation-tag.tag-two { background: #12160f; color: #e7edde; }
+.marketing-site .constellation-orbit { border-color: rgb(165 255 24 / 17%); }
+.marketing-site .control-section { background: #050705; color: #f5f7f3; }
+.marketing-site .control-intro > p { color: #b8beb5; }
+.marketing-site .control-panel { border-color: rgb(255 255 255 / 18%); background: #10140e; color: #f3f6ef; box-shadow: 8px 8px 0 var(--orange); }
+.marketing-site .control-panel-head { border-color: rgb(255 255 255 / 18%); }
+.marketing-site .control-action small { color: #aeb5a9; }
+.marketing-site .action-icon { border-color: var(--sun); background: var(--sun); color: #050705; }
+.marketing-site .action-state { border-color: var(--sun); color: var(--sun); }
+.marketing-site .review-button { border-color: rgb(255 255 255 / 28%); color: #f5f7f3; }
+.marketing-site .approve-button { border-color: var(--sun); background: var(--sun); color: #050705; }
+.marketing-site .control-side-note { color: rgb(165 255 24 / 52%); }
+.marketing-site .kept-section { background: #0b0e0a; }
+.marketing-site .kept-copy h2 span { background: var(--orange); color: #050705; }
+.marketing-site .kept-copy > p { color: #b8beb5; }
+.marketing-site .kept-stamp { border-color: rgb(255 255 255 / 22%); color: var(--sun); }
+.marketing-site .kept-list { border-color: rgb(255 255 255 / 25%); }
+.marketing-site .kept-list > div { border-color: rgb(255 255 255 / 13%); }
+.marketing-site .kept-list > div > span, .marketing-site .kept-list i { color: var(--sun); }
+.marketing-site .faq-section { background: #050705; }
+.marketing-site .faq-intro h2 span { background: var(--orange); color: #050705; }
+.marketing-site .faq-list { border-color: rgb(255 255 255 / 28%); }
+.marketing-site .faq-list details { border-color: rgb(255 255 255 / 16%); }
+.marketing-site .faq-list details p { color: #b8beb5; }
+.marketing-site .faq-list summary span { color: var(--sun); }
+.marketing-site .final-call { min-height: 450px; border-top: 1px solid rgb(255 255 255 / 12%); background: radial-gradient(ellipse at 50% 120%, rgb(165 255 24 / 19%), transparent 54%), #030503; }
+.marketing-site .final-call h2 span { color: var(--sun); }
+.marketing-site .final-call-sun, .marketing-site .final-call-sun::before, .marketing-site .final-call-sun::after { border-color: rgb(165 255 24 / 16%); }
+.marketing-site .site-footer { border-top: 1px solid rgb(255 255 255 / 12%); background: #030503; color: #f5f7f3; }
+.marketing-site .footer-brand-block .brand-mark { color: #f5f7f3; }
+.marketing-site .footer-brand-block p, .marketing-site .footer-bottom { color: #aeb5a9; }
+.marketing-site .footer-link-group > span { color: var(--sun); }
+.marketing-site .footer-link-group a, .marketing-site .footer-bottom a { color: #dce2d7; }
+.marketing-site .footer-link-group a:hover, .marketing-site .footer-bottom a:hover { color: var(--sun); }
+.marketing-site .footer-bottom { border-color: rgb(255 255 255 / 14%); }
+.marketing-site .footer-main { grid-template-columns: minmax(180px, 1fr) repeat(3, max-content); gap: clamp(24px, 4vw, 72px); }
+
+.marketing-site .subpage-main { color: #f5f7f3; }
+.marketing-site .subpage-hero h1 > span { background: var(--orange); color: #050705; }
+.marketing-site .subpage-hero > p { color: #b8beb5; }
+.marketing-site .subpage-asterisk { color: var(--sun); }
+.marketing-site .feature-story { border-color: rgb(255 255 255 / 17%); }
+.marketing-site .feature-story-yellow { background: #11160e; }
+.marketing-site .feature-story-orange { background: #1a1009; }
+.marketing-site .feature-story-number { color: var(--sun); }
+.marketing-site .feature-story-copy p { color: #c2c9bc; }
+.marketing-site .feature-story-ink { background: #090c08; color: #f5f7f3; }
+.marketing-site .feature-story-ink .feature-story-copy p { color: #b8beb5; }
+.marketing-site .feature-story-art { border-color: rgb(255 255 255 / 24%); }
+.marketing-site .capture-art, .marketing-site .return-art { background: var(--orange); color: #050705; }
+.marketing-site .capture-art i { border-color: rgb(0 0 0 / 50%); }
+.marketing-site .capture-art i:nth-of-type(2) { background: var(--sun); }
+.marketing-site .capture-art i:nth-of-type(3) { background: #090c08; }
+.marketing-site .connect-art { background: var(--sun); }
+.marketing-site .connect-art span { background: #11160e; color: #f3f6ef; }
+.marketing-site .connect-art b { background: #090c08; color: var(--sun); }
+.marketing-site .connect-art i { background: #050705; }
+.marketing-site .feature-trust { border: 1px solid rgb(255 255 255 / 12%); background: #0d110b; }
+.marketing-site .feature-trust > p, .marketing-site .feature-limit p { color: #b8beb5; }
+.marketing-site .feature-limit { border-color: rgb(255 255 255 / 18%); }
+.marketing-site .feature-limit a { color: var(--sun); }
+.marketing-site .about-statement { background: #11160e; color: #f5f7f3; }
+.marketing-site .about-statement > span { color: var(--sun); }
+.marketing-site .about-columns article { border-color: rgb(255 255 255 / 24%); }
+.marketing-site .about-columns h2 { color: #f5f7f3; }
+.marketing-site .about-columns h2 + p { color: #b8beb5; }
+.marketing-site .about-manifesto { border: 1px solid rgb(255 255 255 / 17%); background: #10150d; }
+.marketing-site .about-manifesto > span { color: var(--sun); }
+.marketing-site .about-manifesto h2 em { color: var(--sun); }
+.marketing-site .contact-layout { border-color: rgb(255 255 255 / 16%); background: #10140e; }
+.marketing-site .contact-note { background: #11160e; color: #f5f7f3; }
+.marketing-site .contact-note > span { color: var(--sun); }
+.marketing-site .contact-note p { color: #b8beb5; }
+.marketing-site .contact-form { background: #080a08; color: #f3f6ef; }
+.marketing-site .form-heading { border-color: rgb(255 255 255 / 17%); }
+.marketing-site .form-heading p { color: #aeb5a9; }
+.marketing-site .contact-form label { color: #e8ede4; }
+.marketing-site .contact-form input, .marketing-site .contact-form select, .marketing-site .contact-form textarea { border-color: rgb(255 255 255 / 20%); border-radius: 7px; background: #11150f; color: #f5f7f3; }
+.marketing-site .contact-form input::placeholder, .marketing-site .contact-form textarea::placeholder { color: #8b9385; }
+.marketing-site .contact-config-note { color: #b8beb5; }
+
+@media (max-width: 760px) {
+  .marketing-site .site-header { background: rgb(3 5 3 / 97%); }
+  .marketing-site .menu-toggle { color: #f5f7f3; }
+  .marketing-site .menu-glyph { border-color: rgb(255 255 255 / 28%); color: var(--sun); }
+  .marketing-site .site-nav { border-color: rgb(255 255 255 / 18%); background: #090c08; box-shadow: 5px 6px 0 var(--sun); }
+  .marketing-site .site-nav > a:not(.nav-cta) { border-color: rgb(255 255 255 / 13%); }
+  .marketing-site .hero-section { background: radial-gradient(ellipse at 50% 67%, rgb(36 84 0 / 25%), transparent 48%), #030503; }
+  .marketing-site .hero-layout { padding-top: 58px; }
+  .marketing-site .hero-copy h1 { font-size: clamp(49px, 10.4vw, 78px); }
+  .marketing-site .hero-word-ring::after { border-width: 2px; }
+  .marketing-site .archive-paper { box-shadow: 7px 8px 0 rgb(165 255 24 / 65%); }
+  .marketing-site .step-capture, .marketing-site .step-organize, .marketing-site .step-return { border-color: rgb(255 255 255 / 17%); }
+}
+
+@media (max-width: 460px) {
+  .marketing-site .hero-copy h1 { font-size: clamp(43px, 11.8vw, 57px); }
+  .marketing-site .hero-saved-line { gap: .1em; }
+  .marketing-site .hero-lede { font-size: 15px; }
+  .marketing-site .archive-paper { border-radius: 10px; }
+  .marketing-site .contact-form input, .marketing-site .contact-form select, .marketing-site .contact-form textarea { font-size: 16px; }
+}
