@@ -8,7 +8,7 @@ export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 export const MAX_VIDEO_BYTES = 25 * 1024 * 1024;
 export const MAX_AUDIO_SECONDS = 10 * 60;
 export const MAX_AUDIO_BODY_BYTES = 32 * 1024 * 1024;
-export const MAX_OUTPUT_TOKENS = 1_200;
+export const MAX_OUTPUT_TOKENS = 2_400;
 const DEFAULT_TIMEOUT_MS = 90_000;
 const DEFAULT_REASONING = { effort: 'low' } as const;
 

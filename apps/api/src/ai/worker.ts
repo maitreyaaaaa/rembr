@@ -7,7 +7,7 @@ import { MetaApiError, groupImageInputs, MAX_AUDIO_BODY_BYTES, MAX_AUDIO_SECONDS
 
 const LEASE_MS = 2 * 60 * 60_000;
 const retryDelayMs = (attempt: number) => Math.min(60_000, 2_000 * (2 ** Math.max(0, attempt - 1)));
-const ANALYSIS_PROMPT = `Analyze this public Instagram post media and its supplied post text. Return only JSON with keys summary (concise factual summary), visual_description (specific visible details), ocr_text (only readable text), keywords (up to 5 specific keywords), tags (up to 3 grounded topical tags), brands (up to 5 brand names directly supported by readable text or an unambiguous visible logo), tools (up to 5 software or service names directly supported by readable text or an unambiguous visible logo), people (up to 5 names explicitly written in the post text or OCR), and repositories (up to 5 repository names explicitly written in the post text or OCR). Never identify a person from a face, infer identities, locations, or facts, or guess an entity from context. Return only directly supported labels; use empty arrays when uncertain.`;
+const ANALYSIS_PROMPT = `Analyze this Instagram post media and its supplied post text. Return compact JSON: concise factual summary, specific visible details, readable OCR text, up to 5 keywords, up to 3 topical tags, and up to 3 brands, tools, people, or repository names only when directly supported by text/OCR or an unambiguous logo. Never identify people from faces or infer identities, locations, or facts. Use empty strings/arrays when uncertain. Keep each description under 2 sentences.`;
 const ANALYSIS_OUTPUT_SCHEMA: MetaJsonSchema = {
   name: 'saved_post_analysis',
   schema: {
@@ -15,15 +15,15 @@ const ANALYSIS_OUTPUT_SCHEMA: MetaJsonSchema = {
     additionalProperties: false,
     required: ['summary', 'visual_description', 'ocr_text', 'keywords', 'tags', 'brands', 'tools', 'people', 'repositories'],
     properties: {
-      summary: { type: 'string', maxLength: 1200 },
-      visual_description: { type: 'string', maxLength: 1200 },
-      ocr_text: { type: 'string', maxLength: 1200 },
+      summary: { type: 'string', maxLength: 500 },
+      visual_description: { type: 'string', maxLength: 600 },
+      ocr_text: { type: 'string', maxLength: 600 },
       keywords: { type: 'array', maxItems: 5, items: { type: 'string', maxLength: 80 } },
       tags: { type: 'array', maxItems: 3, items: { type: 'string', maxLength: 80 } },
-      brands: { type: 'array', maxItems: 5, items: { type: 'string', maxLength: 80 } },
-      tools: { type: 'array', maxItems: 5, items: { type: 'string', maxLength: 80 } },
-      people: { type: 'array', maxItems: 5, items: { type: 'string', maxLength: 80 } },
-      repositories: { type: 'array', maxItems: 5, items: { type: 'string', maxLength: 120 } },
+      brands: { type: 'array', maxItems: 3, items: { type: 'string', maxLength: 80 } },
+      tools: { type: 'array', maxItems: 3, items: { type: 'string', maxLength: 80 } },
+      people: { type: 'array', maxItems: 3, items: { type: 'string', maxLength: 80 } },
+      repositories: { type: 'array', maxItems: 3, items: { type: 'string', maxLength: 120 } },
     },
   },
 };
