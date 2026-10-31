@@ -20,6 +20,7 @@ const environmentSchema = z.object({
   SUPABASE_URL: z.preprocess((value) => value === '' ? undefined : value, z.string().url().optional()),
   SUPABASE_SERVICE_ROLE_KEY: z.preprocess((value) => value === '' ? undefined : value, z.string().min(1).optional()),
   META_API_KEY: z.preprocess((value) => value === '' ? undefined : value, z.string().min(1).optional()),
+  AI_WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(4).default(2),
   OPENROUTER_API_KEY: z.preprocess((value) => value === '' ? undefined : value, z.string().min(1).optional()),
   FFMPEG_PATH: z.string().min(1).default('ffmpeg'),
   SUPABASE_ASSET_BUCKET: z.string().regex(/^[a-z0-9][a-z0-9_-]{1,61}[a-z0-9]$/).default('rembr-assets'),

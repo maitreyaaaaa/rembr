@@ -33,8 +33,38 @@ async function writeAiWorkerStatus(configured: boolean) {
     .run(configured, now);
 }
 
+async function runAiWorker(workerNumber: number) {
+  while (!stopping) {
+    try {
+      const jobId = await processNextAiJob(database, metaClient, aiMediaResolver, Boolean(config.META_API_KEY));
+      if (!jobId) await delay(1000);
+      else console.info('rembr_ai_job_processed', { jobId, workerNumber });
+    } catch (error) {
+      console.error('rembr_worker_error', { worker: 'ai', workerNumber, errorType: error instanceof Error ? error.name : 'unknown' });
+      await delay(1000);
+    }
+  }
+}
+
+async function runApplicationJobs() {
+  while (!stopping) {
+    try {
+      const importId = await imports.processNextImport();
+      if (importId) console.info('rembr_import_processed', { importId });
+      else {
+        const jobId = await processNextJob(database, undefined, mediaProcessor);
+        if (jobId) console.info('rembr_job_processed', { jobId });
+        else await delay(1000);
+      }
+    } catch (error) {
+      console.error('rembr_worker_error', { worker: 'application', errorType: error instanceof Error ? error.name : 'unknown' });
+      await delay(1000);
+    }
+  }
+}
+
 async function run() {
-  console.info('rembr_worker_started', { environment: config.NODE_ENV });
+  console.info('rembr_worker_started', { environment: config.NODE_ENV, aiConcurrency: config.AI_WORKER_CONCURRENCY });
   await imports.retryCleanup();
   await cleanupInactiveMedia(database, mediaStorage);
   await cleanupStalePrivateMediaTempDirectories();
@@ -49,24 +79,9 @@ async function run() {
       }
     })();
   }, 30_000);
-  while (!stopping) {
-    try {
-      const importId = await imports.processNextImport();
-      if (importId) console.info('rembr_import_processed', { importId });
-      else {
-        const jobId = await processNextJob(database, undefined, mediaProcessor);
-        if (jobId) console.info('rembr_job_processed', { jobId });
-        else {
-          const aiJobId = await processNextAiJob(database, metaClient, aiMediaResolver, Boolean(config.META_API_KEY));
-          if (!aiJobId) await delay(1000);
-          else console.info('rembr_ai_job_processed', { jobId: aiJobId });
-        }
-      }
-    } catch (error) {
-      console.error('rembr_worker_error', { errorType: error instanceof Error ? error.name : 'unknown' });
-      await delay(1000);
-    }
-  }
+  const aiWorkers = Array.from({ length: config.AI_WORKER_CONCURRENCY }, (_, index) => runAiWorker(index + 1));
+  await runApplicationJobs();
+  await Promise.allSettled(aiWorkers);
   clearInterval(statusHeartbeat);
   await writeAiWorkerStatus(false).catch(() => undefined);
   await database.close();
