@@ -106,7 +106,11 @@ async function claimNextAiJob(database: DatabaseHandle, now: Date, apiKeyAvailab
     const leaseToken = randomUUID();
     const changed = await database.prepare(`UPDATE ai_analysis_jobs SET status='processing',attempts=attempts+1,
       lease_token=?,lease_expires_at=?,pause_reason=NULL,error_code=NULL,updated_at=?
-      WHERE id=? AND owner_id=? AND status IN ('queued','processing')`).run(leaseToken, new Date(now.getTime() + LEASE_MS).toISOString(), timestamp, row.id, row.owner_id);
+      WHERE id=? AND owner_id=? AND attempts=? AND (
+        (status='queued' AND available_at<=?) OR
+        (status='processing' AND lease_expires_at<=?)
+      )`).run(leaseToken, new Date(now.getTime() + LEASE_MS).toISOString(), timestamp,
+        row.id, row.owner_id, row.attempts, timestamp, timestamp);
     if (changed.changes !== 1) return undefined;
     return { ...row, attempts: row.attempts + 1, lease_token: leaseToken };
   })();
