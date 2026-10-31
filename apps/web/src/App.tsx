@@ -661,10 +661,12 @@ function ImportsPage() {
 function ImportDetailPage() {
   const { importId = '' } = useParams();
   const [result, setResult] = useState<{ import: ImportSummary & { total_bytes: number; request_id: string }; entries: ImportEntry[] } | null>(null);
+  const [aiPreference, setAiPreference] = useState<AiPreference | null>(null);
   const [progress, setProgress] = useState<ImportProgress | null>(null);
   const [progressStale, setProgressStale] = useState(false);
   const [progressAnnouncement, setProgressAnnouncement] = useState('');
   const [busyImportAction, setBusyImportAction] = useState(false);
+  const [busyAnalysis, setBusyAnalysis] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const load = useCallback(async (quiet = false) => {
@@ -679,6 +681,7 @@ function ImportDetailPage() {
     }
   }, [importId]);
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => { let alive = true; void api<{ preference: AiPreference }>('/api/ai/preferences').then((response) => { if (alive) setAiPreference(response.preference); }).catch(() => { if (alive) setAiPreference(null); }); return () => { alive = false; }; }, []);
   useEffect(() => {
     if (!result) return undefined;
     let alive = true;
@@ -763,6 +766,14 @@ function ImportDetailPage() {
     } catch (cause) { setError(messageOf(cause, `Could not ${action} this import.`)); }
     finally { setBusyImportAction(false); }
   }
+  async function queueAnalysis() {
+    setBusyAnalysis(true); setError('');
+    try {
+      const queued = await api<{ queued: number; skipped: number; limit: number }>(`/api/imports/${encodeURIComponent(importId)}/ai-analysis`, { method: 'POST' });
+      setProgressAnnouncement(`${queued.queued.toLocaleString()} Instagram posts queued for analysis. ${queued.skipped.toLocaleString()} were already analyzed or outside the 300-post limit.`);
+    } catch (cause) { setError(messageOf(cause, 'Could not queue Instagram analysis.')); }
+    finally { setBusyAnalysis(false); }
+  }
   return <><div className="phase2-back"><Link to="/app/imports">← Back to imports</Link></div><PageHeader title={`${result.import.source} import`} description={`${result.import.file_count} files · ${(result.import.total_bytes / (1024 * 1024)).toFixed(1)} MiB`} actions={<ImportStatusLabel status={result.import.status} />} />
     <section className="phase2-panel"><h2>Results</h2>
       {progress && progress.total > 0 && !['uploading', 'staged', 'parsing'].includes(progress.status) ? <div className="import-progress">
@@ -789,6 +800,13 @@ function ImportDetailPage() {
         {!activeImportStatuses.has(result.import.status) && result.import.new_count > 0 && <button className="quiet-button" type="button" disabled={busyImportAction || hasActiveImportWork} onClick={() => void importAction('discard')}>Remove items created by this import</button>}
       </div>
     </section>
+    {result.entries.some((entry) => entry.source_platform === 'instagram' && entry.status === 'saved') && <section className="phase2-panel ai-preference-panel" aria-labelledby="import-ai-analysis-title">
+      <h2 id="import-ai-analysis-title">Analyze saved Instagram posts</h2>
+      <p className="phase2-helper">Queue up to 300 saved posts or reels from this import for Meta analysis. Publicly accessible media and post text may be sent to Meta. Rembr applies a $30 per-import limit; the shared monthly AI limit also applies.</p>
+      {!aiPreference?.enabled && <p className="field-note">Enable Instagram media analysis in <Link to="/app/settings/preferences">Settings</Link> before continuing.</p>}
+      {aiPreference?.enabled && !aiPreference.providerAvailable && <p className="field-note">Meta analysis is not currently available.</p>}
+      <button className="quiet-button" type="button" disabled={busyAnalysis || !aiPreference?.enabled || !aiPreference.providerAvailable} onClick={() => void queueAnalysis()}>{busyAnalysis ? 'Queueing analysis…' : 'Queue analysis for imported posts'}</button>
+    </section>}
     <section className="phase2-panel"><h2>Imported links</h2>{result.entries.length ? <ul className="item-list">{result.entries.map((entry) => <li className="item-card" key={entry.id}><div className="item-main"><div className="item-info"><p className="item-domain">{entry.source_platform}{entry.source_id ? ` · ${entry.source_id}` : ''}</p>{entry.item_id ? <SavedItemLink className="item-title" itemId={entry.item_id}>{entry.title || entry.source_url}</SavedItemLink> : <span className="item-title">{entry.title || entry.source_url || 'Unrecognized export row'}</span>}{entry.source_url && <p className="item-description">{entry.source_url}</p>}{entry.error_code && <p className="item-description">{entry.error_code.replaceAll('_', ' ')}</p>}</div><div className="item-actions"><ImportStatusLabel status={entry.status} /></div></div></li>)}</ul> : <div className="phase2-state">{activeImportStatuses.has(result.import.status) ? 'Parsing is underway. Results will appear here automatically.' : 'No imported links were created for this file.'}</div>}</section>
   </>;
 }

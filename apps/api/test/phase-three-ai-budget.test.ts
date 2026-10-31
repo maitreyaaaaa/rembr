@@ -72,8 +72,8 @@ test('reservations atomically protect the import cap and settle actual spend', a
     const now = new Date('2026-10-29T10:00:00.000Z');
     await seedImport(database, 'budget-import', 'budget-job', now.toISOString());
     const usage = createAiUsageRepository(database);
-    const first = await usage.reserve({ ownerId: 'budget-user', importId: 'budget-import', jobId: 'budget-job', attemptNumber: 1, amountMicroUsd: 12_000_000, now });
-    const second = await usage.reserve({ ownerId: 'budget-user', importId: 'budget-import', jobId: 'budget-job', attemptNumber: 2, amountMicroUsd: 8_000_000, now });
+    const first = await usage.reserve({ ownerId: 'budget-user', importId: 'budget-import', jobId: 'budget-job', attemptNumber: 1, amountMicroUsd: 18_000_000, now });
+    const second = await usage.reserve({ ownerId: 'budget-user', importId: 'budget-import', jobId: 'budget-job', attemptNumber: 2, amountMicroUsd: 12_000_000, now });
     await assert.rejects(usage.reserve({ ownerId: 'budget-user', importId: 'budget-import', jobId: 'budget-job', attemptNumber: 3, amountMicroUsd: 1, now }),
       (error: unknown) => error instanceof AiBudgetExceededError && error.scope === 'import_budget');
     assert.equal(await usage.settle(first, 100_000, now.toISOString()), true);

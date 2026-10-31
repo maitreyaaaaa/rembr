@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { basename } from 'node:path';
 import type { DatabaseHandle } from '../db/database.js';
 import type { ParsedImportItem } from './parser.js';
+import { AI_DISCLOSURE_VERSION } from '../ai/preferences.js';
 
 const ACCEPT_BATCH_SIZE = 250;
 const LOOKUP_BATCH_SIZE = 400;
@@ -34,6 +35,38 @@ export class ImportRepositoryError extends Error {
 
 export function createImportRepository(database: DatabaseHandle) {
   return {
+    async queueAiAnalysis(ownerId: string, importId: string) {
+      return database.transaction(async () => {
+        const imported = await database.prepare('SELECT id FROM imports WHERE owner_id=? AND id=?')
+          .get(ownerId, importId) as { id: string } | undefined;
+        if (!imported) return { found: false, queued: 0, skipped: 0 };
+        const preference = await database.prepare(`SELECT enabled,consent_version FROM ai_analysis_preferences WHERE owner_id=?`)
+          .get(ownerId) as { enabled: boolean | number; consent_version: string | null } | undefined;
+        if (!preference?.enabled || preference.consent_version !== AI_DISCLOSURE_VERSION) {
+          throw new ImportRepositoryError('ai_consent_required');
+        }
+        const entries = await database.prepare(`SELECT e.item_id
+          FROM import_entries e JOIN saved_items s ON s.owner_id=e.owner_id AND s.id=e.item_id
+          WHERE e.owner_id=? AND e.import_id=? AND e.source_platform='instagram' AND e.status='saved'
+            AND e.item_id IS NOT NULL
+            AND NOT EXISTS (SELECT 1 FROM ai_analysis_jobs j WHERE j.owner_id=e.owner_id AND j.item_id=e.item_id)
+            AND NOT EXISTS (SELECT 1 FROM ai_analysis_results r WHERE r.owner_id=e.owner_id AND r.item_id=e.item_id)
+          GROUP BY e.item_id
+          ORDER BY MIN(e.source_order) ASC, e.item_id ASC LIMIT 300`).all(ownerId, importId) as Array<{ item_id: string }>;
+        const total = await database.prepare(`SELECT count(DISTINCT item_id) AS count FROM import_entries
+          WHERE owner_id=? AND import_id=? AND source_platform='instagram' AND status='saved' AND item_id IS NOT NULL`)
+          .get(ownerId, importId) as { count: number };
+        const now = new Date().toISOString();
+        for (const entry of entries) {
+          await database.prepare(`INSERT INTO ai_analysis_jobs
+            (id,owner_id,import_id,item_id,generation,status,available_at,created_at,updated_at)
+            VALUES (?,?,?,?,1,'queued',?,?,?)`)
+            .run(randomUUID(), ownerId, importId, entry.item_id, now, now, now);
+        }
+        return { found: true, queued: entries.length, skipped: Math.max(0, Number(total.count) - entries.length) };
+      })();
+    },
+
     async create(ownerId: string, requestId: string, idempotencyKey: string, files: ImportFileInput[]) {
       const id = randomUUID(); const now = new Date().toISOString();
       const transaction = database.transaction(async () => {

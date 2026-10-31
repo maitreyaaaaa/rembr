@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseHandle } from '../db/database.js';
 
-export const IMPORT_AI_CAP_MICROUSD = 20_000_000;
+export const IMPORT_AI_CAP_MICROUSD = 30_000_000;
 export const MONTHLY_AI_CAP_MICROUSD = 100_000_000;
 export const SPARK_INPUT_MICROUSD_PER_TOKEN = 1.25;
 export const SPARK_OUTPUT_MICROUSD_PER_TOKEN = 4.25;

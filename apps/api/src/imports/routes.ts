@@ -5,6 +5,7 @@ import { requireUser } from '../auth/sessions.js';
 import { createProfileGate } from '../account/routes.js';
 import type { AssetStorage } from '../assets/storage.js';
 import { createImportService, ImportServiceError, IMPORT_FILE_LIMIT, IMPORT_TOTAL_LIMIT } from './service.js';
+import { ImportRepositoryError } from './repository.js';
 import type { ImportStorage } from './storage.js';
 import type { createLibraryService } from '../library/service.js';
 
@@ -27,6 +28,25 @@ export function createImportRouter(database: DatabaseHandle, assetStorage: Asset
   router.get('/imports/:id/progress', signedIn, profile, async (req, res) => {
     const progress = await imports.progress(req.user!.id, param(req, 'id'));
     return progress ? res.json({ progress }) : fail(res, 404, 'not_found', 'Import not found.', req.requestId);
+  });
+
+  router.post('/imports/:id/ai-analysis', signedIn, profile, async (req, res) => {
+    const provider = await database.prepare(`SELECT meta_api_configured,last_heartbeat_at
+      FROM ai_worker_status WHERE singleton=TRUE`).get() as { meta_api_configured: boolean | number; last_heartbeat_at: string } | undefined;
+    const heartbeat = Date.parse(provider?.last_heartbeat_at ?? '');
+    if (!provider || !Number(provider.meta_api_configured) || !Number.isFinite(heartbeat) || Date.now() - heartbeat > 90_000) {
+      return fail(res, 503, 'ai_provider_unavailable', 'Meta analysis is not available right now.', req.requestId);
+    }
+    try {
+      const result = await imports.queueAiAnalysis(req.user!.id, param(req, 'id'));
+      if (!result.found) return fail(res, 404, 'not_found', 'Import not found.', req.requestId);
+      return res.json({ importId: param(req, 'id'), queued: result.queued, skipped: result.skipped, limit: 300 });
+    } catch (cause) {
+      if (cause instanceof ImportRepositoryError && cause.code === 'ai_consent_required') {
+        return fail(res, 409, 'ai_consent_required', 'Enable Instagram media analysis in Settings before requesting analysis.', req.requestId);
+      }
+      return fail(res, 500, 'ai_queue_failed', 'Could not queue Instagram media analysis.', req.requestId);
+    }
   });
 
   router.post('/imports/:id/cancel', signedIn, profile, async (req, res) => {

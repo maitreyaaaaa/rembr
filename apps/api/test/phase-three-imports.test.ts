@@ -14,6 +14,7 @@ import { LocalImportStorage } from '../src/imports/storage.js';
 import { LocalMediaStorage } from '../src/media/storage.js';
 import { processNextJob } from '../src/worker/process-job.js';
 import { CaptureError } from '../src/items/safe-fetch.js';
+import { AI_DISCLOSURE_VERSION } from '../src/ai/preferences.js';
 
 const password = 'correct-horse-battery-staple';
 
@@ -171,6 +172,48 @@ test('Instagram import acceptance queues opted-in AI analysis and import failure
     const failed = await database.prepare(`SELECT status,lease_token,lease_expires_at FROM imports WHERE owner_id=? AND id=?`)
       .get(account.id, failedManifest.id) as { status: string; lease_token: string | null; lease_expires_at: string | null };
     assert.deepEqual(failed, { status: 'failed', lease_token: null, lease_expires_at: null });
+  });
+});
+
+test('existing Instagram imports can queue up to 300 unanalyzed saved posts idempotently', async () => {
+  await withApi(async (baseUrl, database) => {
+    const owner = await register(baseUrl, 'retroactive-ai@example.test', 'retroactive_ai');
+    const account = await database.prepare('SELECT id FROM users WHERE email=?').get('retroactive-ai@example.test') as { id: string };
+    const now = new Date().toISOString();
+    await database.prepare(`INSERT INTO ai_worker_status (singleton,meta_api_configured,last_heartbeat_at)
+      VALUES (TRUE,TRUE,?)`).run(now);
+    const repository = createImportRepository(database);
+    const manifest = await repository.create(account.id, 'retroactive-analysis', 'retroactive-analysis-key', [
+      { name: 'saved_posts.json', mime: 'application/json', size: 1, chunks: 1 },
+    ]);
+    await database.prepare(`UPDATE imports SET status='staged' WHERE owner_id=? AND id=?`).run(account.id, manifest.id);
+    await database.prepare(`UPDATE import_upload_files SET state='staged' WHERE owner_id=? AND import_id=?`).run(account.id, manifest.id);
+    const lease = await repository.claimForParsing(account.id, manifest.id);
+    assert.ok(lease);
+    const files = await repository.files(account.id, manifest.id);
+    await repository.accept(account.id, manifest.id, lease, files.map((file) => ({
+      id: String(file.id), key: String(file.storage_key), name: String(file.original_name),
+    })), [{
+      platform: 'instagram', url: 'https://www.instagram.com/p/RETROACTIVE/', sourceId: 'RETROACTIVE',
+      title: 'Retroactive analysis test', description: '', collection: null, metadata: {}, sourceOrder: 0,
+    }]);
+    await database.prepare(`UPDATE saved_items SET status='ready' WHERE owner_id=? AND id IN
+      (SELECT item_id FROM import_entries WHERE owner_id=? AND import_id=?)`).run(account.id, account.id, manifest.id);
+    await database.prepare(`UPDATE import_entries SET status='saved' WHERE owner_id=? AND import_id=?`).run(account.id, manifest.id);
+    await database.prepare(`UPDATE imports SET status='completed' WHERE owner_id=? AND id=?`).run(account.id, manifest.id);
+    await database.prepare(`INSERT INTO ai_analysis_preferences (owner_id,enabled,consent_version,consented_at,updated_at)
+      VALUES (?,TRUE,?,?,?)`).run(account.id, AI_DISCLOSURE_VERSION, now, now);
+
+    const request = () => fetch(`${baseUrl}/api/imports/${manifest.id}/ai-analysis`, { method: 'POST', headers: { Cookie: owner } });
+    const first = await request();
+    assert.equal(first.status, 200);
+    assert.deepEqual(await first.json(), { importId: manifest.id, queued: 1, skipped: 0, limit: 300 });
+    const second = await request();
+    assert.equal(second.status, 200);
+    assert.deepEqual(await second.json(), { importId: manifest.id, queued: 0, skipped: 1, limit: 300 });
+    assert.equal((await database.prepare('SELECT count(*) AS count FROM ai_analysis_jobs WHERE owner_id=? AND import_id=?').get(account.id, manifest.id) as { count: number }).count, 1);
+    const otherOwner = await register(baseUrl, 'retroactive-other@example.test', 'retroactive_other');
+    assert.equal((await fetch(`${baseUrl}/api/imports/${manifest.id}/ai-analysis`, { method: 'POST', headers: { Cookie: otherOwner } })).status, 404);
   });
 });
 

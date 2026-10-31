@@ -98,6 +98,10 @@ export function createImportService(database: DatabaseHandle, storage: ImportSto
   }
 
   return {
+    queueAiAnalysis(ownerId: string, importId: string) {
+      return repository.queueAiAnalysis(ownerId, importId);
+    },
+
     create(ownerId: string, requestId: string, idempotencyKey: string, files: ImportFileInput[]) {
       validateImportFiles(files);
       return repository.create(ownerId, requestId, idempotencyKey, files);
