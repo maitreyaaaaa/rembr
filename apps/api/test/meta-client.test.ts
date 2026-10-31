@@ -63,6 +63,24 @@ test('image analysis uses Muse Spark Responses API, inline data URLs, output bou
   assert.deepEqual(result, { text: 'A clear description.', inputTokens: 120, outputTokens: 18 });
 });
 
+test('incomplete Meta analysis errors identify missing safe response fields', async () => {
+  const cases = [
+    [{ output_text: 'READY' }, 'Meta analysis response is missing token usage.'],
+    [{ usage: { input_tokens: 10, output_tokens: 2 } }, 'Meta analysis response is missing output text.'],
+    [{}, 'Meta analysis response is missing output text and token usage.'],
+  ] as const;
+  for (const [body, expectedMessage] of cases) {
+    const client = createMetaModelClient({ apiKey: 'test-key', fetcher: async () => jsonResponse(body) });
+    await assert.rejects(client.analyzeText('Synthetic response parsing test.'), (error: unknown) => {
+      assert.ok(error instanceof MetaApiError);
+      assert.equal(error.code, 'invalid_response');
+      assert.equal(error.outcomeUnknown, true);
+      assert.equal(error.message, expectedMessage);
+      return true;
+    });
+  }
+});
+
 test('input-token preflight uses the exact Responses payload and reports input_tokens', async () => {
   let requestUrl = '';
   let requestBody: Record<string, unknown> | undefined;

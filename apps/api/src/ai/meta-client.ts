@@ -113,6 +113,12 @@ function tokenUsage(value: unknown): { inputTokens: number; outputTokens: number
   return { inputTokens: Number(input), outputTokens: Number(output) };
 }
 
+function incompleteAnalysisMessage(text: string | null, usage: { inputTokens: number; outputTokens: number } | null): string {
+  if (text === null && usage === null) return 'Meta analysis response is missing output text and token usage.';
+  if (text === null) return 'Meta analysis response is missing output text.';
+  return 'Meta analysis response is missing token usage.';
+}
+
 function countedTokens(value: unknown): number | null {
   if (!value || typeof value !== 'object') return null;
   const count = (value as Record<string, unknown>).input_tokens;
@@ -195,7 +201,7 @@ export function createMetaModelClient(options: MetaModelClientOptions) {
       const raw = await postJson('/responses', body);
       const text = responseText(raw);
       const usage = tokenUsage(raw);
-      if (text === null || usage === null) throw new MetaApiError('invalid_response', 'Meta returned an incomplete analysis response.', { retryable: false, outcomeUnknown: true });
+      if (text === null || usage === null) throw new MetaApiError('invalid_response', incompleteAnalysisMessage(text, usage), { retryable: false, outcomeUnknown: true });
       results.push({ text, ...usage });
     }
     return results;
@@ -246,7 +252,7 @@ export function createMetaModelClient(options: MetaModelClientOptions) {
     const raw = await postJson('/responses', body);
     const text = responseText(raw);
     const usage = tokenUsage(raw);
-    if (text === null || usage === null) throw new MetaApiError('invalid_response', 'Meta returned an incomplete analysis response.', { retryable: false, outcomeUnknown: true });
+    if (text === null || usage === null) throw new MetaApiError('invalid_response', incompleteAnalysisMessage(text, usage), { retryable: false, outcomeUnknown: true });
     return { text, ...usage };
   }
 
@@ -270,7 +276,7 @@ export function createMetaModelClient(options: MetaModelClientOptions) {
     });
     const text = responseText(raw);
     const usage = tokenUsage(raw);
-    if (text === null || usage === null) throw new MetaApiError('invalid_response', 'Meta returned an incomplete analysis response.', { retryable: false, outcomeUnknown: true });
+    if (text === null || usage === null) throw new MetaApiError('invalid_response', incompleteAnalysisMessage(text, usage), { retryable: false, outcomeUnknown: true });
     return { text, ...usage };
   }
 
