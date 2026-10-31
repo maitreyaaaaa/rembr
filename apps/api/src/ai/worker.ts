@@ -367,7 +367,7 @@ export async function processNextAiJob(database: DatabaseHandle, client: AiModel
     else if (error instanceof MetaApiError && error.retryable && job.attempts < 3 && accumulated.length === 0 && transcripts.length === 0) retryableFailure = true;
     else partial = true;
     if (error instanceof MetaApiError && error.outcomeUnknown) {
-      console.warn('rembr_ai_outcome_unknown', { jobId: job.id, code: error.code, status: error.status ?? null });
+      console.warn('rembr_ai_outcome_unknown', { jobId: job.id, code: error.code, status: error.status ?? null, message: error.message });
     }
     for (const reservation of reservations) {
       try {
