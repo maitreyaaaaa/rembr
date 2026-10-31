@@ -119,6 +119,46 @@ function incompleteAnalysisMessage(text: string | null, usage: { inputTokens: nu
   return 'Meta analysis response is missing token usage.';
 }
 
+function safeResponseShape(value: unknown): string {
+  if (!value || typeof value !== 'object') return 'shape=non_object';
+  const response = value as Record<string, unknown>;
+  const output = Array.isArray(response.output) ? response.output : [];
+  const itemTypes: string[] = [];
+  const contentTypes: string[] = [];
+  let refusalPresent = false;
+  for (const item of output) {
+    if (!item || typeof item !== 'object') continue;
+    const block = item as Record<string, unknown>;
+    if (typeof block.type === 'string') itemTypes.push(block.type);
+    if (!Array.isArray(block.content)) continue;
+    for (const content of block.content) {
+      if (!content || typeof content !== 'object') continue;
+      const part = content as Record<string, unknown>;
+      if (typeof part.type === 'string') contentTypes.push(part.type);
+      if (part.type === 'refusal') refusalPresent = true;
+    }
+  }
+  const usage = response.usage && typeof response.usage === 'object' ? response.usage as Record<string, unknown> : null;
+  const error = response.error && typeof response.error === 'object' ? response.error as Record<string, unknown> : null;
+  const incomplete = response.incomplete_details && typeof response.incomplete_details === 'object'
+    ? response.incomplete_details as Record<string, unknown> : null;
+  return [
+    `top_keys=${Object.keys(response).sort().join(',') || 'none'}`,
+    `status=${typeof response.status === 'string' ? response.status : 'missing'}`,
+    `output_types=${[...new Set(itemTypes)].sort().join(',') || 'none'}`,
+    `content_types=${[...new Set(contentTypes)].sort().join(',') || 'none'}`,
+    `refusal=${refusalPresent}`,
+    `usage_keys=${usage ? Object.keys(usage).sort().join(',') || 'empty' : 'missing'}`,
+    `error_code=${error && typeof error.code === 'string' ? error.code : 'none'}`,
+    `incomplete_reason=${incomplete && typeof incomplete.reason === 'string' ? incomplete.reason : 'none'}`,
+  ].join(' ');
+}
+
+export function incompleteAnalysisDiagnostic(value: unknown, text: string | null,
+  usage: { inputTokens: number; outputTokens: number } | null): string {
+  return `${incompleteAnalysisMessage(text, usage)} [${safeResponseShape(value)}]`;
+}
+
 function countedTokens(value: unknown): number | null {
   if (!value || typeof value !== 'object') return null;
   const count = (value as Record<string, unknown>).input_tokens;
@@ -201,7 +241,7 @@ export function createMetaModelClient(options: MetaModelClientOptions) {
       const raw = await postJson('/responses', body);
       const text = responseText(raw);
       const usage = tokenUsage(raw);
-      if (text === null || usage === null) throw new MetaApiError('invalid_response', incompleteAnalysisMessage(text, usage), { retryable: false, outcomeUnknown: true });
+      if (text === null || usage === null) throw new MetaApiError('invalid_response', incompleteAnalysisDiagnostic(raw, text, usage), { retryable: false, outcomeUnknown: true });
       results.push({ text, ...usage });
     }
     return results;
@@ -252,7 +292,7 @@ export function createMetaModelClient(options: MetaModelClientOptions) {
     const raw = await postJson('/responses', body);
     const text = responseText(raw);
     const usage = tokenUsage(raw);
-    if (text === null || usage === null) throw new MetaApiError('invalid_response', incompleteAnalysisMessage(text, usage), { retryable: false, outcomeUnknown: true });
+    if (text === null || usage === null) throw new MetaApiError('invalid_response', incompleteAnalysisDiagnostic(raw, text, usage), { retryable: false, outcomeUnknown: true });
     return { text, ...usage };
   }
 
@@ -276,7 +316,7 @@ export function createMetaModelClient(options: MetaModelClientOptions) {
     });
     const text = responseText(raw);
     const usage = tokenUsage(raw);
-    if (text === null || usage === null) throw new MetaApiError('invalid_response', incompleteAnalysisMessage(text, usage), { retryable: false, outcomeUnknown: true });
+    if (text === null || usage === null) throw new MetaApiError('invalid_response', incompleteAnalysisDiagnostic(raw, text, usage), { retryable: false, outcomeUnknown: true });
     return { text, ...usage };
   }
 

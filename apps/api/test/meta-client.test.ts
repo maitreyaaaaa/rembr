@@ -68,6 +68,8 @@ test('incomplete Meta analysis errors identify missing safe response fields', as
     [{ output_text: 'READY' }, 'Meta analysis response is missing token usage.'],
     [{ usage: { input_tokens: 10, output_tokens: 2 } }, 'Meta analysis response is missing output text.'],
     [{}, 'Meta analysis response is missing output text and token usage.'],
+    [{ status: 'incomplete', output: [{ type: 'message', content: [{ type: 'refusal', refusal: 'private generated content' }] }],
+      usage: { input_tokens: 2, output_tokens: 0 } }, 'Meta analysis response is missing output text.'],
   ] as const;
   for (const [body, expectedMessage] of cases) {
     const client = createMetaModelClient({ apiKey: 'test-key', fetcher: async () => jsonResponse(body) });
@@ -75,7 +77,9 @@ test('incomplete Meta analysis errors identify missing safe response fields', as
       assert.ok(error instanceof MetaApiError);
       assert.equal(error.code, 'invalid_response');
       assert.equal(error.outcomeUnknown, true);
-      assert.equal(error.message, expectedMessage);
+      assert.ok(error.message.startsWith(expectedMessage));
+      assert.ok(error.message.includes('top_keys='));
+      assert.ok(!error.message.includes('private generated content'));
       return true;
     });
   }
