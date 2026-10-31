@@ -53,7 +53,8 @@ test('image analysis uses Muse Spark Responses API, inline data URLs, output bou
   assert.equal(requestUrl, 'https://api.meta.ai/v1/responses');
   assert.equal(authorization, 'Bearer secret-test-key');
   assert.equal(requestBody?.model, 'muse-spark-1.3');
-  assert.equal(requestBody?.max_output_tokens, 700);
+  assert.equal(requestBody?.max_output_tokens, 1_200);
+  assert.deepEqual(requestBody?.reasoning, { effort: 'low' });
   const input = requestBody?.input as Array<Record<string, unknown>>;
   const content = input[0]?.content as Array<Record<string, unknown>>;
   assert.equal(input[0]?.type, 'message');

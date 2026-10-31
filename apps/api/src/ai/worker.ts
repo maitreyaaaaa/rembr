@@ -3,10 +3,9 @@ import { readFile } from 'node:fs/promises';
 import type { DatabaseHandle } from '../db/database.js';
 import { AI_DISCLOSURE_VERSION } from './preferences.js';
 import { AiBudgetExceededError, createAiUsageRepository, sparkCostMicroUsd, voiceCostMicroUsd, type AiUsageReservation } from './usage.js';
-import { MetaApiError, groupImageInputs, MAX_AUDIO_BODY_BYTES, MAX_AUDIO_SECONDS, MAX_IMAGE_BYTES, MAX_INLINE_IMAGE_GROUP_BYTES, MAX_VIDEO_BYTES, MUSE_SPARK_MODEL, MUSE_VOICE_MODEL, type ImageInput, type MetaJsonSchema, type ModelTextResult, type TranscriptionResult } from './meta-client.js';
+import { MetaApiError, groupImageInputs, MAX_AUDIO_BODY_BYTES, MAX_AUDIO_SECONDS, MAX_IMAGE_BYTES, MAX_INLINE_IMAGE_GROUP_BYTES, MAX_OUTPUT_TOKENS, MAX_VIDEO_BYTES, MUSE_SPARK_MODEL, MUSE_VOICE_MODEL, type ImageInput, type MetaJsonSchema, type ModelTextResult, type TranscriptionResult } from './meta-client.js';
 
 const LEASE_MS = 2 * 60 * 60_000;
-const MAX_OUTPUT_TOKENS = 700;
 const retryDelayMs = (attempt: number) => Math.min(60_000, 2_000 * (2 ** Math.max(0, attempt - 1)));
 const ANALYSIS_PROMPT = `Analyze this public Instagram post media and its supplied post text. Return only JSON with keys summary (concise factual summary), visual_description (specific visible details), ocr_text (only readable text), keywords (up to 5 specific keywords), tags (up to 3 grounded topical tags), brands (up to 5 brand names directly supported by readable text or an unambiguous visible logo), tools (up to 5 software or service names directly supported by readable text or an unambiguous visible logo), people (up to 5 names explicitly written in the post text or OCR), and repositories (up to 5 repository names explicitly written in the post text or OCR). Never identify a person from a face, infer identities, locations, or facts, or guess an entity from context. Return only directly supported labels; use empty arrays when uncertain.`;
 const ANALYSIS_OUTPUT_SCHEMA: MetaJsonSchema = {

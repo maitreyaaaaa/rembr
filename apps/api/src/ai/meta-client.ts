@@ -8,8 +8,9 @@ export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 export const MAX_VIDEO_BYTES = 25 * 1024 * 1024;
 export const MAX_AUDIO_SECONDS = 10 * 60;
 export const MAX_AUDIO_BODY_BYTES = 32 * 1024 * 1024;
-export const MAX_OUTPUT_TOKENS = 700;
+export const MAX_OUTPUT_TOKENS = 1_200;
 const DEFAULT_TIMEOUT_MS = 90_000;
+const DEFAULT_REASONING = { effort: 'low' } as const;
 
 export type ImageMime = 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
 export interface ImageInput { bytes: Uint8Array; mime: ImageMime }
@@ -232,6 +233,7 @@ export function createMetaModelClient(options: MetaModelClientOptions) {
       const body = {
         model: MUSE_SPARK_MODEL,
         max_output_tokens: MAX_OUTPUT_TOKENS,
+        reasoning: DEFAULT_REASONING,
         input: [{ type: 'message', role: 'user', content }],
         ...structuredOutput(outputSchema),
       };
@@ -255,6 +257,7 @@ export function createMetaModelClient(options: MetaModelClientOptions) {
       const body = {
         model: MUSE_SPARK_MODEL,
         max_output_tokens: MAX_OUTPUT_TOKENS,
+        reasoning: DEFAULT_REASONING,
         input: [{ type: 'message', role: 'user', content: [
           { type: 'input_text', text: prompt.slice(0, 8_000) },
           ...group.map((image) => ({ type: 'input_image', image_url: dataUrl(image.bytes, image.mime) })),
@@ -276,6 +279,7 @@ export function createMetaModelClient(options: MetaModelClientOptions) {
     const body = {
       model: MUSE_SPARK_MODEL,
       max_output_tokens: MAX_OUTPUT_TOKENS,
+      reasoning: DEFAULT_REASONING,
       input: [{
         type: 'message',
         role: 'user',
@@ -298,7 +302,7 @@ export function createMetaModelClient(options: MetaModelClientOptions) {
 
   async function countTextInputTokens(prompt: string, outputSchema?: MetaJsonSchema): Promise<number> {
     if (!prompt.trim()) throw new MetaApiError('invalid_input', 'A prompt is required.');
-    const body = { model: MUSE_SPARK_MODEL, max_output_tokens: MAX_OUTPUT_TOKENS,
+    const body = { model: MUSE_SPARK_MODEL, max_output_tokens: MAX_OUTPUT_TOKENS, reasoning: DEFAULT_REASONING,
       input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: prompt.slice(0, 8_000) }] }],
       ...structuredOutput(outputSchema) };
     const count = countedTokens(await postJson('/responses/input_tokens', body));
@@ -311,6 +315,7 @@ export function createMetaModelClient(options: MetaModelClientOptions) {
     const raw = await postJson('/responses', {
       model: MUSE_SPARK_MODEL,
       max_output_tokens: MAX_OUTPUT_TOKENS,
+      reasoning: DEFAULT_REASONING,
       input: [{ type: 'message', role: 'user', content: [{ type: 'input_text', text: prompt.slice(0, 8_000) }] }],
       ...structuredOutput(outputSchema),
     });
@@ -327,6 +332,7 @@ export function createMetaModelClient(options: MetaModelClientOptions) {
     const body = {
       model: MUSE_SPARK_MODEL,
       max_output_tokens: MAX_OUTPUT_TOKENS,
+      reasoning: DEFAULT_REASONING,
       input: [{ type: 'message', role: 'user', content: [
         { type: 'input_text', text: prompt.slice(0, 8_000) },
         { type: 'input_video', video_url: dataUrl(bytes, 'video/mp4') },
