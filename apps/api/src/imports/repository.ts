@@ -326,7 +326,7 @@ export function createImportRepository(database: DatabaseHandle) {
           savedItemRows.push([itemId, ownerId, entry.url, entry.url, entry.title, entry.description, now, now, entry.platform, entry.sourceId, JSON.stringify(entry.metadata)]);
           jobRows.push([jobId, ownerId, itemId, importId, correlationId, sourceOrder, now, now, now]);
           entryRows.push([randomUUID(), ownerId, importId, uploadFileId, itemId, jobId, entry.platform, entry.url, entry.sourceId, entry.title, JSON.stringify(entry.metadata), 'queued', null, sourceOrder, now]);
-          if (aiEnabled && entry.platform === 'instagram') aiJobRows.push([randomUUID(), ownerId, importId, itemId, now, now]);
+          if (aiEnabled && entry.platform === 'instagram') aiJobRows.push([randomUUID(), ownerId, importId, itemId, now, now, now]);
           itemIdsByUrl.set(entry.url, itemId);
           for (const rawTag of hashtags.slice(0, 20)) {
             const name = String(rawTag).trim().slice(0, 40); const normalized = name.toLowerCase(); if (!normalized) continue;
@@ -382,7 +382,7 @@ export function createImportRepository(database: DatabaseHandle) {
       const now = new Date().toISOString();
       await database.prepare(`UPDATE imports SET status='failed',error_code=?,failed_count=GREATEST(failed_count,1),updated_at=?,completed_at=?
         ,lease_token=NULL,lease_expires_at=NULL WHERE owner_id=? AND id=? AND status IN ('uploading','staged','parsing')
-        AND (? IS NULL OR lease_token=?)`).run(code, now, now, ownerId, importId, leaseToken ?? null, leaseToken ?? null);
+        AND (?::text IS NULL OR lease_token=?)`).run(code, now, now, ownerId, importId, leaseToken ?? null, leaseToken ?? null);
       await database.prepare(`UPDATE import_upload_files SET state='failed',updated_at=? WHERE owner_id=? AND import_id=? AND state!='deleted'`).run(now, ownerId, importId);
     },
 

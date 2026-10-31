@@ -129,6 +129,51 @@ test('Phase 3 import manifests precede chunks, auto-queue parsed items, deduplic
   });
 });
 
+test('Instagram import acceptance queues opted-in AI analysis and import failures clear leases', async () => {
+  await withApi(async (_baseUrl, database) => {
+    await register(_baseUrl, 'instagram-ai-import@example.test', 'instagram_ai_import');
+    const account = await database.prepare('SELECT id FROM users WHERE email=?').get('instagram-ai-import@example.test') as { id: string };
+    const now = new Date().toISOString();
+    await database.prepare(`INSERT INTO ai_analysis_preferences (owner_id,enabled,consent_version,consented_at,updated_at)
+      VALUES (?,TRUE,'test-consent',?,?)`).run(account.id, now, now);
+
+    const repository = createImportRepository(database);
+    const manifest = await repository.create(account.id, 'instagram-ai-request', 'instagram-ai-import-key', [
+      { name: 'saved_posts.json', mime: 'application/json', size: 1, chunks: 1 },
+    ]);
+    await database.prepare(`UPDATE imports SET status='staged' WHERE owner_id=? AND id=?`).run(account.id, manifest.id);
+    await database.prepare(`UPDATE import_upload_files SET state='staged' WHERE owner_id=? AND import_id=?`).run(account.id, manifest.id);
+    const lease = await repository.claimForParsing(account.id, manifest.id);
+    assert.ok(lease);
+    const files = await repository.files(account.id, manifest.id);
+    const result = await repository.accept(account.id, manifest.id, lease, files.map((file) => ({
+      id: String(file.id), key: String(file.storage_key), name: String(file.original_name),
+    })), [{
+      platform: 'instagram', url: 'https://www.instagram.com/p/AIIMPORT/', sourceId: 'AIIMPORT',
+      title: 'AI import test', description: '', collection: null,
+      metadata: { sourceFile: 'saved_posts.json' }, sourceOrder: 0,
+    }]);
+    assert.equal(result.newCount, 1);
+    const aiJob = await database.prepare(`SELECT status,available_at,created_at,updated_at FROM ai_analysis_jobs WHERE owner_id=? AND import_id=?`)
+      .get(account.id, manifest.id) as { status: string; available_at: string; created_at: string; updated_at: string } | undefined;
+    assert.ok(aiJob);
+    assert.equal(aiJob.status, 'queued');
+    assert.ok(aiJob.available_at);
+    assert.ok(aiJob.created_at);
+    assert.ok(aiJob.updated_at);
+
+    const failedManifest = await repository.create(account.id, 'failure-no-lease-request', 'failure-no-lease-key', [
+      { name: 'failed.json', mime: 'application/json', size: 1, chunks: 1 },
+    ]);
+    await database.prepare(`UPDATE imports SET status='parsing',lease_token='active-lease',lease_expires_at=? WHERE owner_id=? AND id=?`)
+      .run(new Date(Date.now() + 60_000).toISOString(), account.id, failedManifest.id);
+    await repository.fail(account.id, failedManifest.id, 'parser_failed');
+    const failed = await database.prepare(`SELECT status,lease_token,lease_expires_at FROM imports WHERE owner_id=? AND id=?`)
+      .get(account.id, failedManifest.id) as { status: string; lease_token: string | null; lease_expires_at: string | null };
+    assert.deepEqual(failed, { status: 'failed', lease_token: null, lease_expires_at: null });
+  });
+});
+
 test('large import acceptance batches writes and deduplicates repeated URLs across lookup chunks', async () => {
   await withApi(async (baseUrl, database) => {
     await register(baseUrl, 'batch-importer@example.test', 'batch_importer');
