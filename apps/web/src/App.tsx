@@ -347,7 +347,7 @@ function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promi
       onMouseEnter={() => { if (!expanded) setHoverExpanded(true); }} onMouseLeave={() => setHoverExpanded(false)} aria-label="Workspace navigation">
       <div className={`flex border-b border-white/5 p-3 ${sidebarExpanded ? 'items-center gap-2' : 'flex-col items-center gap-2'}`}>
         <Link to="/" title="Back to Rembr home" aria-label="Back to Rembr home" className={`flex min-h-11 items-center rounded-lg transition hover:bg-white/5 ${sidebarExpanded ? 'min-w-0 flex-1 gap-3 px-2' : 'h-11 w-11 justify-center'}`}>
-          <ArrowLeft className="h-4 w-4 shrink-0 text-muted-foreground" />{sidebarExpanded && <img className="rembr-official-logo app-nav-brand" src="/brand/rembr-wordmark-white.png" alt="Rembr" />}
+          <ArrowLeft className="h-4 w-4 shrink-0 text-muted-foreground" />{sidebarExpanded && <img className="rembr-official-logo app-nav-brand" src="/brand/rembr-wordmark-white.png?v=4ed985b" alt="Rembr" />}
         </Link>
         <button type="button" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? 'Collapse sidebar' : 'Expand sidebar'} aria-expanded={expanded} title={expanded ? 'Collapse sidebar' : 'Expand sidebar'} className="grid h-11 w-11 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-white/5 hover:text-primary">
           {expanded ? <PanelLeftClose className="h-5 w-5" /> : <PanelLeftOpen className="h-5 w-5" />}
@@ -378,7 +378,7 @@ function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promi
       </div>
     </aside>
     <header className="mobile-app-topbar sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-white/10 bg-black/90 p-3 backdrop-blur md:hidden">
-      <Link to="/" aria-label="Rembr home" className="flex min-h-11 min-w-11 items-center gap-2"><ArrowLeft className="h-4 w-4" /><img className="rembr-official-logo app-nav-brand" src="/brand/rembr-wordmark-white.png" alt="Rembr" /></Link>
+      <Link to="/" aria-label="Rembr home" className="flex min-h-11 min-w-11 items-center gap-2"><ArrowLeft className="h-4 w-4" /><img className="rembr-official-logo app-nav-brand" src="/brand/rembr-wordmark-white.png?v=4ed985b" alt="Rembr" /></Link>
       <Link to="/app/settings/profile" className="grid h-11 w-11 place-items-center overflow-hidden rounded-full border border-white/10 bg-primary text-sm font-bold text-primary-foreground" aria-label="Open account settings">{avatar ? <img src={avatar} alt="" className="h-full w-full object-cover" /> : userMark.toUpperCase()}</Link>
     </header>
     {moreOpen && <button type="button" className="mobile-navigation-backdrop md:hidden" onClick={() => setMoreOpen(false)} aria-label="Close more navigation" />}
@@ -407,7 +407,7 @@ function SetupRoute() {
   if (loading) return <main className="center-state" role="status">Checking your session…</main>;
   if (!session) return <Navigate to={`/login?returnTo=${encodeURIComponent(`${location.pathname}${location.search}`)}`} replace />;
   if (session.profileComplete) return <Navigate to={returnTo} replace />;
-  return <main className="phase2-centered phase2-setup-shell"><section className="phase2-card phase2-setup-card"><Link className="wordmark" to="/" aria-label="Rembr home"><img className="rembr-official-logo auth-brand-logo" src="/brand/rembr-wordmark-white.png" alt="Rembr" /></Link><ProfileForm session={session} onComplete={async () => { await refresh(); navigate(returnTo, { replace: true }); }} /></section></main>;
+  return <main className="phase2-centered phase2-setup-shell"><section className="phase2-card phase2-setup-card"><Link className="wordmark" to="/" aria-label="Rembr home"><img className="rembr-official-logo auth-brand-logo" src="/brand/rembr-wordmark-white.png?v=4ed985b" alt="Rembr" /></Link><ProfileForm session={session} onComplete={async () => { await refresh(); navigate(returnTo, { replace: true }); }} /></section></main>;
 }
 
 function ProfileForm({ session, onComplete }: { session: Session; onComplete: () => Promise<void> }) {

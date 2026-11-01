@@ -18,7 +18,7 @@ export function RembrAuthFrame({ title, description, sideNote, children }: Rembr
     <main className="auth-shell">
       <section className="auth-story" aria-labelledby="rembr-auth-story-title">
         <Link className="wordmark" to="/" aria-label="Rembr home">
-          <img className="rembr-official-logo auth-brand-logo" src="/brand/rembr-wordmark-white.png" alt="Rembr" />
+          <img className="rembr-official-logo auth-brand-logo" src="/brand/rembr-wordmark-white.png?v=4ed985b" alt="Rembr" />
         </Link>
 
         <div className="story-copy">
