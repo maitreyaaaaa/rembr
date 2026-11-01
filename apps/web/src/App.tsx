@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { Archive, ArrowLeft, Brain, ChevronDown, Database, FileText, Folder, LogOut, MoreHorizontal, Network, PanelLeftClose, PanelLeftOpen, Plus, ScanSearch, Settings, Tag, Upload, Workflow } from 'lucide-react';
+import { Archive, ArrowLeft, Brain, ChevronDown, Database, FileText, Folder, LogOut, MoreHorizontal, Network, PanelLeftClose, PanelLeftOpen, Plus, ScanSearch, Settings, Tag, Upload } from 'lucide-react';
 import {
   BrowserRouter, Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useOutletContext,
   useParams, useSearchParams,
@@ -211,7 +211,6 @@ function AppRoutes() {
       <Route path="tags" element={<TagsPage />} />
       <Route path="graph" element={<KnowledgeGraphPage />} />
       <Route path="checkup" element={<LibraryCheckupPage />} />
-      <Route path="workflows" element={<PlannedWorkflowPage />} />
       <Route path="settings/profile" element={<SettingsPage />} />
       <Route path="settings/preferences" element={<SettingsPage />} />
     </Route>
@@ -326,7 +325,6 @@ function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promi
   const navItems = [
     { path: '/app', label: 'Saved library', icon: <Brain />, exact: true },
     { path: '/app/smart-collections', label: 'Smart collections', icon: <Folder /> },
-    { path: '/app/workflows', label: 'Workflows', icon: <Workflow /> },
     { path: '/app/add', label: 'Add saves', icon: <Upload /> },
   ];
   const moreItems = [
@@ -392,16 +390,11 @@ function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promi
         { path: '/app', label: 'Library', icon: <Database />, exact: true },
         { path: '/app/smart-collections', label: 'Smart', icon: <Brain /> },
         { path: '/app/add', label: 'Add', icon: <Plus />, add: true },
-        { path: '/app/workflows', label: 'Flows', icon: <Workflow /> },
       ].map((item) => <Link key={item.path} to={item.path} aria-current={isActive(item.path, item.exact) ? 'page' : undefined} className={`mobile-bottom-navigation-button ${isActive(item.path, item.exact) ? 'is-active' : ''} ${item.add ? 'is-add' : ''}`}>{item.icon}<span>{item.label}</span></Link>)}
       <button type="button" onClick={() => setMoreOpen((open) => !open)} aria-expanded={moreOpen} aria-controls="rembr-mobile-more" className={`mobile-bottom-navigation-button ${activeMoreLink || moreOpen ? 'is-active' : ''}`}><MoreHorizontal className="h-5 w-5" /><span>More</span></button>
     </nav>
   </>;
 }
-function PlannedWorkflowPage() {
-  return <div className="phase2-centered phase2-planned-screen"><section className="phase2-card"><p className="eyebrow"><span className="eyebrow-mark" aria-hidden="true" />PLANNED SURFACE</p><h1>Workflows are not available in Rembr yet.</h1><p className="phase2-helper">This workspace will stay empty until Rembr has an approved, working workflow service. Your saved library and current tools are ready to use.</p><Link className="primary-button" to="/app">Back to library</Link></section></div>;
-}
-
 function SetupRoute() {
   const { session, loading, refresh } = useSession(); const location = useLocation(); const navigate = useNavigate();
   const returnTo = sameAppPath((location.state as { returnTo?: string } | null)?.returnTo);

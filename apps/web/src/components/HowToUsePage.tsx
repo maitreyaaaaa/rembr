@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import './public-guides.css';
 
-type GuideId = 'link' | 'instagram' | 'pinterest' | 'extension' | 'workflows';
+type GuideId = 'link' | 'instagram' | 'pinterest' | 'extension';
 
 interface GuideStep {
   title: string;
@@ -86,14 +86,6 @@ const guides: Guide[] = [
     status: 'Unavailable',
     steps: [],
     unavailableCopy: 'The Rembr browser extension is not available yet. You can save a public link from Add in your library.',
-  },
-  {
-    id: 'workflows',
-    label: 'Workflows',
-    detail: 'Turn saved references into reviewed actions.',
-    status: 'Unavailable',
-    steps: [],
-    unavailableCopy: 'Workflows are not available in Rembr today. No workflow actions or publishing connections are enabled here.',
   },
 ];
 
@@ -186,4 +178,3 @@ export function HowToUsePage() {
   </div>;
 }
 
-export type { GuideId };
