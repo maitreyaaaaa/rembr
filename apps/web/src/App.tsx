@@ -179,7 +179,7 @@ function sameAppPath(value: string | null | undefined): string {
 }
 
 function AppRoutes() {
-  return <BrowserRouter><Suspense fallback={<AppShellSkeleton />}><Routes>
+  return <BrowserRouter><Suspense fallback={<main className="center-state route-loading-fallback" role="status" aria-label="Loading page" />}><Routes>
     <Route path="/" element={<PortedLanding />} />
     <Route path="/features" element={<MarketingSite />} />
     <Route path="/about" element={<MarketingSite />} />
@@ -267,7 +267,7 @@ function useSession() {
 }
 
 function ProtectedShell() {
-  const { session, setSession, loading } = useSession();
+  const { session, setSession, loading, error, refresh } = useSession();
   const location = useLocation();
   const navigate = useNavigate();
   const tourOpen = new URLSearchParams(location.search).get('tour') === '1';
@@ -295,6 +295,7 @@ function ProtectedShell() {
 
   if (loading) return <AppShellSkeleton />;
   if (accountDenied) return <main className="phase2-centered"><section className="phase2-card"><h1>Account unavailable</h1><p>This account is disabled, so its library is unavailable.</p><Link className="quiet-button" to="/login">Back to sign in</Link></section></main>;
+  if (error) return <main className="phase2-centered"><section className="phase2-card" role="alert"><h1>Your library could not load</h1><p>{error}</p><button className="quiet-button" type="button" onClick={() => void refresh()}>Try again</button></section></main>;
   if (!session) return <Navigate to={`/login?returnTo=${encodeURIComponent(`${location.pathname}${location.search}`)}`} replace />;
   if (!session.profileComplete && !location.pathname.startsWith('/app/setup/')) return <Navigate to="/app/setup/profile" replace state={{ returnTo: `${location.pathname}${location.search}` }} />;
   return <div className="dashboard-shell flex h-screen overflow-hidden bg-black text-foreground">
