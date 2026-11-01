@@ -263,9 +263,13 @@ export function MarketingSite() {
       const { motion, desktop } = context.conditions as { motion: boolean; desktop: boolean };
       if (!motion) return;
 
-      const intro = gsap.timeline({ defaults: { ease: 'power3.out' } });
-      intro.from('[data-hero-copy]', { y: 28, autoAlpha: 0, duration: 0.72, stagger: 0.1 })
-        .from('[data-hero-art]', { y: 24, autoAlpha: 0, rotate: -3, duration: 0.9, stagger: 0.08 }, '-=0.48');
+      const heroCopy = gsap.utils.toArray<HTMLElement>('[data-hero-copy]');
+      const heroArt = gsap.utils.toArray<HTMLElement>('[data-hero-art]');
+      if (heroCopy.length || heroArt.length) {
+        const intro = gsap.timeline({ defaults: { ease: 'power3.out' } });
+        if (heroCopy.length) intro.from(heroCopy, { y: 28, autoAlpha: 0, duration: 0.72, stagger: 0.1 });
+        if (heroArt.length) intro.from(heroArt, { y: 24, autoAlpha: 0, rotate: -3, duration: 0.9, stagger: 0.08 }, heroCopy.length ? '-=0.48' : undefined);
+      }
 
       gsap.utils.toArray<HTMLElement>('[data-reveal]').forEach((element) => {
         gsap.fromTo(element, { y: 24, autoAlpha: 0 }, {
@@ -279,16 +283,20 @@ export function MarketingSite() {
       });
 
       if (desktop) {
-        gsap.to('[data-parallax="sun"]', {
+        const sun = gsap.utils.toArray<HTMLElement>('[data-parallax="sun"]');
+        const hero = gsap.utils.toArray<HTMLElement>('.hero-section');
+        const constellation = gsap.utils.toArray<HTMLElement>('[data-parallax="constellation"]');
+        const constellationSection = gsap.utils.toArray<HTMLElement>('.constellation-section');
+        if (sun.length && hero.length) gsap.to(sun, {
           yPercent: 9,
           rotate: 8,
           ease: 'none',
-          scrollTrigger: { trigger: '.hero-section', start: 'top top', end: 'bottom top', scrub: 0.8 },
+          scrollTrigger: { trigger: hero[0], start: 'top top', end: 'bottom top', scrub: 0.8 },
         });
-        gsap.to('[data-parallax="constellation"]', {
+        if (constellation.length && constellationSection.length) gsap.to(constellation, {
           y: -24,
           ease: 'none',
-          scrollTrigger: { trigger: '.constellation-section', start: 'top bottom', end: 'bottom top', scrub: 1 },
+          scrollTrigger: { trigger: constellationSection[0], start: 'top bottom', end: 'bottom top', scrub: 1 },
         });
       }
     });
