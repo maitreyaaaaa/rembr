@@ -11,9 +11,10 @@ import { useEffect, useRef, useState } from 'react';
 gsap.registerPlugin(ScrollTrigger);
 
 const PLATFORM_LOGOS = [
+  { name: 'YouTube', bg: '#ff0033' },
   { name: 'Instagram', src: '/platforms/instagram-download.webp', bg: '#fff' },
   { name: 'Pinterest', src: '/platforms/pinterest-download.png', bg: '#e60023' },
-  { name: 'X', src: '/platforms/x-download.png', bg: '#fff' },
+  { name: 'X', src: '/platforms/x-download.png', bg: '#000' },
 ];
 const OUTCOME_WORDS = ['organized', 'searchable', 'findable', 'ready'];
 
@@ -31,18 +32,24 @@ function RotatingPlatformLogo() {
       const target = logoRef.current;
       if (!target) return setActiveIndex((current) => (current + 1) % PLATFORM_LOGOS.length);
       gsap.timeline()
-        .to(target, { yPercent: -115, autoAlpha: 0, duration: 0.35, ease: 'power2.in' })
+        .to(target, { autoAlpha: 0, duration: 0.16, ease: 'power2.in' })
         .add(() => setActiveIndex((current) => (current + 1) % PLATFORM_LOGOS.length))
-        .set(target, { yPercent: 115 })
-        .to(target, { yPercent: 0, autoAlpha: 1, duration: 0.45, ease: 'power3.out' });
-    }, 1600);
+        .to(target, { autoAlpha: 1, duration: 0.24, ease: 'power3.out' });
+    }, 3000);
     return () => window.clearInterval(timer);
   }, []);
 
   const platform = PLATFORM_LOGOS[activeIndex];
-  return <span className="hero-platform-ticker ml-[0.12em] inline-grid translate-y-[0.08em] overflow-hidden rounded-full align-baseline">
-    <span ref={logoRef} className="inline-flex h-[0.86em] w-[0.86em] items-center justify-center rounded-full" style={{ background: platform.bg }} aria-label={platform.name}>
-      <img src={platform.src} alt="" className="h-[0.56em] w-[0.56em] object-contain" draggable="false" />
+  return <span className="hero-platform-ticker ml-[0.12em] inline-grid h-[0.92em] w-[0.92em] translate-y-[0.08em] overflow-hidden rounded-full align-baseline">
+    <span ref={logoRef} className="inline-flex h-full w-full items-center justify-center overflow-hidden rounded-full" style={{ background: platform.bg }} role="img" aria-label={platform.name}>
+      {platform.name === 'YouTube' ? (
+        <svg aria-hidden="true" viewBox="0 0 32 32" className="h-full w-full">
+          <rect x="5" y="9" width="22" height="14" rx="5" fill="#fff" />
+          <path d="M14 12.5 21 16l-7 3.5z" fill="#ff0033" />
+        </svg>
+      ) : (
+        <img src={platform.src} alt="" className="h-full w-full rounded-full object-cover" draggable="false" />
+      )}
     </span>
   </span>;
 }

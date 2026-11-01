@@ -309,8 +309,8 @@ function Landing({ onOpenApp, onOpenLogin, onOpenPricing, onOpenHowTo, onOpenTer
 
   return (
     <div ref={root} className="relative bg-black text-foreground overflow-x-hidden">
-      <div ref={introRef} className="fixed inset-0 z-[200] hidden place-items-center bg-black md:grid">
-        <BrandLogo align="center" className="intro-logo h-24 w-80 opacity-0 md:h-32 md:w-[28rem]" />
+      <div ref={introRef} className="landing-intro fixed inset-0 z-[200] hidden place-items-center bg-black md:grid">
+        <BrandLogo align="center" className="intro-logo opacity-0" />
       </div>
 
       <div
@@ -318,14 +318,14 @@ function Landing({ onOpenApp, onOpenLogin, onOpenPricing, onOpenHowTo, onOpenTer
         className="pointer-events-none fixed left-0 top-0 z-[100] hidden h-3 w-3 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary mix-blend-difference md:block"
       />
 
-      <header className="pointer-events-none absolute left-0 right-0 top-4 z-50">
+      <header className="landing-header pointer-events-none absolute left-0 right-0 top-4 z-50">
         <div className="mx-auto grid w-full max-w-[100rem] grid-cols-[auto_1fr_auto] items-center gap-4 px-6 md:px-10 md:pr-20 xl:px-14 xl:pr-24">
           <button
             type="button"
             onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
-            className="nav-item pointer-events-auto flex items-center"
+            className="landing-brand-button nav-item pointer-events-auto flex items-center"
           >
-            <BrandLogo className="h-20 w-64 md:h-[7.5rem] md:w-[24rem]" />
+            <BrandLogo className="landing-brand-logo" />
           </button>
           <nav className="pointer-events-auto absolute left-1/2 hidden -translate-x-1/2 rounded-full border border-white/10 bg-black/75 p-1 text-sm font-semibold text-muted-foreground shadow-[0_18px_70px_rgba(0,0,0,0.45)] backdrop-blur-xl md:flex">
             <button type="button" onClick={onOpenPricing} className="nav-item rounded-full px-4 py-2 transition hover:bg-white/10 hover:text-foreground">Pricing</button>
@@ -370,16 +370,14 @@ function Landing({ onOpenApp, onOpenLogin, onOpenPricing, onOpenHowTo, onOpenTer
           >
             {heroWords.map((word) => (
               <span key={word} className="mr-[0.18em] inline-block overflow-visible last:mr-0">
-                <span className={`word inline-block ${word === 'Lose' ? 'relative isolate' : ''} ${word === 'Post' ? 'rounded-[5px] bg-accent pl-[0.08em] pr-[0.22em] italic text-accent-foreground' : ''}`}>
+                <span className={`word inline-block ${word === 'Lose' ? 'relative isolate' : ''} ${word === 'Post' ? 'hero-post-highlight rounded-[5px] bg-accent pl-[0.08em] pr-[0.22em] text-accent-foreground' : ''}`}>
                   {word === 'Lose' && (
-                    <img
-                      src="/hero/lose-circle.png"
-                      alt=""
-                      className="pointer-events-none absolute left-1/2 top-1/2 z-0 h-[1.2em] max-w-none -translate-x-1/2 -translate-y-[50%] rotate-[-5deg] opacity-95"
-                      draggable="false"
-                    />
+                    <svg aria-hidden="true" viewBox="0 0 320 156" preserveAspectRatio="none" className="hero-lose-ring pointer-events-none absolute left-1/2 top-1/2 z-0 h-[1.2em] w-[calc(100%+0.3em)] -translate-x-1/2 -translate-y-1/2 rotate-[-5deg] overflow-visible">
+                      <path d="M20 82C22 38 84 13 165 14c81 1 139 24 145 60 7 40-46 65-128 70C99 149 31 129 20 95" fill="none" stroke="#ed392f" strokeWidth="10" strokeLinecap="round" strokeLinejoin="round" />
+                      <path d="m148 12 18 4-7-11" fill="none" stroke="#ed392f" strokeWidth="9" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
                   )}
-                  <span className={word === 'Lose' ? 'relative z-10' : ''}>{word}</span>
+                  {word === 'Post' ? <em className="hero-word-post">{word}</em> : <span className={word === 'Lose' ? 'relative z-10' : ''}>{word}</span>}
                 </span>
                 {word === 'on' && <RotatingPlatformLogo />}
               </span>
