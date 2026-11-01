@@ -26,11 +26,15 @@ function Arrow({ diagonal = false }: { diagonal?: boolean }) {
 }
 
 const sourcePlatforms: PlatformLogo[] = [
-  { name: 'Instagram', logo: '/platforms/instagram.svg', background: 'linear-gradient(135deg, #7b2ff7 2%, #e1306c 48%, #ff9a44 100%)' },
-  { name: 'Pinterest', logo: '/platforms/pinterest.svg', background: '#e60023' },
-  { name: 'Facebook', logo: '/platforms/facebook.svg', background: '#0866ff' },
-  { name: 'LinkedIn', logo: '/platforms/linkedin-download.png', background: '#0a66c2', fullTile: true },
-  { name: 'X', logo: '/platforms/x.svg', background: '#050505' },
+  { name: 'Instagram', logo: '/platforms/instagram.svg', bg: 'transparent', scale: 1.08 },
+  { name: 'X', logo: '/platforms/x.svg', bg: '#fff' },
+  { name: 'Facebook', logo: '/platforms/facebook.svg', bg: '#1877f2' },
+  { name: 'Pinterest', logo: '/platforms/pinterest.svg', bg: '#e60023' },
+  { name: 'Reddit', logo: '/platforms/reddit.svg', bg: '#ff4500' },
+  { name: 'LinkedIn', logo: '/platforms/linkedin.svg', bg: '#0a66c2' },
+  { name: 'TikTok', logo: '/platforms/tiktok.svg', bg: '#000' },
+  { name: 'YouTube', logo: '/platforms/youtube.svg', bg: '#ff0033' },
+  { name: 'Substack', logo: '/platforms/substack.svg', bg: '#ff6719', scale: 0.92 },
 ];
 
 function RotatingPlatformLogo() {

@@ -44,10 +44,9 @@ a:hover .arrow-mark, button:hover .arrow-mark { transform: translate(3px,-2px); 
 .hero-layout { position: relative; display: grid; width: min(1360px, 100%); min-height: inherit; grid-template-columns: minmax(0, .94fr) minmax(0, 1.06fr); align-items: center; gap: clamp(20px, 4vw, 60px); margin: 0 auto; padding: 50px clamp(23px, 5.5vw, 84px) 110px; }
 .hero-copy { position: relative; z-index: 2; max-width: 675px; }
 .hero-copy h1 { max-width: 720px; margin: 0; font-family: var(--font-display); font-size: clamp(68px, 8.2vw, 116px); font-weight: 700; letter-spacing: -.095em; line-height: .82; }
-.platform-ticker { display: inline-grid; width: .78em; height: .78em; margin-left: .09em; overflow: hidden; border: 2px solid var(--ink); border-radius: 50%; vertical-align: -.045em; box-shadow: 0 0 0 .065em var(--sun), 0 0 0 .1em var(--ink); }
-.platform-ticker-icon { display: grid; width: 100%; height: 100%; place-items: center; overflow: hidden; border-radius: inherit; will-change: transform, opacity, filter; }
-.platform-brand-logo { display: block; width: 60%; height: 60%; object-fit: contain; }
-.platform-brand-logo-full { width: 100%; height: 100%; }
+.platform-ticker { display: inline-grid; width: auto; height: auto; margin-left: .09em; overflow: hidden; border-radius: 50%; vertical-align: -.045em; }
+.platform-ticker-icon { display: grid; width: .86em; height: .86em; flex: 0 0 .86em; place-items: center; overflow: hidden; border-radius: inherit; box-shadow: 0 0 36px rgb(255 106 0 / 24%); will-change: transform, opacity; }
+.platform-brand-logo { display: block; width: .56em; height: .56em; object-fit: contain; }
 .hero-highlight { display: inline-block; padding: .02em .08em .06em; background: var(--orange); color: var(--ink); transform: rotate(-1deg); }
 .hero-outline { color: transparent; -webkit-text-stroke: 2px var(--ink); }
 .hero-lede { max-width: 475px; margin: 29px 0 0; color: #3f371d; font-size: clamp(16px, 1.3vw, 18px); line-height: 1.62; }
@@ -416,7 +415,7 @@ a:hover .arrow-mark, button:hover .arrow-mark { transform: translate(3px,-2px); 
 .marketing-site .hero-highlight { display: inline-block; padding: .02em .1em .07em; background: var(--orange); color: #050705; transform: rotate(-1.2deg); }
 .marketing-site .hero-post-line { padding-left: .08em; }
 .marketing-site .hero-saved-line { display: flex; align-items: center; gap: .16em; }
-.marketing-site .platform-ticker { width: .72em; height: .72em; border: 2px solid #f3f4f0; box-shadow: 0 0 0 .06em #030503, 0 0 0 .1em rgb(255 255 255 / 38%); }
+.marketing-site .platform-ticker { width: auto; height: auto; border: 0; box-shadow: none; }
 .marketing-site .hero-lede { max-width: 510px; margin-top: 27px; color: #b8beb5; }
 .marketing-site .hero-footnote, .marketing-site .hero-scroll-cue { color: #b8beb5; }
 .marketing-site .footnote-mark, .marketing-site .hero-scroll-cue b { border-color: rgb(255 255 255 / 35%); }

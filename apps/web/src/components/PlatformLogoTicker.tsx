@@ -4,8 +4,8 @@ import { gsap } from 'gsap';
 export type PlatformLogo = {
   name: string;
   logo: string;
-  background: string;
-  fullTile?: boolean;
+  bg: string;
+  scale?: number;
 };
 
 type PlatformLogoTickerProps = {
@@ -17,42 +17,30 @@ type PlatformLogoTickerProps = {
 export function PlatformLogoTicker({ platforms, className, iconClassName }: PlatformLogoTickerProps) {
   const [activeIndex, setActiveIndex] = useState(0);
   const iconRef = useRef<HTMLSpanElement>(null);
-  const activeIndexRef = useRef(0);
+  const timelineRef = useRef<gsap.core.Timeline | null>(null);
 
   useEffect(() => {
     if (platforms.length < 2 || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return undefined;
 
-    let timer = 0;
-    let timeline: gsap.core.Timeline | undefined;
-    const showNext = () => {
-      if (document.hidden) {
-        timer = window.setTimeout(showNext, 800);
+    const timer = window.setInterval(() => {
+      if (document.hidden) return;
+      const icon = iconRef.current;
+      if (!icon) {
+        setActiveIndex((current) => (current + 1) % platforms.length);
         return;
       }
 
-      const nextIndex = (activeIndexRef.current + 1) % platforms.length;
-      activeIndexRef.current = nextIndex;
-      const icon = iconRef.current;
-      if (!icon) return;
+      timelineRef.current?.kill();
+      timelineRef.current = gsap.timeline()
+        .to(icon, { yPercent: -115, autoAlpha: 0, duration: 0.35, ease: 'power2.in' })
+        .call(() => setActiveIndex((current) => (current + 1) % platforms.length))
+        .set(icon, { yPercent: 115 })
+        .to(icon, { yPercent: 0, autoAlpha: 1, duration: 0.45, ease: 'power3.out' });
+    }, 1600);
 
-      timeline = gsap.timeline({
-        onComplete: () => {
-          timer = window.setTimeout(showNext, 2450);
-        },
-      });
-      timeline
-        .to(icon, { autoAlpha: 0, y: -7, scale: 0.9, filter: 'blur(2px)', duration: 0.2, ease: 'power2.in' })
-        .call(() => setActiveIndex(nextIndex))
-        .fromTo(icon,
-          { autoAlpha: 0, y: 7, scale: 0.9, filter: 'blur(2px)' },
-          { autoAlpha: 1, y: 0, scale: 1, filter: 'blur(0px)', duration: 0.42, ease: 'power3.out' },
-        );
-    };
-
-    timer = window.setTimeout(showNext, 2500);
     return () => {
-      window.clearTimeout(timer);
-      timeline?.kill();
+      window.clearInterval(timer);
+      timelineRef.current?.kill();
       if (iconRef.current) gsap.set(iconRef.current, { clearProps: 'all' });
     };
   }, [platforms.length]);
@@ -62,11 +50,12 @@ export function PlatformLogoTicker({ platforms, className, iconClassName }: Plat
 
   return (
     <span className={className} role="img" aria-label={platform.name}>
-      <span ref={iconRef} className={iconClassName} style={{ background: platform.background }}>
+      <span ref={iconRef} className={iconClassName} style={{ background: platform.bg }}>
         <img
-          className={platform.fullTile ? 'platform-brand-logo platform-brand-logo-full' : 'platform-brand-logo'}
+          className="platform-brand-logo"
           src={platform.logo}
           alt=""
+          style={{ transform: `scale(${platform.scale ?? 1})` }}
           draggable={false}
         />
       </span>
