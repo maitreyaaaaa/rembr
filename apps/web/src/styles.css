@@ -221,8 +221,8 @@ body .phase2-nav-menu,
 body .phase2-card-menu-items { background: #090b09; }
 
 /* Landing hero identity and hand-drawn emphasis. */
-.landing-brand-button { justify-self: start; width: auto; padding: 0; }
-.landing-brand-logo.rembr-source-wordmark { width: auto; height: auto; font-size: clamp(2.7rem, 5vw, 4.35rem); line-height: .88; letter-spacing: -.09em; }
+.landing-brand-button { justify-self: start; width: auto; padding: 0; transform: translateY(8px); }
+.landing-brand-logo.rembr-source-wordmark { width: auto; height: auto; font-size: clamp(3.6rem, 6vw, 5.5rem); line-height: .86; letter-spacing: -.09em; }
 .intro-logo.rembr-source-wordmark { width: auto; height: auto; font-size: clamp(4.5rem, 11.5vw, 10rem); line-height: .84; letter-spacing: -.1em; }
 .hero-lose-ring { width: calc(100% + .3em); height: 1.2em; opacity: .98; }
 .hero-post-highlight { padding-top: .015em; padding-bottom: .04em; }
