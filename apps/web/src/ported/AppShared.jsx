@@ -48,7 +48,7 @@ function RotatingPlatformLogo() {
           <path d="M14 12.5 21 16l-7 3.5z" fill="#ff0033" />
         </svg>
       ) : (
-        <img src={platform.src} alt="" className="h-full w-full rounded-full object-cover" draggable="false" />
+        <img src={platform.src} alt="" className="h-full w-full scale-[1.3] rounded-full object-cover" draggable="false" />
       )}
     </span>
   </span>;
