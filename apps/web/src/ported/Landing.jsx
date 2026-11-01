@@ -557,7 +557,7 @@ function Landing({ onOpenApp, onOpenLogin, onOpenPricing, onOpenHowTo, onOpenTer
               Save the page you are on without opening another tab.
             </h2>
             <p className="mt-6 max-w-2xl text-lg leading-relaxed text-muted-foreground">
-              The browser extension will let you save the current page or capture a screenshot from your browser. It is coming after browser-store approval.
+              The browser extension is not available yet. For now, add a public page link from your Rembr library.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
               <button
@@ -565,7 +565,7 @@ function Landing({ onOpenApp, onOpenLogin, onOpenPricing, onOpenHowTo, onOpenTer
                 disabled
                 className="inline-flex cursor-not-allowed items-center gap-2 rounded-full bg-primary px-6 py-4 text-sm font-semibold text-primary-foreground opacity-70"
               >
-                Store review next
+                Not available yet
               </button>
               <button
                 type="button"

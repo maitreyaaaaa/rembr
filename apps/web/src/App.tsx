@@ -11,6 +11,7 @@ import { PortedLibraryGrid } from './ported/LibraryCards.js';
 import { RembrDetailDrawer, type RembrDetailAction } from './ported/RembrDetailDrawer.js';
 import { RembrAddFlow } from './ported/RembrAddFlow.js';
 import { RembrAuthFrame } from './ported/RembrAuthFrame.js';
+import { RembrWorkspaceTour } from './ported/RembrWorkspaceTour.js';
 import { RembrCheckupPanel } from './ported/RembrCheckupPanel.js';
 import { RembrKnowledgeGraphPanel } from './ported/RembrKnowledgeGraphPanel.js';
 import { AppShellSkeleton, SkeletonCardGrid } from './ported/LoadingStates.jsx';
@@ -269,6 +270,7 @@ function ProtectedShell() {
   const { session, setSession, loading } = useSession();
   const location = useLocation();
   const navigate = useNavigate();
+  const tourOpen = new URLSearchParams(location.search).get('tour') === '1';
   const [accountDenied, setAccountDenied] = useState(false);
   const detailReturnTo = (location.state as { returnTo?: string } | null)?.returnTo;
   const detailReturnPath = detailReturnTo?.split(/[?#]/, 1)[0] ?? '';
@@ -301,6 +303,15 @@ function ProtectedShell() {
       {detailBackground && <div className="rembr-detail-underlay" aria-hidden="true" inert><div className="phase2-main">{detailBackground}</div></div>}
       <div className={hasDetailBackground ? 'rembr-detail-route' : undefined}><div className="phase2-main"><Outlet context={{ session, setSession }} /></div></div>
     </main>
+    {tourOpen && <RembrWorkspaceTour
+      open
+      onClose={() => {
+        const query = new URLSearchParams(location.search);
+        query.delete('tour');
+        navigate({ pathname: location.pathname, search: query.size ? `?${query.toString()}` : '' }, { replace: true });
+      }}
+      onNavigate={(path) => navigate(`${path}?tour=1`)}
+    />}
   </div>;
 }
 

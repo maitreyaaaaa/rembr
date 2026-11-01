@@ -12,7 +12,7 @@ import {
 import { AnimatedFeatureSelect } from './Common.jsx';
 const SUPPORT_EMAIL = import.meta.env.VITE_CONTACT_EMAIL?.trim() ?? '';
 
-const SUPPORT_TOPIC_OPTIONS = ['Import help', 'Login or account', 'Extension coming soon', 'Search results', 'Billing or credits', 'Other'];
+const SUPPORT_TOPIC_OPTIONS = ['Import help', 'Login or account', 'Browser capture', 'Search results', 'Data and privacy', 'Other'];
 
 function HelpCenterPage({ onBack, onOpenApp, onOpenHowTo }) {
   const mailto = SUPPORT_EMAIL ? `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('Rembr support request')}` : '/contact';

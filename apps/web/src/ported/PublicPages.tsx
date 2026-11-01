@@ -6,7 +6,7 @@ import PricingPage from './PricingPage.jsx';
 
 export function PortedHowToPage() {
   const navigate = useNavigate();
-  return <HowToUsePage onBack={() => navigate('/')} onOpenApp={() => navigate('/app')} onStartTour={() => navigate('/app')} />;
+  return <HowToUsePage onBack={() => navigate('/')} onOpenApp={() => navigate('/app')} onStartTour={() => navigate('/app?tour=1')} />;
 }
 
 export function PortedHelpPage() {

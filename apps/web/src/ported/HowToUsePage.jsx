@@ -183,7 +183,7 @@ const PINTEREST_STEPS = [
 const HOW_TO_GUIDES = [
   { key: 'instagram', icon: Upload, title: 'Instagram export', copy: 'Get your saved posts file from Instagram and upload it into Rembr.', status: 'Guide ready' },
   { key: 'pinterest', icon: ExternalLink, title: 'Pinterest export', copy: 'Request and download your Pinterest data export.', status: 'Guide ready' },
-  { key: 'extension', icon: Search, title: 'Browser extension', copy: 'Coming soon for normal users: save pages, use Lens, and later capture screenshots, text, images, and videos.', status: 'Coming soon' },
+  { key: 'extension', icon: Search, title: 'Browser capture', copy: 'A browser extension is not available yet. Use Add saves to capture a public link in Rembr.', status: 'Not available yet' },
 ];
 
 function HowToUsePage({ onBack, onOpenApp, onStartTour }) {
@@ -273,10 +273,10 @@ function HowToUsePage({ onBack, onOpenApp, onStartTour }) {
         <section className="howto-reveal mb-10 max-w-4xl md:mb-14">
           <div className="mb-4 font-mono text-xs uppercase tracking-[0.3em] text-primary">How to use Rembr</div>
           <h1 className="font-display text-4xl font-bold leading-tight tracking-tighter sm:text-5xl md:text-7xl">
-            Guides for imports and upcoming features.
+            Guides for imports and saves.
           </h1>
           <p className="mt-5 max-w-2xl text-base leading-7 text-muted-foreground md:mt-6 md:text-lg md:leading-8">
-            Start with Instagram or Pinterest exports, then add links manually when you want one-off saves. We will keep adding simple guides here for the browser extension and other capture flows as they become available.
+            Start with Instagram or Pinterest exports, or add a public link manually when you want a one-off save. The browser extension is not available yet.
           </p>
           <button
             type="button"
@@ -315,7 +315,7 @@ function HowToUsePage({ onBack, onOpenApp, onStartTour }) {
             <div className="font-mono text-xs uppercase tracking-[0.3em] text-primary">Choose a guide</div>
             <h2 className="mt-3 font-display text-3xl font-bold tracking-tight">Click Instagram export to see the import steps.</h2>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
-              We will add Pinterest and extension walkthroughs here as those flows are finalized.
+              Select an import guide above, or add a public link directly from your Rembr library.
             </p>
           </section>
         )}
@@ -398,13 +398,13 @@ function HowToUsePage({ onBack, onOpenApp, onStartTour }) {
 
         {activeGuide === 'extension' && (
           <section className="howto-reveal rounded-[2rem] border border-white/10 bg-white/[0.025] p-6 md:p-10">
-            <div className="font-mono text-xs uppercase tracking-[0.3em] text-primary">Browser extension - coming soon</div>
-            <h2 className="mt-3 font-display text-3xl font-bold tracking-tight md:text-5xl">The extension guide is coming soon.</h2>
+            <div className="font-mono text-xs uppercase tracking-[0.3em] text-primary">Browser capture</div>
+            <h2 className="mt-3 font-display text-3xl font-bold tracking-tight md:text-5xl">Browser capture is not available yet.</h2>
             <p className="mt-4 max-w-2xl text-sm leading-6 text-muted-foreground">
-              The extension is not available for normal users yet. Once the browser-store listing is approved, this page will show install steps for saving pages and using Lens. One-click screenshot, selected-text, image, and video capture will follow as extension capture modes mature.
+              Use Add saves to capture a public link in Rembr. You can still use Lens to search images already saved in your library.
             </p>
             <span className="mt-8 inline-flex rounded-full bg-white/10 px-5 py-3 text-sm font-semibold text-muted-foreground">
-              Coming soon
+              Not available yet
             </span>
           </section>
         )}
