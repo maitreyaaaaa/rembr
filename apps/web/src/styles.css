@@ -222,14 +222,18 @@ body .phase2-card-menu-items { background: #090b09; }
 
 /* Landing hero identity and hand-drawn emphasis. */
 .landing-brand-button { justify-self: start; width: auto; padding: 0; transform: translateY(8px); }
-.landing-brand-logo.rembr-source-wordmark { width: auto; height: auto; font-size: clamp(3.6rem, 6vw, 5.5rem); line-height: .86; letter-spacing: -.09em; }
-.intro-logo.rembr-source-wordmark { width: auto; height: auto; font-size: clamp(4.5rem, 11.5vw, 10rem); line-height: .84; letter-spacing: -.1em; }
+.rembr-official-logo { display: block; aspect-ratio: 3.28; object-fit: cover; object-position: center; }
+.landing-brand-logo.rembr-official-logo { width: clamp(16.5rem, 24vw, 22rem); height: auto; }
+.intro-logo.rembr-official-logo { width: clamp(32rem, 68vw, 64rem); max-width: 90vw; height: auto; }
+.app-nav-brand { width: 9rem; height: 2.75rem; }
+.auth-brand-logo { width: 14rem; height: 4.25rem; }
+.phase2-setup-card > .wordmark:has(.rembr-official-logo) { width: 14rem; height: 4.25rem; align-items: center; }
 .hero-lose-ring { width: calc(125% + .4em); height: auto; max-width: none; opacity: 1; object-fit: contain; }
 .hero-post-highlight { padding-top: .015em; padding-bottom: .04em; }
 .hero-word-post { display: inline-block; font-style: italic !important; font-weight: inherit; transform: skewX(-9deg); transform-origin: center; }
 
 @media (max-width: 760px) {
-  .landing-brand-logo.rembr-source-wordmark { font-size: clamp(2.15rem, 8vw, 3rem); }
+  .landing-brand-logo.rembr-official-logo { width: clamp(12rem, 45vw, 16rem); }
 }
 
 @media (prefers-reduced-motion: reduce) {

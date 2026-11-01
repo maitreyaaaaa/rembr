@@ -17,7 +17,7 @@ function pageForPath(path: string): Page {
 }
 
 function Brand() {
-  return <a className="brand-mark" href="/" aria-label="Rembr home">rembr<span>.</span></a>;
+  return <a className="brand-mark" href="/" aria-label="Rembr home"><img className="rembr-official-logo" src="/brand/rembr-wordmark-white.png" alt="Rembr" /></a>;
 }
 
 function Arrow({ diagonal = false }: { diagonal?: boolean }) {

@@ -19,7 +19,7 @@ const PLATFORM_LOGOS = [
 const OUTCOME_WORDS = ['organized', 'searchable', 'findable', 'ready'];
 
 function BrandLogo({ className = 'h-8 w-28', align = 'left' }) {
-  return <span aria-label="Rembr" className={`rembr-source-wordmark ${className} ${align === 'center' ? 'justify-center' : ''}`}>rembr<span>.</span></span>;
+  return <img alt="Rembr" src="/brand/rembr-wordmark-white.png" className={`rembr-official-logo ${className} ${align === 'center' ? 'mx-auto' : ''}`} />;
 }
 
 function RotatingPlatformLogo() {
