@@ -255,7 +255,7 @@ function HowToUsePage({ onBack, onOpenApp, onStartTour }) {
   }, [activeGuide]);
 
   return (
-    <div ref={pageRef} className="min-h-screen overflow-hidden bg-black text-foreground">
+    <div ref={pageRef} className="howto-page min-h-screen overflow-hidden bg-black text-foreground">
       <div className="grid-bg radial-fade pointer-events-none fixed inset-0 opacity-40" />
       <header className="sticky top-0 z-40 border-b border-white/10 bg-black/85 px-5 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
@@ -285,13 +285,14 @@ function HowToUsePage({ onBack, onOpenApp, onStartTour }) {
           >
             Take the workspace tour <ArrowRight className="h-4 w-4" aria-hidden="true" />
           </button>
-          <div className="mt-8 grid gap-3 sm:grid-cols-2">
+          <div className="guide-option-list mt-8 grid gap-3 sm:grid-cols-2">
             {HOW_TO_GUIDES.map(({ key, icon: Icon, title, copy, status }) => (
               <button
                 key={key}
                 type="button"
+                aria-pressed={activeGuide === key}
                 onClick={() => setActiveGuide((current) => (current === key ? null : key))}
-                className={`group rounded-2xl border p-5 text-left transition hover:-translate-y-0.5 ${
+                className={`guide-option group rounded-2xl border p-5 text-left transition hover:-translate-y-0.5 ${
                   activeGuide === key ? 'border-primary bg-primary/10' : 'border-white/10 bg-white/[0.03] hover:border-primary/60'
                 }`}
               >
@@ -311,7 +312,7 @@ function HowToUsePage({ onBack, onOpenApp, onStartTour }) {
         </section>
 
         {!activeGuide && (
-          <section className="howto-reveal rounded-[2rem] border border-white/10 bg-white/[0.025] p-6 md:p-10">
+          <section className="howto-reveal guide-prompt-panel rounded-[2rem] border border-white/10 bg-white/[0.025] p-6 md:p-10">
             <div className="font-mono text-xs uppercase tracking-[0.3em] text-primary">Choose a guide</div>
             <h2 className="mt-3 font-display text-3xl font-bold tracking-tight">Click Instagram export to see the import steps.</h2>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
@@ -321,7 +322,7 @@ function HowToUsePage({ onBack, onOpenApp, onStartTour }) {
         )}
 
         {activeGuide && activeGuide !== 'instagram' && activeGuide !== 'pinterest' && activeGuide !== 'extension' && (
-          <section className="howto-reveal rounded-[2rem] border border-white/10 bg-white/[0.025] p-6 md:p-10">
+          <section className="howto-reveal guide-prompt-panel rounded-[2rem] border border-white/10 bg-white/[0.025] p-6 md:p-10">
             <div className="font-mono text-xs uppercase tracking-[0.3em] text-primary">{activeGuideDetails?.status}</div>
             <h2 className="mt-3 font-display text-3xl font-bold tracking-tight">{activeGuideDetails?.title}</h2>
             <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">

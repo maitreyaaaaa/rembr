@@ -25,7 +25,6 @@ import {
   RotateCcw,
   RotatingOutcomeText,
   RotatingPlatformLogo,
-  SAVE_SOURCE_LABELS,
   scrollToSection,
   ScrollTrigger,
   Search,
@@ -383,49 +382,39 @@ function Landing({ onOpenApp, onOpenLogin, onOpenPricing, onOpenHowTo, onOpenTer
 
           <div className="mt-12 flex flex-col items-start justify-between gap-8 md:flex-row md:items-start">
             <p className="hero-fade max-w-[21rem] text-lg leading-relaxed text-muted-foreground sm:max-w-xl">
-              Save posts, links, screenshots, notes, products, and references in one private library. Find them later by what they are about, not just where you saved them.
+              Import saved posts from Instagram, Pinterest, and X. Save public links, screenshots, and notes, then search them together and return to the original source.
             </p>
             <div className="hero-fade flex w-full flex-col items-stretch gap-3 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
               <button
                 type="button"
                 onClick={handleLibraryCta}
-                className="glow-ring group inline-flex items-center justify-center gap-3 rounded-full bg-primary px-7 py-4 text-base font-semibold text-primary-foreground transition hover:scale-[1.03]"
+                className="group inline-flex min-h-12 items-center justify-center gap-3 rounded-lg bg-primary px-6 py-3 text-base font-semibold text-primary-foreground transition-colors hover:bg-primary/90"
               >
                 {libraryCtaLabel} <ArrowRight className="h-5 w-5 transition group-hover:translate-x-1" />
               </button>
-              <button type="button" onClick={(event) => scrollToSection(event, '#how-it-works')} className="inline-flex items-center justify-center gap-2 rounded-full border border-accent/45 px-6 py-4 text-sm font-semibold text-accent transition hover:bg-accent/10">
-                See how it works
+              <button type="button" onClick={(event) => scrollToSection(event, '#how-it-works')} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-accent/45 px-5 py-3 text-sm font-semibold text-accent transition-colors hover:bg-accent/10">
+                How it works
               </button>
-              <button type="button" onClick={onOpenHowTo} className="inline-flex items-center justify-center gap-2 rounded-full border border-white/15 px-6 py-4 text-sm transition hover:bg-white/5">
+              <button type="button" onClick={onOpenHowTo} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg border border-white/15 px-5 py-3 text-sm transition-colors hover:bg-white/5">
                 <FileText className="h-4 w-4" /> How to use
               </button>
             </div>
           </div>
 
-          <div className="hero-fade mx-auto mt-24 grid w-full max-w-7xl grid-cols-2 gap-x-4 gap-y-8 text-sm md:grid-cols-4 md:gap-6">
-            {[
-              ['Saved posts', 'Posts'],
-              ['Useful links', 'Links'],
-              ['Screen grabs', 'Screenshots'],
-              ['Personal notes', 'Notes'],
-            ].map(([label, value]) => (
-              <div key={label} className="border-l border-white/10 pl-4">
-                <div className="font-display text-2xl font-bold tabular-nums sm:text-4xl">{value}</div>
-                <div className="mt-1 text-xs uppercase tracking-widest text-muted-foreground">{label}</div>
-              </div>
-            ))}
-          </div>
+          <p className="hero-fade mt-16 border-t border-white/10 pt-5 text-sm text-muted-foreground">
+            Imports: Instagram, Pinterest, and X <span aria-hidden="true">·</span> Also save: public links, screenshots, and notes
+          </p>
         </div>
 
       </section>
 
-      <section className="relative overflow-hidden border-y border-white/5 bg-black py-8">
+      <section className="source-list-section relative overflow-hidden border-y border-white/5 bg-black py-8">
         <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-20 bg-gradient-to-r from-black to-transparent" />
         <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-20 bg-gradient-to-l from-black to-transparent" />
-        <div className="marquee flex gap-12 whitespace-nowrap font-display text-5xl font-bold tracking-tighter md:text-7xl">
-          {Array.from({ length: 2 }).map((_, index) => (
-            <div key={index} className="flex gap-12">
-              {SAVE_SOURCE_LABELS.map((label) => (
+        <div className="source-list flex flex-wrap justify-center gap-x-8 gap-y-3 font-display text-sm font-medium tracking-normal md:text-base">
+          {Array.from({ length: 1 }).map((_, index) => (
+            <div key={index} className="flex flex-wrap justify-center gap-x-8 gap-y-3">
+              {['Instagram', 'Pinterest', 'X', 'Links', 'Screenshots', 'Notes'].map((label) => (
                 <span key={`${index}-${label}`} className="text-foreground/20 transition hover:text-primary">
                   {label} <span className="text-primary">✦</span>
                 </span>
@@ -439,24 +428,24 @@ function Landing({ onOpenApp, onOpenLogin, onOpenPricing, onOpenHowTo, onOpenTer
         <div className="mx-auto max-w-7xl">
           <div data-reveal className="mb-10 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
-              <div className="mb-4 font-mono text-xs uppercase tracking-[0.3em] text-primary">/ 01 - What you can save</div>
+              <div className="mb-4 font-mono text-xs uppercase tracking-[0.3em] text-primary">Ways to add content</div>
               <h2 className="max-w-3xl font-display text-5xl font-bold tracking-tighter md:text-7xl">
-                All the internet stuff your brain refuses to remember.
+                Posts, links, and notes in one library.
               </h2>
             </div>
             <p className="max-w-md text-pretty text-muted-foreground">
-              Your saves are not gone. They are just buried in too many apps, folders, chats, and screenshots. <RotatingPlatformLogo />
+              Import saved-post exports from Instagram, Pinterest, and X. Add public links, screenshots, or notes from your library.
             </p>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {[
-              [ExternalLink, 'Pinterest', 'Moodboards, recipes, outfits, interiors, products, and travel plans.'],
-              [Zap, 'YouTube', 'Videos worth saving without turning your browser into a junk drawer.'],
-              [Hash, 'X', 'Threads and posts that should not disappear into the feed.'],
-              [Images, 'Instagram', 'Reels, posts, and collections you planned to revisit.'],
-              [FileText, 'Documents and web', 'Research, shopping links, articles, docs, and sites you want again later.'],
-              [Mic, 'Voice notes and notes', 'Quick thoughts, screenshots, and useful context that usually gets lost.'],
+              [ExternalLink, 'Platform exports', 'Import saved-post files from Instagram, Pinterest, and X.'],
+              [Zap, 'Public links', 'Add a link from a page you want to return to.'],
+              [Hash, 'Notes', 'Write down why a page or post matters to you.'],
+              [Images, 'Screenshots', 'Add an image when the useful detail is visual.'],
+              [FileText, 'Collections and tags', 'Group related saves and find them again in your library.'],
+              [Mic, 'Original sources', 'Open the source link from a saved item when you need the page again.'],
             ].map(([Icon, title, description]) => (
               <article key={title} className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
                 <Icon className="h-5 w-5 text-primary" />
@@ -473,12 +462,12 @@ function Landing({ onOpenApp, onOpenLogin, onOpenPricing, onOpenHowTo, onOpenTer
         <div className="mx-auto max-w-7xl">
           <div data-reveal className="mb-16 flex flex-wrap items-end justify-between gap-8">
             <div>
-              <div className="mb-4 font-mono text-xs uppercase tracking-[0.3em] text-primary">/ 02 - Why it helps</div>
+              <div className="mb-4 font-mono text-xs uppercase tracking-[0.3em] text-primary">Search and organization</div>
               <h2 className="max-w-3xl font-display text-5xl font-bold tracking-tighter md:text-7xl">
-                Your saves finally <span className="italic text-primary">work for you</span>.
+                Find a saved page by what you remember.
               </h2>
             </div>
-            <p className="max-w-md text-pretty text-muted-foreground">No messy folders. No social password handover. No "where did I save that?" panic.</p>
+            <p className="max-w-md text-pretty text-muted-foreground">Search by title, source, or words you remember. Imports use files you select; Rembr does not ask for your social account password.</p>
           </div>
 
           <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
@@ -515,12 +504,12 @@ function Landing({ onOpenApp, onOpenLogin, onOpenPricing, onOpenHowTo, onOpenTer
       <section id="how-it-works" className="relative border-y border-white/10 bg-black px-6 py-24 md:py-32">
         <div className="mx-auto max-w-7xl">
           <div data-reveal className="mb-14 max-w-4xl">
-            <div className="mb-4 font-mono text-xs uppercase tracking-[0.3em] text-primary">/ 03 - How it works</div>
+            <div className="mb-4 font-mono text-xs uppercase tracking-[0.3em] text-primary">How it works</div>
             <h2 className="font-display text-5xl font-bold tracking-tighter md:text-7xl">
-              Save it once. Find it when it matters.
+              Add a save. Find it later.
             </h2>
             <p className="mt-6 max-w-2xl text-pretty text-lg leading-relaxed text-muted-foreground">
-              Rembr turns scattered saves into a private library you can search without becoming your own unpaid filing clerk.
+              Add a link or import an export, then search and organize the items in your library.
             </p>
           </div>
 
@@ -528,7 +517,7 @@ function Landing({ onOpenApp, onOpenLogin, onOpenPricing, onOpenHowTo, onOpenTer
             {[
               [Upload, 'Add your saves', 'Bring in posts, links, screenshots, notes, and exports from the places you already use.'],
               [CheckCircle2, 'Review what matters', 'Keep the useful stuff, clean up titles or notes, and skip what is not worth saving.'],
-              [Sparkles, 'Rembr organizes it', 'Your saves get easier to search by topic, person, brand, product, and reason.'],
+              [Sparkles, 'Add useful context', 'Add notes, tags, and collections to help describe your saves.'],
               [Search, 'Search when you need it', 'Come back days or months later and find the thing without scrolling yourself into a bad mood.'],
             ].map(([Icon, title, description], index) => (
               <article key={title} data-reveal className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
@@ -547,21 +536,14 @@ function Landing({ onOpenApp, onOpenLogin, onOpenPricing, onOpenHowTo, onOpenTer
       <section id="extension" className="relative border-y border-white/10 bg-black px-6 py-24 md:py-32">
         <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
           <div data-reveal>
-            <div className="mb-4 font-mono text-xs uppercase tracking-[0.3em] text-primary">/ 04 - Browser extension</div>
+            <div className="mb-4 font-mono text-xs uppercase tracking-[0.3em] text-primary">Browser extension</div>
             <h2 className="max-w-4xl font-display text-5xl font-bold tracking-tighter md:text-7xl">
-              Save the page you are on without opening another tab.
+              The browser extension is not available yet.
             </h2>
             <p className="mt-6 max-w-2xl text-lg leading-relaxed text-muted-foreground">
-              The browser extension is not available yet. For now, add a public page link from your Rembr library.
+              For now, open Add in your Rembr library to save a public page link or upload a supported export.
             </p>
             <div className="mt-8 flex flex-wrap gap-3">
-              <button
-                type="button"
-                disabled
-                className="inline-flex cursor-not-allowed items-center gap-2 rounded-full bg-primary px-6 py-4 text-sm font-semibold text-primary-foreground opacity-70"
-              >
-                Not available yet
-              </button>
               <button
                 type="button"
                 onClick={onOpenHowTo}
@@ -571,23 +553,14 @@ function Landing({ onOpenApp, onOpenLogin, onOpenPricing, onOpenHowTo, onOpenTer
               </button>
             </div>
             <p className="mt-5 text-sm leading-6 text-muted-foreground">
-              Until then, you can still upload exports, paste links, and add notes from the web app.
+              The extension status will be updated here when it is ready.
             </p>
           </div>
 
-          <div data-reveal className="grid gap-4 sm:grid-cols-2">
-            {[
-              [Search, 'Save the current page', 'Send the page you are viewing into your private library.'],
-              [Eye, 'Capture a screenshot', 'Save a crop of the screen when the useful bit is visual.'],
-              [RotateCcw, 'Undo quickly', 'If you save the wrong thing, undo it right away.'],
-              [ShieldCheck, 'Built with permission', 'It runs when you click it, not as a hidden background scraper.'],
-            ].map(([Icon, title, description]) => (
-              <div key={title} className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
-                <Icon className="h-6 w-6 text-primary" />
-                <h3 className="mt-6 font-display text-2xl font-semibold tracking-tight">{title}</h3>
-                <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{description}</p>
-              </div>
-            ))}
+          <div data-reveal className="extension-status">
+            <p className="font-mono text-xs uppercase tracking-[0.2em] text-muted-foreground">Current status</p>
+            <h3 className="mt-4 font-display text-3xl font-semibold">Not available yet</h3>
+            <p className="mt-3 max-w-md leading-relaxed text-muted-foreground">Use the web app to add a public link, write a note, or import a supported platform export.</p>
           </div>
         </div>
       </section>
@@ -595,25 +568,17 @@ function Landing({ onOpenApp, onOpenLogin, onOpenPricing, onOpenHowTo, onOpenTer
       <section id="why" className="index-section relative overflow-hidden bg-black px-6 py-24 md:py-32">
         <div className="index-pin mx-auto max-w-7xl">
           <div className="index-heading mb-16">
-            <div className="mb-4 font-mono text-xs uppercase tracking-[0.3em] text-primary">/ 05 - What gets easier to find</div>
+            <div className="mb-4 font-mono text-xs uppercase tracking-[0.3em] text-primary">Search example</div>
             <h2 className="max-w-4xl font-display text-5xl font-bold tracking-tighter md:text-7xl">
-              For the posts you swore you would come back to.
+              Search with the words you remember.
             </h2>
             <p className="mt-6 max-w-2xl text-pretty text-lg leading-relaxed text-muted-foreground">
-              Rembr helps each save carry enough context that you can actually use it later.
+              Example only: a person searching for coffee in Lisbon could try the city and topic, then open a matching saved item and its original source.
             </p>
           </div>
-          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-white/10 bg-white/10 md:grid-cols-3 lg:grid-cols-4">
-            {[
-              [Sparkles, 'What it is'], [FileText, 'Quick summary'], [FileText, 'What was said'], [Eye, 'Words on screen'],
-              [Eye, 'What is shown'], [Tag, 'Creator or brand'], [Bot, 'Product or idea'], [ExternalLink, 'Links or names'],
-              [Hash, 'Theme'], [Folder, 'Collection'], [Brain, 'Reason you saved'], [ShieldCheck, 'Original post'],
-            ].map(([Icon, title]) => (
-              <div key={title} data-index-tile className="group relative min-h-36 bg-black p-8 transition-colors hover:bg-primary/5">
-                <Icon className="h-6 w-6 text-muted-foreground transition-colors group-hover:text-primary" />
-                <div className="mt-6 font-display text-xl font-semibold">{title}</div>
-              </div>
-            ))}
+          <div className="search-example" aria-label="Illustrative search example">
+            <div className="search-example-query"><Search className="h-5 w-5" /><span>Lisbon coffee</span><span className="search-example-label">Illustration</span></div>
+            <article className="search-example-result"><span className="search-example-source">SAVED LINK · EXAMPLE</span><h3>A neighborhood coffee guide</h3><p>Example result with a saved note: “Try this place on the next Lisbon trip.”</p><span className="search-example-link">Open original source <ExternalLink className="h-4 w-4" /></span></article>
           </div>
         </div>
       </section>
@@ -621,8 +586,8 @@ function Landing({ onOpenApp, onOpenLogin, onOpenPricing, onOpenHowTo, onOpenTer
       <section id="feedback" className="bg-black px-6 py-24 md:py-32">
         <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.9fr_1.1fr]">
           <div data-reveal>
-            <div className="mb-4 font-mono text-xs uppercase tracking-[0.3em] text-primary">/ 06 - A note to Rembr</div>
-            <h2 className="font-display text-5xl font-bold tracking-tighter md:text-7xl">A little more room to think.</h2>
+            <div className="mb-4 font-mono text-xs uppercase tracking-[0.3em] text-primary">Contact</div>
+            <h2 className="font-display text-5xl font-bold tracking-tighter md:text-7xl">Questions or feedback?</h2>
             <p className="mt-6 max-w-xl leading-relaxed text-muted-foreground">
               Have a question or an idea for your library? Get in touch and tell us what you are trying to keep close.
             </p>

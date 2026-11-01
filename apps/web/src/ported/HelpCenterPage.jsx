@@ -41,7 +41,7 @@ function HelpCenterPage({ onBack, onOpenApp, onOpenHowTo }) {
   };
 
   return (
-    <div className="min-h-screen bg-black text-foreground">
+    <div className="help-center-page min-h-screen bg-black text-foreground">
       <div className="grid-bg radial-fade pointer-events-none fixed inset-0 opacity-40" />
       <header className="sticky top-0 z-40 border-b border-white/10 bg-black/85 px-5 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
@@ -60,7 +60,7 @@ function HelpCenterPage({ onBack, onOpenApp, onOpenHowTo }) {
           <div className="mb-4 font-mono text-xs uppercase tracking-[0.3em] text-primary">Help Center</div>
           <h1 className="font-display text-4xl font-bold leading-tight tracking-tighter sm:text-5xl md:text-7xl">Need help with Rembr?</h1>
           <p className="mt-5 max-w-2xl text-base leading-7 text-muted-foreground md:mt-6 md:text-lg md:leading-relaxed">
-            If something breaks, you cannot import, or an upcoming feature feels confusing, email us and include what you were trying to do.
+            For import, search, or account problems, tell us what you were trying to do and what happened.
           </p>
           <div className="mt-8 flex flex-wrap gap-3">
             <a
@@ -79,9 +79,9 @@ function HelpCenterPage({ onBack, onOpenApp, onOpenHowTo }) {
           </div>
         </section>
 
-        <section className="mt-10 grid gap-5 md:mt-16 md:grid-cols-2">
+        <section className="help-topic-list mt-10 grid gap-5 md:mt-16 md:grid-cols-2">
           {helpTopics.map(([Icon, title, copy]) => (
-            <article key={title} className="rounded-2xl border border-white/10 bg-white/[0.03] p-6">
+            <article key={title} className="help-topic rounded-2xl border border-white/10 bg-white/[0.03] p-6">
               <Icon className="h-6 w-6 text-primary" />
               <h2 className="mt-6 font-display text-2xl font-bold tracking-tight">{title}</h2>
               <p className="mt-3 text-sm leading-6 text-muted-foreground">{copy}</p>
@@ -89,7 +89,7 @@ function HelpCenterPage({ onBack, onOpenApp, onOpenHowTo }) {
           ))}
         </section>
 
-        <section className="mt-10 rounded-2xl border border-primary/30 bg-primary/5 p-6">
+        <section className="help-contact-panel mt-10 rounded-2xl border border-primary/30 bg-primary/5 p-6">
           <div className="font-mono text-[10px] uppercase tracking-[0.24em] text-primary">Contact</div>
           <h2 className="mt-2 font-display text-3xl font-bold tracking-tight">Support email</h2>
           <a href={mailto} className="mt-4 inline-flex break-all text-lg font-semibold text-primary hover:underline">

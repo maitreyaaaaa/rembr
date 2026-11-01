@@ -64,6 +64,22 @@ a:hover .arrow-mark, button:hover .arrow-mark { transform: translate(3px,-2px); 
 .underlined-link { display: inline-flex; min-height: 44px; align-items: center; gap: 9px; color: var(--ink); font-size: 13px; font-weight: 800; text-decoration-thickness: 1px; text-underline-offset: 5px; }
 .underlined-link span { font-size: 18px; transition: transform 200ms ease; }
 .underlined-link:hover span { transform: translateY(3px); }
+
+/* Less decorative chrome, more direct product language. */
+.feature-story-number,
+.ritual-step .step-number { display: none; }
+.ritual-steps { border-top: 1px solid rgb(23 20 17 / 18%); }
+.ritual-step { border-bottom: 1px solid rgb(23 20 17 / 18%); }
+.control-section { display: none; }
+.feature-story { border-radius: 12px; }
+.feature-story-number { font-variant-numeric: tabular-nums; }
+.idea-section, .ritual-section, .constellation-section, .kept-section, .faq-section { background-image: none; }
+.button-ink, .button-yellow { box-shadow: none; }
+.button:hover { transform: translateY(-1px); }
+.feature-story-art { opacity: .78; }
+@media (prefers-reduced-motion: reduce) {
+  .marketing-site *, .marketing-site *::before, .marketing-site *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
 .hero-footnote { display: flex; align-items: center; gap: 10px; margin-top: 43px; color: #51471f; font-size: 11px; font-weight: 650; }
 .footnote-mark { display: grid; width: 23px; height: 23px; place-items: center; border: 1px solid rgb(23 20 17 / 38%); border-radius: 50%; color: var(--orange); font-size: 13px; }
 .hero-scroll-cue { position: absolute; z-index: 3; right: clamp(23px, 5.5vw, 84px); bottom: 31px; display: flex; align-items: center; gap: 11px; font-size: 9px; font-weight: 800; letter-spacing: .15em; text-decoration: none; }
@@ -360,6 +376,16 @@ a:hover .arrow-mark, button:hover .arrow-mark { transform: translate(3px,-2px); 
   .subpage-hero { min-height: 400px; }.subpage-hero h1 { font-size: clamp(56px,12vw,69px); }.subpage-hero > p { font-size: 15px; }
   .feature-story { min-height: 340px; grid-template-columns: 1fr; }.feature-story-art { right: -3px; bottom: 8px; transform: scale(.62); transform-origin: bottom right; }
   .form-heading { align-items: flex-start; flex-direction: column; }
+}
+
+/* Final editorial adjustments after legacy decorative rules. */
+.feature-story-number,
+.ritual-step .step-number { display: none !important; }
+.control-section { display: none !important; }
+.button-ink, .button-yellow { box-shadow: none; }
+.button:hover { transform: translateY(-1px); }
+@media (prefers-reduced-motion: reduce) {
+  .marketing-site *, .marketing-site *::before, .marketing-site *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
 
 @media (max-width: 360px) {
