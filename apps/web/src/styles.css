@@ -224,7 +224,7 @@ body .phase2-card-menu-items { background: #090b09; }
 .landing-brand-button { justify-self: start; width: auto; padding: 0; transform: translateY(8px); }
 .landing-brand-logo.rembr-source-wordmark { width: auto; height: auto; font-size: clamp(3.6rem, 6vw, 5.5rem); line-height: .86; letter-spacing: -.09em; }
 .intro-logo.rembr-source-wordmark { width: auto; height: auto; font-size: clamp(4.5rem, 11.5vw, 10rem); line-height: .84; letter-spacing: -.1em; }
-.hero-lose-ring { width: calc(100% + .3em); height: 1.2em; opacity: .98; }
+.hero-lose-ring { width: calc(125% + .4em); height: auto; max-width: none; opacity: 1; object-fit: contain; }
 .hero-post-highlight { padding-top: .015em; padding-bottom: .04em; }
 .hero-word-post { display: inline-block; font-style: italic !important; font-weight: inherit; transform: skewX(-9deg); transform-origin: center; }
 

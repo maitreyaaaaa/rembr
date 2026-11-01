@@ -372,10 +372,7 @@ function Landing({ onOpenApp, onOpenLogin, onOpenPricing, onOpenHowTo, onOpenTer
               <span key={word} className="mr-[0.18em] inline-block overflow-visible last:mr-0">
                 <span className={`word inline-block ${word === 'Lose' ? 'relative isolate' : ''} ${word === 'Post' ? 'hero-post-highlight rounded-[5px] bg-accent pl-[0.08em] pr-[0.22em] text-accent-foreground' : ''}`}>
                   {word === 'Lose' && (
-                    <svg aria-hidden="true" viewBox="0 0 320 156" preserveAspectRatio="none" className="hero-lose-ring pointer-events-none absolute left-1/2 top-1/2 z-0 h-[1.2em] w-[calc(100%+0.3em)] -translate-x-1/2 -translate-y-1/2 rotate-[-5deg] overflow-visible">
-                      <path d="M20 82C22 38 84 13 165 14c81 1 139 24 145 60 7 40-46 65-128 70C99 149 31 129 20 95" fill="none" stroke="#ed392f" strokeWidth="10" strokeLinecap="round" strokeLinejoin="round" />
-                      <path d="m148 12 18 4-7-11" fill="none" stroke="#ed392f" strokeWidth="9" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
+                    <img aria-hidden="true" src="/hero/lose-circle.png" alt="" className="hero-lose-ring pointer-events-none absolute left-1/2 top-1/2 z-0 -translate-x-1/2 -translate-y-1/2 rotate-[-5deg]" />
                   )}
                   {word === 'Post' ? <em className="hero-word-post">{word}</em> : <span className={word === 'Lose' ? 'relative z-10' : ''}>{word}</span>}
                 </span>
