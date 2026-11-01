@@ -2,12 +2,14 @@ import {
   ArrowLeft,
   ArrowRight,
   BrandLogo,
+  CheckCircle2,
   Mail,
+  Sparkles,
 } from './AppShared.jsx';
 
 function PricingPage({ onBack, onOpenHelp }) {
   return (
-    <div className="pricing-page min-h-screen bg-black text-foreground">
+    <div className="min-h-screen bg-black text-foreground">
       <div className="grid-bg radial-fade pointer-events-none fixed inset-0 opacity-35" />
       <header className="sticky top-0 z-40 border-b border-white/10 bg-black/85 px-5 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4">
@@ -22,20 +24,27 @@ function PricingPage({ onBack, onOpenHelp }) {
         </div>
       </header>
 
-      <main className="relative mx-auto flex min-h-[calc(100vh-6rem)] max-w-4xl flex-col items-start justify-center px-5 py-16">
-        <p className="font-mono text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Pricing</p>
-        <h1 className="mt-4 max-w-3xl font-display text-4xl font-semibold leading-tight tracking-tight text-white sm:text-5xl md:text-6xl">
-          Pricing details are not published yet.
+      <main className="relative mx-auto flex min-h-[calc(100vh-6rem)] max-w-6xl flex-col items-center justify-center px-5 py-16 text-center">
+        <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-2 font-mono text-[11px] uppercase tracking-[0.24em] text-primary">
+          <Sparkles className="h-4 w-4" />
+          Contact
+        </div>
+        <h1 className="mt-8 font-display text-[clamp(5rem,18vw,14rem)] font-black uppercase leading-[0.78] tracking-tight text-white">
+          Pricing
         </h1>
-        <p className="mt-5 max-w-2xl text-base leading-7 text-muted-foreground md:text-lg">
-          Contact Rembr for current access details. We will explain what a plan includes before asking anyone to choose one.
+        <p className="mt-8 max-w-2xl text-base leading-7 text-muted-foreground md:text-lg md:leading-relaxed">
+          Contact Rembr for current access and pricing details.
         </p>
 
-        <div className="mt-8 flex flex-col items-start gap-4">
-          <button type="button" onClick={onOpenHelp} className="inline-flex min-h-12 items-center justify-center gap-2 rounded-lg bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary/90">
+        <div className="mt-10 flex flex-col items-center gap-4">
+          <button type="button" onClick={onOpenHelp} className="inline-flex items-center justify-center gap-2 rounded-full bg-primary px-7 py-4 text-sm font-bold text-primary-foreground transition hover:scale-[1.03]">
             Ask about Rembr
             <ArrowRight className="h-4 w-4" />
           </button>
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <CheckCircle2 className="h-4 w-4 text-primary" />
+            Opens the Contact us page
+          </div>
         </div>
       </main>
     </div>

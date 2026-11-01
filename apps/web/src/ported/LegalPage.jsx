@@ -12,7 +12,7 @@ function LegalPage({ type = 'terms', onBack }) {
   const [title, description] = PAGE_CONTENT[type] || PAGE_CONTENT.terms;
 
   return (
-    <div className="legal-info-page min-h-screen bg-black text-foreground">
+    <div className="min-h-screen bg-black text-foreground">
       <div className="grid-bg radial-fade pointer-events-none fixed inset-0 opacity-35" />
       <header className="sticky top-0 z-40 border-b border-white/10 bg-black/85 px-5 py-4 backdrop-blur">
         <div className="mx-auto flex max-w-5xl items-center justify-between gap-4">

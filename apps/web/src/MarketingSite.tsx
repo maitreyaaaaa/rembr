@@ -124,18 +124,18 @@ function HomePage() {
 
     <section className="idea-section" id="the-idea">
       <div className="idea-heading" data-reveal>
-        <h2>Saved posts are<br/><span>hard to find later.</span></h2>
+        <h2>Later gets<br/>a <span>little crowded.</span></h2>
       </div>
       <div className="idea-aside" data-reveal>
-        <p>Posts, links, and screenshots can end up across several apps.</p>
-        <p className="idea-answer">Bring supported exports into Rembr, add links and notes, then search your library.</p>
+        <p>A tab closes. A link gets buried. Later, the source is hard to find.</p>
+        <p className="idea-answer">Save the page with its source and notes. Search for it when you need it.</p>
         <a className="text-link text-link-light" href="/about">Why we're making this <Arrow diagonal/></a>
       </div>
     </section>
 
     <section className="ritual-section">
       <div className="ritual-header" data-reveal>
-        <div><h2>Add a save.<br/><span>Add context.</span><br/>Find it later.</h2></div>
+        <div><h2>Save it.<br/><span>Shape it.</span><br/>Find it.</h2></div>
       </div>
       <div className="ritual-steps">
         <article className="ritual-step step-capture" data-reveal><span className="step-number">01</span><div className="step-glyph glyph-capture" aria-hidden="true"><span>↘</span><i/><i/><i/></div><div className="step-copy"><h3>Bring over your posts.</h3><p>Import saved-post exports from Instagram, Pinterest, or X. Save a link from anywhere.</p></div><span className="step-thread" aria-hidden="true">······</span></article>
@@ -145,7 +145,7 @@ function HomePage() {
     </section>
 
     <section className="constellation-section">
-      <div className="constellation-copy" data-reveal><h2>Group related<br/><span>saved items.</span></h2><p>Use notes, tags, and collections to add context to your library.</p><a className="button button-yellow" href="/features">See the features <Arrow diagonal/></a></div>
+      <div className="constellation-copy" data-reveal><h2>Good ideas<br/>have <span>neighbors.</span></h2><p>Collections and connections bring related finds together.</p><a className="button button-yellow" href="/features">Meet your library <Arrow diagonal/></a></div>
       <div className="constellation-art" data-parallax="constellation" aria-label="An abstract map connecting saved ideas" role="img">
         <svg viewBox="0 0 520 460" aria-hidden="true"><path className="constellation-line" d="M75 104C143 107 158 169 221 173S329 88 411 126M81 315c77-9 84-81 149-91s103 93 193 83M221 173c-9 49 5 89 9 131m-9-131c79 13 100 24 161 60"/><circle cx="75" cy="104" r="9"/><circle cx="411" cy="126" r="9"/><circle cx="81" cy="315" r="9"/><circle cx="423" cy="307" r="9"/><circle cx="221" cy="173" r="18"/><circle cx="230" cy="304" r="12"/><circle cx="382" cy="233" r="12"/></svg>
         <div className="constellation-note note-center"><span>ONE IDEA</span><b>Making room<br/>to think</b><small>3 saved things nearby</small></div>
@@ -183,7 +183,7 @@ function HomePage() {
       </div>
     </section>
 
-    <section className="final-call" data-reveal><div className="final-call-sun" aria-hidden="true"/><h2>Open your<br/><span>Rembr library.</span></h2><a className="button button-ink" href="/app">Open Rembr <Arrow diagonal/></a></section>
+    <section className="final-call" data-reveal><div className="final-call-sun" aria-hidden="true"/><h2>Keep the spark.<br/><span>Find the thread.</span></h2><a className="button button-ink" href="/app">Start your library <Arrow diagonal/></a></section>
   </main>;
 }
 
@@ -193,18 +193,18 @@ function PageHero({ title, accent, description }: { title: ReactNode; accent?: s
 
 function FeaturesPage() {
   return <main id="top" className="subpage-main">
-    <PageHero title={<>Saved posts,<br/>links, and notes</>} accent="together." description="Import saved-post exports from Instagram, Pinterest, and X. Add public links from other sites, then organize and search your library."/>
+    <PageHero title={<>Your saved posts,<br/>all in one</>} accent="place." description="Bring posts in from Instagram, Pinterest, and X. Save links from anywhere else. Keep the source beside your notes."/>
     <section className="feature-story feature-story-yellow" data-reveal><div className="feature-story-number">01</div><div className="feature-story-copy"><h2>Bring in the posts you saved.</h2><p>Import Instagram, Pinterest, and X saved-post exports, or save a public page link directly.</p></div><div className="feature-story-art capture-art" aria-hidden="true"><span>POST</span><i>↘</i><b>KEPT</b></div></section>
     <section className="feature-story feature-story-orange" data-reveal><div className="feature-story-number">02</div><div className="feature-story-copy"><h2>Keep related things together.</h2><p>Add notes, tags, or collections to shape your library.</p></div><div className="feature-story-art connect-art" aria-hidden="true"><span>IDEA</span><i/><i/><i/><b>THREAD</b></div></section>
     <section className="feature-story feature-story-ink" data-reveal><div className="feature-story-number">03</div><div className="feature-story-copy"><h2>Find the page you need.</h2><p>Search what you saved. Ask questions and follow answers to their sources.</p></div><div className="feature-story-art return-art" aria-hidden="true"><span>⌕</span><b>FOUND<br/>AGAIN</b></div></section>
     <section className="feature-trust" data-reveal><h2>Your library, your way.</h2><p>Choose what to save, add your own context, and open the original source whenever you need it.</p><a className="underlined-link" href="/about">Why Rembr keeps the source <span aria-hidden="true">↗</span></a></section>
-    <section className="feature-limit" data-reveal><p>Some sites limit what Rembr can read. In those cases, the source link stays available even if details are incomplete.</p><a href="/contact">Ask us a question <Arrow diagonal/></a></section>
+    <section className="feature-limit" data-reveal><p>Some sites limit what Rembr can save. External actions always need your approval.</p><a href="/contact">Ask us a question <Arrow diagonal/></a></section>
   </main>;
 }
 
 function AboutPage() {
   return <main id="top" className="subpage-main about-main">
-    <PageHero title={<>A place for saved<br/>posts and links</>} accent="with context." description="Rembr brings supported saved-post exports, public links, and your own notes into one searchable library."/>
+    <PageHero title={<>We save the post.<br/>We remember</>} accent="why it mattered." description="A home for saved posts, useful links, and the context you want to keep."/>
     <section className="about-statement" data-reveal><p>“Later” should be a place you can return to.</p><span aria-hidden="true">✳</span></section>
     <section className="about-columns"><article data-reveal><h2>Keep what caught your attention.</h2><p>Bring in posts from Instagram, Pinterest, or X. Save a public link from anywhere else.</p></article><article data-reveal><h2>Come back with the context.</h2><p>Keep the original source. Add your own notes, organize related finds, and search your library when you need them.</p></article></section>
     <section className="about-manifesto" data-reveal><h2>Keep the source.<br/>Keep your context.</h2><a className="button button-yellow" href="/app">Open your library <Arrow diagonal/></a></section>
@@ -225,7 +225,7 @@ function ContactPage() {
   }
 
   return <main id="top" className="subpage-main contact-main">
-    <PageHero title={<>Contact<br/>Rembr</>} description="Questions or feedback? Open an email draft and review it before sending."/>
+    <PageHero title={<>A note can<br/>start a</>} accent="good thing." description="Questions or feedback about Rembr? Send us a note."/>
     <section className="contact-layout" data-reveal><div className="contact-note"><span>✳</span><h2>What were you trying to do?</h2><p>This opens a draft in your email app. Rembr does not send or store your message.</p><a className="text-link" href="/app">Account help <Arrow diagonal/></a></div>
       <form onSubmit={submit} className="contact-form"><div className="form-heading"><span>Write to Rembr</span></div><label htmlFor="contact-email">Your email</label><input id="contact-email" name="email" type="email" autoComplete="email" required maxLength={254} placeholder="you@example.com"/><label htmlFor="contact-subject">What is this about?</label><select id="contact-subject" name="subject" defaultValue="Feedback"><option>Feedback</option><option>Account help</option><option>Something is not working</option><option>Other</option></select><label htmlFor="contact-message">Your message</label><textarea id="contact-message" name="message" required minLength={10} maxLength={3000} rows={5} placeholder="What happened?"/><button className="button button-ink" type="submit" disabled={!contactEmail}>{sent ? 'Draft opened' : 'Open email draft'} <Arrow diagonal/></button>{!contactEmail && <p className="contact-config-note">Contact email is not set up yet.</p>}</form>
     </section>
