@@ -10,6 +10,7 @@ import { SavedItemLink } from './components/SavedItemLink.js';
 import { PortedLibraryGrid } from './ported/LibraryCards.js';
 import { RembrDetailDrawer, type RembrDetailAction } from './ported/RembrDetailDrawer.js';
 import { RembrAddFlow } from './ported/RembrAddFlow.js';
+import { RembrAuthFrame } from './ported/RembrAuthFrame.js';
 import { RembrCheckupPanel } from './ported/RembrCheckupPanel.js';
 import { RembrKnowledgeGraphPanel } from './ported/RembrKnowledgeGraphPanel.js';
 import { AppShellSkeleton, SkeletonCardGrid } from './ported/LoadingStates.jsx';
@@ -242,19 +243,12 @@ function AuthPage() {
     finally { setBusy(false); }
   }
 
-  return <main className="auth-shell">
-    <section className="auth-story">
-      <Link className="wordmark" to="/" aria-label="Rembr home">rembr<span>.</span></Link>
-      <div className="story-copy"><h1 id="auth-title">Keep what you find.<br /><span>Find it again.</span></h1><p className="auth-copy">Save a public page with its source and a readable copy.</p></div>
-      <div className="paper-scene" aria-hidden="true"><div className="paper-orbit paper-orbit-one" /><div className="paper-orbit paper-orbit-two" /><div className="paper-sheet paper-sheet-back"><span /><span /><span /></div><article className="paper-sheet paper-sheet-front"><div className="paper-meta"><span>FIELD NOTES</span><span>04 MIN READ</span></div><div className="paper-rule" /><strong>A little more room<br />to think.</strong><p>Good ideas are worth finding again.</p><div className="paper-lines"><i /><i /><i /></div><span className="paper-bookmark">↗</span></article><span className="paper-sticker">SAVED<br />FOR LATER</span></div>
-      <div className="story-footer"><span className="story-check">✓</span> Private by design <span className="story-footer-dot">·</span> Made for the long read</div>
-    </section>
-    <section className="auth-card" aria-labelledby="auth-form-title"><div className="auth-card-heading"><h2 id="auth-form-title">{mode === 'login' ? 'Welcome back.' : 'Create your account.'}</h2></div>
+  return <RembrAuthFrame title="Keep what you find. Find it again." description="Save a public page with its source and a readable copy." sideNote="Made for the long read">
+    <div className="auth-card-heading"><h2 id="auth-form-title">{mode === 'login' ? 'Welcome back.' : 'Create your account.'}</h2></div>
       <div className="auth-tabs" role="tablist" aria-label="Account access"><button type="button" role="tab" aria-selected={mode === 'login'} onClick={() => { setMode('login'); setPassword(''); setPasswordRevealed(false); setError(''); }}>Sign in</button><button type="button" role="tab" aria-selected={mode === 'register'} onClick={() => { setMode('register'); setPassword(''); setPasswordRevealed(false); setError(''); }}>Create account</button></div>
       <form className="stack-form" onSubmit={(event) => void submit(event)}><label htmlFor="email">Email address</label><input id="email" autoComplete="email" type="email" required maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} />{mode === 'register' ? <PasswordStrengthField id="password" value={password} onValueChange={setPassword} disabled={busy} /> : <><label htmlFor="password">Password</label><div className="password-input-wrap"><input id="password" name="password" autoComplete="current-password" type={passwordRevealed ? 'text' : 'password'} required minLength={1} maxLength={128} value={password} onChange={(event) => setPassword(event.target.value)} /><button type="button" className="password-reveal" aria-label={passwordRevealed ? 'Hide password' : 'Show password'} aria-controls="password" aria-pressed={passwordRevealed} onClick={() => setPasswordRevealed((current) => !current)}>{passwordRevealed ? 'Hide' : 'Show'}</button></div></>}{error && <p className="notice error" role="alert">{error}</p>}<button className="primary-button" type="submit" disabled={busy}>{busy ? (mode === 'register' ? 'Creating account…' : 'Signing in…') : mode === 'register' ? 'Create your library' : 'Sign in to Rembr'}</button></form>
       <p className="privacy-note"><span>✳</span>Your library is private to your account. Rembr can save public pages.</p>
-    </section>
-  </main>;
+  </RembrAuthFrame>;
 }
 
 function useSession() {
