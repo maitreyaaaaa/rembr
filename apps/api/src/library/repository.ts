@@ -84,7 +84,7 @@ function toItem(row: Row) {
     titleOverride: row.title_override == null ? null : String(row.title_override),
     descriptionOverride: row.description_override == null ? null : String(row.description_override),
     kind: String(row.item_kind ?? 'page'), status, errorCode: row.error_code ? String(row.error_code) : null,
-    createdAt: String(row.created_at), updatedAt: String(row.updated_at), textPreview: String(row.text_content || row.note_preview || '').slice(0, 240),
+    createdAt: String(row.created_at), updatedAt: String(row.updated_at), textPreview: String(row.text_preview || row.text_content || row.note_preview || '').slice(0, 240),
     ...(row.include_text ? { text: String(row.text_content ?? ''), fetchedAt: row.fetched_at ? String(row.fetched_at) : null } : {}),
   };
 }
@@ -112,9 +112,27 @@ export function createLibraryRepository(database: DatabaseHandle) {
   async function decorate(ownerId: string, rows: Row[], includeDetail = false) {
     const itemIds = rows.map((row) => String(row.id));
     const relationships = await related(ownerId, itemIds);
+    const covers = new Map<string, { url: string; mime: string; byteSize: number }>();
+    if (!includeDetail && itemIds.length) {
+      const marks = itemIds.map(() => '?').join(',');
+      const mediaCovers = await database.prepare(`SELECT item_id AS "itemId",id,detected_mime AS mime,byte_size AS "byteSize"
+        FROM media_artifacts WHERE owner_id=? AND item_id IN (${marks}) AND active=1 AND status='ready' AND detected_mime LIKE 'image/%'
+        ORDER BY created_at,id`).all(ownerId, ...itemIds) as Array<{ itemId: string; id: string; mime: string; byteSize: number }>;
+      const noteCovers = await database.prepare(`SELECT note_assets.item_id AS "itemId",asset_objects.id,asset_objects.detected_mime AS mime,asset_objects.byte_size AS "byteSize"
+        FROM note_assets JOIN asset_objects ON asset_objects.owner_id=note_assets.owner_id AND asset_objects.id=note_assets.asset_id
+        WHERE note_assets.owner_id=? AND note_assets.item_id IN (${marks}) AND asset_objects.state='ready' AND asset_objects.detected_mime LIKE 'image/%'
+        ORDER BY note_assets.position`).all(ownerId, ...itemIds) as Array<{ itemId: string; id: string; mime: string; byteSize: number }>;
+      for (const cover of [...mediaCovers, ...noteCovers]) {
+        if (!covers.has(cover.itemId)) covers.set(cover.itemId, {
+          url: `${mediaCovers.includes(cover) ? '/api/media/' : '/api/assets/'}${cover.id}`,
+          mime: cover.mime,
+          byteSize: Number(cover.byteSize),
+        });
+      }
+    }
     return Promise.all(rows.map(async (row) => {
       const dto = { ...toItem(row), tags: relationships.tags.get(String(row.id)) ?? [], collections: relationships.collections.get(String(row.id)) ?? [] };
-      if (!includeDetail) return dto;
+      if (!includeDetail) return { ...dto, cover: covers.get(String(row.id)) ?? null };
       const id = String(row.id);
       if (row.item_kind !== 'note') {
         const media = await database.prepare(`SELECT id,detected_mime AS mime,byte_size AS "byteSize",status,error_code AS "errorCode"
@@ -227,7 +245,7 @@ export function createLibraryRepository(database: DatabaseHandle) {
       const rows = await database.prepare(`WITH ranked_items AS (
           SELECT saved_items.*, COALESCE(saved_items.title_override,saved_items.title) AS effective_title,
             COALESCE(saved_items.description_override,saved_items.description) AS effective_description,
-            extracted_artifacts.text_content,
+            LEFT(extracted_artifacts.text_content,240) AS text_preview,
             (SELECT LEFT(notes.body,240) FROM notes WHERE notes.owner_id=saved_items.owner_id AND notes.item_id=saved_items.id) AS note_preview,
             processing_jobs.status AS job_status, job_pause_states.pause_cause,
             ${scoreExpression} AS search_score

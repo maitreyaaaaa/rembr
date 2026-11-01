@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { Archive, ArrowLeft, Brain, ChevronDown, Database, FileText, Folder, LogOut, MoreHorizontal, Network, PanelLeftClose, PanelLeftOpen, Plus, ScanSearch, Settings, Tag, Upload } from 'lucide-react';
+import { Archive, ArrowLeft, Brain, ChevronDown, Database, FileText, Folder, Link2, LogOut, MoreHorizontal, Network, PanelLeftClose, PanelLeftOpen, Plus, ScanSearch, Settings, Tag, Upload, X } from 'lucide-react';
 import {
   BrowserRouter, Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useOutletContext,
   useParams, useSearchParams,
@@ -7,14 +7,14 @@ import {
 import { AvatarUpload } from './components/AvatarUpload.js';
 import { Progress } from './components/ui/progress.js';
 import { SavedItemLink } from './components/SavedItemLink.js';
-import { PortedLibraryGrid } from './ported/LibraryCards.js';
+import { LibraryCardSkeletons, PortedLibraryGrid } from './ported/LibraryCards.js';
 import { RembrDetailDrawer, type RembrDetailAction } from './ported/RembrDetailDrawer.js';
 import { RembrAddFlow } from './ported/RembrAddFlow.js';
 import { RembrAuthFrame } from './ported/RembrAuthFrame.js';
 import { RembrWorkspaceTour } from './ported/RembrWorkspaceTour.js';
 import { RembrCheckupPanel } from './ported/RembrCheckupPanel.js';
 import { RembrKnowledgeGraphPanel } from './ported/RembrKnowledgeGraphPanel.js';
-import { AppShellSkeleton, SkeletonCardGrid } from './ported/LoadingStates.jsx';
+import { AppShellSkeleton } from './ported/LoadingStates.jsx';
 import { Banner as SourceBanner } from './ported/Common.jsx';
 
 const MarketingSite = lazy(() => import('./MarketingSite.js').then(({ MarketingSite: page }) => ({ default: page })));
@@ -39,6 +39,7 @@ interface SavedItem {
   descriptionOverride?: string | null; kind: 'page' | 'note'; status: Status; errorCode: string | null;
   createdAt: string; updatedAt: string; textPreview: string; text?: string; fetchedAt?: string;
   tags: Tag[]; collections: Collection[]; note?: Note; media?: MediaAsset[];
+  cover?: { url: string; mime: string; byteSize: number } | null;
 }
 interface Onboarding { contentTypes: string[]; referralSource: string; completedAt: string | null; skippedAt: string | null }
 interface AiPreference { enabled: boolean; consentVersion: string | null; consentedAt: string | null; disabledAt: string | null; updatedAt: string | null; providerAvailable: boolean }
@@ -46,6 +47,7 @@ type AiSearchPreference = AiPreference;
 type VisualSearchPreference = AiPreference;
 interface SemanticSearchPreference extends AiPreference { indexedItems: number; eligibleItems: number }
 interface VisualSearchResult { query: string; visualDescription: string; results: SavedItem[]; searchEventId: string | null }
+interface WebSearchResultView { summary: string; citations: Array<{ title: string; url: string; snippet: string }> }
 interface AiAnalysisView { status: string; pauseReason: string | null; errorCode: string | null; updatedAt: string | null; result: null | { status: string; model: string; summary: string; visualDescription: string; ocrText: string; transcript: string; keywords: string[]; tags: string[]; brands: string[]; tools: string[]; people: string[]; repositories: string[]; imageCount: number; imageBytes: number; videoCount: number; videoBytes: number; createdAt: string } }
 interface KnowledgeGraphItem { id: string; title: string; status: string; createdAt: string }
 interface KnowledgeGraphGroup { id: string; type: string; label: string; itemCount: number; items: KnowledgeGraphItem[] }
@@ -303,6 +305,7 @@ function ProtectedShell() {
       {detailBackground && <div className="rembr-detail-underlay" aria-hidden="true" inert><div className="phase2-main">{detailBackground}</div></div>}
       <div className={hasDetailBackground ? 'rembr-detail-route' : undefined}><div className="phase2-main"><Outlet context={{ session, setSession }} /></div></div>
     </main>
+    <QuickAddDock />
     {tourOpen && <RembrWorkspaceTour
       open
       onClose={() => {
@@ -313,6 +316,80 @@ function ProtectedShell() {
       onNavigate={(path) => navigate(`${path}?tour=1`)}
     />}
   </div>;
+}
+
+function QuickAddDock() {
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [view, setView] = useState<'menu' | 'link' | 'note'>('menu');
+  const [url, setUrl] = useState('');
+  const [title, setTitle] = useState('');
+  const [body, setBody] = useState('');
+  const [links, setLinks] = useState('');
+  const [images, setImages] = useState<File[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape' && !busy) close(); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [open, busy]);
+
+  function close() { setOpen(false); setView('menu'); setError(''); }
+  async function saveLink(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setBusy(true); setError('');
+    try {
+      const result = await api<{ item: SavedItem }>('/api/items', { method: 'POST', body: JSON.stringify({ url }) });
+      close(); navigate(`/app/items/${encodeURIComponent(result.item.id)}`, { state: { returnTo: '/app' } });
+    } catch (cause) { setError(messageOf(cause, 'Could not save that page.')); }
+    finally { setBusy(false); }
+  }
+  async function saveNote(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setError('');
+    const noteLinks = links.split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+    if (noteLinks.length > 20) { setError('Add up to 20 links.'); return; }
+    try { for (const value of noteLinks) { const parsed = new URL(value); if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error(); } }
+    catch { setError('Each link must be a complete HTTP or HTTPS URL.'); return; }
+    if (images.length > 5 || images.some((image) => image.size > 5 * 1024 * 1024)) { setError('Choose up to five images, 5 MiB each.'); return; }
+    setBusy(true);
+    const form = new FormData(); form.set('title', title.trim() || 'Untitled note'); form.set('body', body); form.set('links', JSON.stringify(noteLinks)); images.forEach((image) => form.append('images', image));
+    try {
+      const result = await api<{ item: SavedItem }>('/api/notes', { method: 'POST', body: form });
+      close(); navigate(`/app/items/${encodeURIComponent(result.item.id)}`, { state: { returnTo: '/app' } });
+    } catch (cause) { setError(messageOf(cause, 'Could not save this note.')); }
+    finally { setBusy(false); }
+  }
+
+  return <>
+    <button className="quick-add-trigger" type="button" aria-label="Quick add to your library" aria-expanded={open} onClick={() => { setOpen(true); setView('menu'); }}><Plus aria-hidden="true" /></button>
+    {open && <div className="quick-add-layer">
+      <button className="quick-add-backdrop" type="button" aria-label="Close quick add" onClick={close} />
+      <section className="quick-add-panel" role="dialog" aria-modal="true" aria-labelledby="quick-add-title">
+        <header><div><span className="quick-add-kicker">Quick add</span><h2 id="quick-add-title">Add to your Library</h2></div><button className="quick-add-close" type="button" aria-label="Close quick add" onClick={close}><X /></button></header>
+        {view === 'menu' && <div className="quick-add-menu">
+          <button type="button" onClick={() => { setError(''); setView('link'); }}><span><Link2 /></span>Paste link</button>
+          <button type="button" onClick={() => { setError(''); setView('note'); }}><span><FileText /></span>Write note</button>
+          <button type="button" onClick={() => { close(); navigate('/app/add'); }}><span><Upload /></span>Upload file</button>
+          <Link to="/app/add" onClick={close}><Upload />Open full Add Saves page</Link>
+        </div>}
+        {view === 'link' && <form className="quick-add-form" onSubmit={(event) => void saveLink(event)}>
+          <button className="quick-add-back" type="button" onClick={() => { setView('menu'); setError(''); }}>← Quick add</button>
+          <h3>Save a page</h3><label htmlFor="quick-add-url">Paste a link</label><input id="quick-add-url" type="url" inputMode="url" autoComplete="url" required maxLength={2048} placeholder="https://example.com/article" value={url} onChange={(event) => setUrl(event.currentTarget.value)} />
+          {error && <p className="notice error" role="alert">{error}</p>}<button className="primary-button" type="submit" disabled={busy || !url.trim()}>{busy ? 'Saving…' : 'Save page'}</button>
+        </form>}
+        {view === 'note' && <form className="quick-add-form" onSubmit={(event) => void saveNote(event)}>
+          <button className="quick-add-back" type="button" onClick={() => { setView('menu'); setError(''); }}>← Quick add</button>
+          <h3>Save a quick thought</h3><label className="visually-hidden" htmlFor="quick-add-note-body">Note</label><textarea id="quick-add-note-body" rows={5} maxLength={20000} required placeholder="Write the note, reminder, or idea…" value={body} onChange={(event) => setBody(event.currentTarget.value)} />
+          <label className="visually-hidden" htmlFor="quick-add-note-title">Title (optional)</label><input id="quick-add-note-title" maxLength={240} placeholder="Title optional" value={title} onChange={(event) => setTitle(event.currentTarget.value)} />
+          <label className="visually-hidden" htmlFor="quick-add-note-links">Optional links</label><textarea id="quick-add-note-links" rows={2} placeholder="Optional links, one per line" value={links} onChange={(event) => setLinks(event.currentTarget.value)} />
+          <label className="quick-add-image-button" htmlFor="quick-add-note-images"><Upload />Add images <span>{images.length}/5 selected</span></label><input id="quick-add-note-images" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple onChange={(event) => { const picked = Array.from(event.currentTarget.files ?? []).slice(0, 5); setImages(picked); event.currentTarget.value = ''; }} />
+          {error && <p className="notice error" role="alert">{error}</p>}<button className="primary-button" type="submit" disabled={busy || !body.trim()}>{busy ? 'Saving note…' : 'Save note'}</button>
+        </form>}
+      </section>
+    </div>}
+  </>;
 }
 
 function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promise<void> }) {
@@ -346,7 +423,7 @@ function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promi
       onMouseEnter={() => { if (!expanded) setHoverExpanded(true); }} onMouseLeave={() => setHoverExpanded(false)} aria-label="Workspace navigation">
       <div className={`flex border-b border-white/5 p-3 ${sidebarExpanded ? 'items-center gap-2' : 'flex-col items-center gap-2'}`}>
         <Link to="/" title="Back to Rembr home" aria-label="Back to Rembr home" className={`flex min-h-11 items-center rounded-lg transition hover:bg-white/5 ${sidebarExpanded ? 'min-w-0 flex-1 gap-3 px-2' : 'h-11 w-11 justify-center'}`}>
-          <ArrowLeft className="h-4 w-4 shrink-0 text-muted-foreground" />{sidebarExpanded && <img className="rembr-official-logo app-nav-brand" src="/brand/rembr-wordmark-white.png?v=4ed985b" alt="Rembr" />}
+          <ArrowLeft className="h-4 w-4 shrink-0 text-muted-foreground" />{sidebarExpanded && <img className="rembr-official-logo app-nav-brand" src="/brand/rembr-wordmark.svg?v=20261101" alt="Rembr" />}
         </Link>
         <button type="button" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? 'Collapse sidebar' : 'Expand sidebar'} aria-expanded={expanded} title={expanded ? 'Collapse sidebar' : 'Expand sidebar'} className="grid h-11 w-11 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-white/5 hover:text-primary">
           {expanded ? <PanelLeftClose className="h-5 w-5" /> : <PanelLeftOpen className="h-5 w-5" />}
@@ -377,7 +454,7 @@ function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promi
       </div>
     </aside>
     <header className="mobile-app-topbar sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-white/10 bg-black/90 p-3 backdrop-blur md:hidden">
-      <Link to="/" aria-label="Rembr home" className="flex min-h-11 min-w-11 items-center gap-2"><ArrowLeft className="h-4 w-4" /><img className="rembr-official-logo app-nav-brand" src="/brand/rembr-wordmark-white.png?v=4ed985b" alt="Rembr" /></Link>
+      <Link to="/" aria-label="Rembr home" className="flex min-h-11 min-w-11 items-center gap-2"><ArrowLeft className="h-4 w-4" /><img className="rembr-official-logo app-nav-brand" src="/brand/rembr-wordmark.svg?v=20261101" alt="Rembr" /></Link>
       <Link to="/app/settings/profile" className="grid h-11 w-11 place-items-center overflow-hidden rounded-full border border-white/10 bg-primary text-sm font-bold text-primary-foreground" aria-label="Open account settings">{avatar ? <img src={avatar} alt="" className="h-full w-full object-cover" /> : userMark.toUpperCase()}</Link>
     </header>
     {moreOpen && <button type="button" className="mobile-navigation-backdrop md:hidden" onClick={() => setMoreOpen(false)} aria-label="Close more navigation" />}
@@ -401,7 +478,7 @@ function SetupRoute() {
   if (loading) return <main className="center-state" role="status">Checking your session…</main>;
   if (!session) return <Navigate to={`/login?returnTo=${encodeURIComponent(`${location.pathname}${location.search}`)}`} replace />;
   if (session.profileComplete) return <Navigate to={returnTo} replace />;
-  return <main className="phase2-centered phase2-setup-shell"><section className="phase2-card phase2-setup-card"><Link className="wordmark" to="/" aria-label="Rembr home"><img className="rembr-official-logo auth-brand-logo" src="/brand/rembr-wordmark-white.png?v=4ed985b" alt="Rembr" /></Link><ProfileForm session={session} onComplete={async () => { await refresh(); navigate(returnTo, { replace: true }); }} /></section></main>;
+  return <main className="phase2-centered phase2-setup-shell"><section className="phase2-card phase2-setup-card"><Link className="wordmark" to="/" aria-label="Rembr home"><img className="rembr-official-logo auth-brand-logo" src="/brand/rembr-wordmark.svg?v=20261101" alt="Rembr" /></Link><ProfileForm session={session} onComplete={async () => { await refresh(); navigate(returnTo, { replace: true }); }} /></section></main>;
 }
 
 function ProfileForm({ session, onComplete }: { session: Session; onComplete: () => Promise<void> }) {
@@ -459,18 +536,34 @@ function LibraryPage() {
   const [visualBusy, setVisualBusy] = useState(false);
   const [visualError, setVisualError] = useState('');
   const [visualFeedback, setVisualFeedback] = useState<Record<string, 'helpful' | 'not_helpful'>>({});
-  const [semanticSearchNotice, setSemanticSearchNotice] = useState('');
-  const [items, setItems] = useState<SavedItem[]>([]); const [nextCursor, setNextCursor] = useState<string | null>(null); const [hasMore, setHasMore] = useState(false); const [searchEventId, setSearchEventId] = useState<string | null>(null); const [searchFeedback, setSearchFeedback] = useState<Record<string, 'helpful' | 'not_helpful'>>({});
+  const [webSearchResult, setWebSearchResult] = useState<WebSearchResultView | null>(null);
+  const [webSearchBusy, setWebSearchBusy] = useState(false);
+  const [webSearchError, setWebSearchError] = useState('');
+  const [items, setItems] = useState<SavedItem[]>([]); const [nextCursor, setNextCursor] = useState<string | null>(null); const [hasMore, setHasMore] = useState(false); const [searchEventIds, setSearchEventIds] = useState<Record<string, string>>({}); const [searchFeedback, setSearchFeedback] = useState<Record<string, 'helpful' | 'not_helpful'>>({});
+  const [loadingMore, setLoadingMore] = useState(false); const [loadMoreError, setLoadMoreError] = useState(''); const loadingMoreRef = useRef(false); const itemListGenerationRef = useRef(0);
   const [askQuestion, setAskQuestion] = useState(''); const [libraryConversation, setLibraryConversation] = useState<LibraryChatTurn[]>([]); const [askBusy, setAskBusy] = useState(false); const [askError, setAskError] = useState('');
   const [tags, setTags] = useState<Tag[]>([]); const [collections, setCollections] = useState<Collection[]>([]);
   const [loading, setLoading] = useState(true); const [error, setError] = useState('');
-  const search = searchParams.get('search') ?? ''; const mode = searchParams.get('mode') === 'semantic' ? 'semantic' : 'keyword'; const type = searchParams.get('type') ?? ''; const status = searchParams.get('status') ?? ''; const tagId = searchParams.get('tagId') ?? ''; const collectionId = searchParams.get('collectionId') ?? ''; const sort = searchParams.get('sort') ?? (search ? 'relevance' : 'created_desc'); const cursor = searchParams.get('cursor') ?? '';
+  const search = searchParams.get('search') ?? ''; const searchMode = searchParams.get('mode') === 'web' ? 'web' : 'saved'; const type = searchParams.get('type') ?? ''; const status = searchParams.get('status') ?? ''; const tagId = searchParams.get('tagId') ?? ''; const collectionId = searchParams.get('collectionId') ?? ''; const sort = searchParams.get('sort') ?? (search ? 'relevance' : 'created_desc');
   const hasActiveFilters = Boolean(search || type || status || tagId || collectionId);
   const selectedTag = tags.find((tag) => tag.id === tagId);
   const selectedCollection = collections.find((collection) => collection.id === collectionId);
-  const query = useMemo(() => { const params = new URLSearchParams({ search, sort, limit: '25' }); if (type) params.set('type', type); if (status) params.set('status', status); if (tagId) params.set('tagId', tagId); if (collectionId) params.set('collectionId', collectionId); if (cursor) params.set('cursor', cursor); return params.toString(); }, [search, sort, type, status, tagId, collectionId, cursor]);
-  const semanticQuery = useMemo(() => { const params = new URLSearchParams({ q: search }); if (type) params.set('type', type); if (status) params.set('status', status); if (tagId) params.set('tagId', tagId); if (collectionId) params.set('collectionId', collectionId); return params.toString(); }, [search, type, status, tagId, collectionId]);
-  const load = useCallback(async () => { setLoading(true); setError(''); setSemanticSearchNotice(''); setSearchEventId(null); setSearchFeedback({}); try { const body = await api<{ items: SavedItem[]; nextCursor: string | null; hasMore: boolean; searchEventId: string | null; fallbackReason?: string | null }>(mode === 'semantic' && search.trim() ? `/api/semantic/search?${semanticQuery}` : `/api/items?${query}`); setItems(body.items); setNextCursor(body.nextCursor); setHasMore(body.hasMore); setSearchEventId(body.searchEventId); if (body.fallbackReason) { const notices: Record<string, string> = { consent_required: 'Semantic search is off until you enable its separate OpenRouter consent in Settings. Showing keyword matches.', provider_unavailable: 'OpenRouter is not configured for Rembr yet. Showing keyword matches.', index_empty: 'Index your saved text in Settings to start semantic search. Showing keyword matches.', budget_exhausted: 'The shared AI monthly budget is full. Showing keyword matches.', provider_error: 'Semantic search is temporarily unavailable. Showing keyword matches.', no_matching_results: 'No saved items matched this semantic query.' }; setSemanticSearchNotice(notices[body.fallbackReason] ?? 'Showing keyword matches.'); } } catch (cause) { setError(messageOf(cause, 'Could not load your library.')); } finally { setLoading(false); } }, [mode, search, semanticQuery, query]);
+  const query = useMemo(() => { const params = new URLSearchParams({ search, sort, limit: '20' }); if (type) params.set('type', type); if (status) params.set('status', status); if (tagId) params.set('tagId', tagId); if (collectionId) params.set('collectionId', collectionId); return params.toString(); }, [search, sort, type, status, tagId, collectionId]);
+  const load = useCallback(async () => { const generation = ++itemListGenerationRef.current; setLoading(true); setLoadingMore(false); setError(''); setSearchEventIds({}); setSearchFeedback({}); setItems([]); setNextCursor(null); setHasMore(false); setLoadMoreError(''); loadingMoreRef.current = false; try { const body = await api<{ items: SavedItem[]; nextCursor: string | null; hasMore: boolean; searchEventId: string | null }>(`/api/items?${query}`); if (generation !== itemListGenerationRef.current) return; setItems(body.items); setNextCursor(body.nextCursor); setHasMore(body.hasMore); if (body.searchEventId) setSearchEventIds(Object.fromEntries(body.items.map((item) => [item.id, body.searchEventId!]))); } catch (cause) { if (generation === itemListGenerationRef.current) setError(messageOf(cause, 'Could not load your library.')); } finally { if (generation === itemListGenerationRef.current) setLoading(false); } }, [query]);
+  const loadMore = useCallback(async () => {
+    if (loadingMoreRef.current || !hasMore || !nextCursor) return;
+    const generation = itemListGenerationRef.current;
+    loadingMoreRef.current = true; setLoadingMore(true); setLoadMoreError('');
+    try {
+      const params = new URLSearchParams(query); params.set('cursor', nextCursor);
+      const body = await api<{ items: SavedItem[]; nextCursor: string | null; hasMore: boolean; searchEventId: string | null }>(`/api/items?${params}`);
+      if (generation !== itemListGenerationRef.current) return;
+      setItems((current) => { const seen = new Set(current.map((item) => item.id)); return [...current, ...body.items.filter((item) => !seen.has(item.id))]; });
+      if (body.searchEventId) setSearchEventIds((current) => ({ ...current, ...Object.fromEntries(body.items.map((item) => [item.id, body.searchEventId!])) }));
+      setNextCursor(body.nextCursor); setHasMore(body.hasMore);
+    } catch (cause) { if (generation === itemListGenerationRef.current) setLoadMoreError(messageOf(cause, 'Could not load more saved items.')); }
+    finally { if (generation === itemListGenerationRef.current) { loadingMoreRef.current = false; setLoadingMore(false); } }
+  }, [hasMore, nextCursor, query]);
   useEffect(() => { const timer = window.setTimeout(() => void load(), search.trim() ? 300 : 0); return () => window.clearTimeout(timer); }, [load, search]);
   useEffect(() => { let alive = true; void Promise.all([api<{ tags: Tag[] }>('/api/tags'), api<{ collections: Collection[] }>('/api/collections')]).then(([tagResult, collectionResult]) => { if (alive) { setTags(tagResult.tags); setCollections(collectionResult.collections); } }).catch(() => undefined); return () => { alive = false; }; }, []);
   const loadVisualSearchPreference = useCallback(async () => {
@@ -485,10 +578,10 @@ function LibraryPage() {
   useEffect(() => { void loadVisualSearchPreference(); }, [loadVisualSearchPreference]);
   useEffect(() => () => { if (visualPreview) URL.revokeObjectURL(visualPreview); }, [visualPreview]);
   function updateFilter(key: string, value: string) { const next = new URLSearchParams(searchParams); if (value) next.set(key, value); else next.delete(key); next.delete('cursor'); setSearchParams(next); }
-  function setSearch(value: string) { const next = new URLSearchParams(searchParams); if (value) { next.set('search', value); if (!searchParams.has('sort')) next.set('sort', 'relevance'); } else { next.delete('search'); if (next.get('sort') === 'relevance') next.delete('sort'); } next.delete('cursor'); setSearchParams(next, { replace: true }); }
+  function setSearch(value: string) { setWebSearchResult(null); setWebSearchError(''); const next = new URLSearchParams(searchParams); if (value) { next.set('search', value); if (!searchParams.has('sort')) next.set('sort', 'relevance'); } else { next.delete('search'); if (next.get('sort') === 'relevance') next.delete('sort'); } next.delete('cursor'); setSearchParams(next, { replace: true }); }
   function clearFilters() { const next = new URLSearchParams(searchParams); ['search', 'type', 'status', 'tagId', 'collectionId', 'cursor'].forEach((key) => next.delete(key)); if (next.get('sort') === 'relevance') next.delete('sort'); setSearchParams(next); }
   async function remove(item: SavedItem) { if (!window.confirm(`Remove “${item.title}” and its child data from your library?`)) return; try { await api(`/api/items/${encodeURIComponent(item.id)}`, { method: 'DELETE' }); await load(); } catch (cause) { setError(messageOf(cause, 'Could not remove item.')); } }
-  async function rateSearchResult(item: SavedItem, rating: 'helpful' | 'not_helpful') { if (!searchEventId) return; setError(''); try { await api('/api/search/feedback', { method: 'POST', body: JSON.stringify({ searchEventId, itemId: item.id, rating }) }); setSearchFeedback((current) => ({ ...current, [item.id]: rating })); } catch (cause) { setError(messageOf(cause, 'Could not save search feedback.')); } }
+  async function rateSearchResult(item: SavedItem, rating: 'helpful' | 'not_helpful') { const searchEventId = searchEventIds[item.id]; if (!searchEventId) return; setError(''); try { await api('/api/search/feedback', { method: 'POST', body: JSON.stringify({ searchEventId, itemId: item.id, rating }) }); setSearchFeedback((current) => ({ ...current, [item.id]: rating })); } catch (cause) { setError(messageOf(cause, 'Could not save search feedback.')); } }
   function chooseVisualImage(file: File | undefined) {
     setVisualError(''); setVisualResult(null); setVisualFeedback({});
     if (!file) { setVisualImage(null); setVisualPreview(null); return; }
@@ -496,7 +589,9 @@ function LibraryPage() {
   }
   async function searchByImage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!visualImage || !visualSearchPreference?.enabled || !visualSearchPreference.providerAvailable) return;
+    if (!visualImage) return;
+    if (!visualSearchPreference?.enabled) { setVisualError('Enable image search in Settings before searching. Your selected image has not been sent.'); return; }
+    if (!visualSearchPreference.providerAvailable) { setVisualError('Image search is temporarily unavailable. Your selected image has not been sent.'); return; }
     setVisualBusy(true); setVisualError(''); setVisualFeedback({});
     try {
       const image = await prepareVisualSearchImage(visualImage);
@@ -508,6 +603,18 @@ function LibraryPage() {
         : messageOf(cause, 'Could not search your library with this image.'));
     }
     finally { setVisualBusy(false); }
+  }
+  async function searchTheWeb(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (visualImage) { await searchByImage(event); return; }
+    const queryText = search.trim();
+    if (!queryText) return;
+    if (searchMode !== 'web') return;
+    setWebSearchBusy(true); setWebSearchError(''); setWebSearchResult(null);
+    try {
+      setWebSearchResult(await api<WebSearchResultView>('/api/web-search', { method: 'POST', body: JSON.stringify({ query: queryText }) }));
+    } catch (cause) { setWebSearchError(messageOf(cause, 'Live web search could not be completed.')); }
+    finally { setWebSearchBusy(false); }
   }
   async function rateVisualSearchResult(item: SavedItem, rating: 'helpful' | 'not_helpful') {
     if (!visualResult?.searchEventId) return;
@@ -536,27 +643,43 @@ function LibraryPage() {
   }
   function startNewLibraryChat() { setLibraryConversation([]); setAskQuestion(''); setAskError(''); askInputRef.current?.focus(); }
   return <><div className="phase2-page-heading"><div><h1>Your library</h1><p>Search saved pages and notes.</p></div><div className="phase2-heading-actions"><Link className="quiet-button" to="/app/notes/new" state={{ returnTo: `${location.pathname}${location.search}` }}>New note</Link><Link className="primary-button" to="/app/add">Save a page</Link></div></div>
-    <section className="phase2-panel" aria-label="Library controls"><div className="phase2-filter-grid"><label>Search<input type="search" maxLength={120} placeholder="Titles, notes, page text, and analysis" value={search} onChange={(event) => setSearch(event.target.value)} /></label><label>Search mode<select aria-label="Search mode" value={mode} onChange={(event) => { const next = new URLSearchParams(searchParams); if (event.target.value === 'semantic') next.set('mode', 'semantic'); else next.delete('mode'); next.delete('cursor'); setSearchParams(next); }}><option value="keyword">Keyword</option><option value="semantic">Semantic (meaning)</option></select></label><label>Type<select value={type} onChange={(event) => updateFilter('type', event.target.value)}><option value="">All types</option><option value="page">Pages</option><option value="note">Notes</option></select></label><label>Status<select value={status} onChange={(event) => updateFilter('status', event.target.value)}><option value="">All statuses</option><option value="queued">Queued</option><option value="processing">Processing</option><option value="retry_wait">Retry scheduled</option><option value="paused">Paused</option><option value="partial">Partially ready</option><option value="ready">Ready</option><option value="failed">Failed</option><option value="cancelled">Canceled</option></select></label><label>Tag<select value={tagId} onChange={(event) => updateFilter('tagId', event.target.value)}><option value="">Any tag</option>{tags.map((tag) => <option value={tag.id} key={tag.id}>{tag.name}</option>)}</select></label><label>Collection<select value={collectionId} onChange={(event) => updateFilter('collectionId', event.target.value)}><option value="">Any collection</option>{collections.map((collection) => <option value={collection.id} key={collection.id}>{collection.name}</option>)}</select></label><label>Sort<select value={sort} onChange={(event) => updateFilter('sort', event.target.value)}><option value="relevance">Most relevant</option><option value="created_desc">Newest first</option><option value="created_asc">Oldest first</option><option value="title_asc">Title A–Z</option><option value="title_desc">Title Z–A</option></select></label></div>{hasActiveFilters && <div className="phase2-filter-summary"><p>Filtered by{search && <> <strong>“{search}”</strong></>}{type && <> <strong>{type === 'page' ? 'Pages' : 'Notes'}</strong></>}{status && <> <strong>{readableStatus(status as Status)}</strong></>}{selectedTag && <> <strong>Tag: {selectedTag.name}</strong></>}{selectedCollection && <> <strong>Collection: {selectedCollection.name}</strong></>}</p><button className="phase2-text-button" type="button" onClick={clearFilters}>Clear filters</button></div>}</section>
-    {semanticSearchNotice && <p className="phase2-state" role="status">{semanticSearchNotice} <Link to="/app/settings/preferences">Settings</Link></p>}{mode === 'semantic' && !semanticSearchNotice && <p className="phase2-helper">Semantic search blends meaning-based and keyword matches. Your query goes to OpenRouter only while its separate consent is enabled.</p>}
-    <section className="phase2-panel visual-search-panel" aria-labelledby="visual-search-title">
-      <div className="phase2-heading-actions"><div><h2 id="visual-search-title">Search by image</h2><p className="phase2-helper">Choose an image to find saved pages and notes with similar visual details or readable text. Rembr resizes the image in your browser and sends it to Meta AI only when you submit a search. It is not saved by Rembr.</p></div></div>
-      {visualPreferenceError ? <div className="notice error" role="alert"><span>Could not load image-search settings.</span><button className="quiet-button" type="button" onClick={() => void loadVisualSearchPreference()}>Try again</button></div> : !visualSearchPreference ? <p className="phase2-state" role="status">Checking visual-search settings…</p> : !visualSearchPreference.enabled ? <p className="phase2-helper">Image search is off. <Link to="/app/settings/preferences">Review the separate Meta image-search consent</Link> to enable it.</p> : !visualSearchPreference.providerAvailable ? <p className="phase2-state" role="status">Meta image search is not available right now. Text search remains available.</p> : <form className="phase2-inline-form" onSubmit={(event) => void searchByImage(event)}>
-        <input ref={visualSearchInputRef} className="visually-hidden visual-search-input" id="visual-search-image" type="file" accept="image/png,image/jpeg,image/webp" aria-label="Choose an image to search your library" aria-describedby="visual-search-file-help" disabled={visualBusy} onChange={(event) => { chooseVisualImage(event.currentTarget.files?.[0]); event.currentTarget.value = ''; }} />
-        <label className="quiet-button visual-search-choose" htmlFor="visual-search-image">{visualImage ? 'Choose a different image' : 'Choose image'}</label>
-        <span className="field-note" id="visual-search-file-help">PNG, JPEG, or WebP up to 8 MiB. The browser resizes it before upload.</span>
-        {visualImage && <span className="phase2-helper visual-search-file-name">{visualImage.name}</span>}
-        <button className="primary-button" type="submit" disabled={visualBusy || !visualImage}>{visualBusy ? 'Searching…' : 'Find similar saves'}</button>
-        {visualPreview && <div className="visual-search-preview"><img src={visualPreview} alt="Selected image preview" /><button className="phase2-text-button" type="button" disabled={visualBusy} onClick={() => chooseVisualImage(undefined)}>Clear image</button></div>}
-      </form>}
+    <section className="library-search-composer" aria-label="Search your library or the web">
+      <form onSubmit={(event) => void searchTheWeb(event)}>
+        <label className="visually-hidden" htmlFor="library-search-composer-input">Search your saved posts, links, and notes</label>
+        <textarea id="library-search-composer-input" rows={2} maxLength={120} placeholder="Search your saved posts, links, and notes…" value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
+        <div className="library-search-composer-controls">
+          <input ref={visualSearchInputRef} className="visually-hidden visual-search-input" id="visual-search-image" type="file" accept="image/png,image/jpeg,image/webp" aria-label="Choose an image to search your saved library" aria-describedby="visual-search-file-help" disabled={visualBusy} onChange={(event) => { const file = event.currentTarget.files?.[0]; chooseVisualImage(file); event.currentTarget.value = ''; if (file) { const next = new URLSearchParams(searchParams); next.delete('mode'); setSearchParams(next); } }} />
+          <label className="library-search-add" htmlFor="visual-search-image" title="Add an image to search your saved library" aria-label="Add an image to search your saved library"><Plus size={20} aria-hidden="true" /></label>
+          <div className="library-search-mode" role="group" aria-label="Choose search mode">
+            <button type="button" className={searchMode === 'saved' ? 'active' : ''} aria-pressed={searchMode === 'saved'} onClick={() => { const next = new URLSearchParams(searchParams); next.delete('mode'); next.delete('cursor'); setSearchParams(next); setWebSearchResult(null); setWebSearchError(''); }}>Saved</button>
+            <button type="button" className={searchMode === 'web' ? 'active' : ''} aria-pressed={searchMode === 'web'} onClick={() => { const next = new URLSearchParams(searchParams); next.set('mode', 'web'); next.delete('cursor'); setSearchParams(next); setVisualResult(null); setWebSearchResult(null); setWebSearchError(''); }}>Web search</button>
+          </div>
+          {searchMode === 'web' && <button className="primary-button library-search-submit" type="submit" disabled={webSearchBusy || !search.trim()}>{webSearchBusy ? 'Searching…' : 'Search web'}</button>}
+          {searchMode === 'saved' && visualImage && <button className="primary-button library-search-submit" type="submit" disabled={visualBusy}>{visualBusy ? 'Searching…' : 'Find similar saves'}</button>}
+          {searchMode === 'saved' && !visualImage && <span className="library-search-hint">Searches your library by keywords only</span>}
+        </div>
+      </form>
+      {searchMode === 'web' && <p className="library-search-disclosure">Your query goes to OpenRouter and public search sources. Your saved library text stays private.</p>}
+      {visualImage && <div className="visual-search-preview library-composer-preview"><img src={visualPreview ?? ''} alt="Selected image for private library search" /><div><span>{visualImage.name}</span><button className="phase2-text-button" type="button" disabled={visualBusy} onClick={() => chooseVisualImage(undefined)}>Remove image</button></div></div>}
+      {visualSearchPreference && !visualSearchPreference.enabled && <p className="library-search-disclosure">Image search is off. <Link to="/app/settings/preferences">Review image-search consent</Link> to enable it.</p>}
+      {visualSearchPreference?.enabled && !visualSearchPreference.providerAvailable && <p className="library-search-disclosure">Image search is temporarily unavailable; keyword search still works.</p>}
+      <span className="visually-hidden" id="visual-search-file-help">PNG, JPEG, or WebP up to 8 MiB. The browser resizes it before upload. Image search only searches your saved library.</span>
+      {visualPreferenceError && <p className="notice error" role="alert">Could not load image-search settings. <button className="phase2-text-button" type="button" onClick={() => void loadVisualSearchPreference()}>Try again</button></p>}
       {visualError && <p className="notice error" role="alert">{visualError}</p>}
       {visualBusy && <p className="phase2-state" role="status">Analyzing the selected image and searching your private library…</p>}
       {visualResult && <div className="visual-search-results" aria-live="polite"><p><strong>{visualResult.results.length} visual matches</strong></p>{visualResult.visualDescription && <p className="phase2-helper">Description used to find matches: {visualResult.visualDescription}</p>}{visualResult.results.length ? <ul className="phase2-manage-list">{visualResult.results.map((item) => <li key={item.id}><SavedItemLink itemId={item.id}>{item.title}</SavedItemLink><div className="phase2-card-actions"><button className="quiet-button" type="button" aria-label={`Mark ${item.title} helpful for this image search`} aria-pressed={visualFeedback[item.id] === 'helpful'} onClick={() => void rateVisualSearchResult(item, 'helpful')}>Helpful</button><button className="quiet-button" type="button" aria-label={`Mark ${item.title} not helpful for this image search`} aria-pressed={visualFeedback[item.id] === 'not_helpful'} onClick={() => void rateVisualSearchResult(item, 'not_helpful')}>Not helpful</button></div></li>)}</ul> : <p>No saved items matched the visual details. Try a different image or use text search.</p>}</div>}
     </section>
-    <section className="phase2-panel library-answer-panel" aria-labelledby="library-answer-title"><div className="phase2-heading-actions"><div><h2 id="library-answer-title">Ask your library</h2><p className="phase2-helper">Ask follow-up questions about matching saved items. With grounded answers enabled, Rembr may send matching saved text or stored media-analysis excerpts, plus recent conversation context, to Meta AI; claims are shown only with citations to retrieved items.</p></div>{libraryConversation.length > 0 && <button className="quiet-button" type="button" onClick={startNewLibraryChat}>New conversation</button>}</div>{libraryConversation.length > 0 && <ol className="library-answer-result" role="log" aria-label="Library conversation" aria-live="polite" aria-relevant="additions">{libraryConversation.map((turn, index) => <li key={`${index}-${turn.role}`}><p><strong>{turn.role === 'user' ? 'You' : turn.response?.mode === 'grounded-ai' ? 'Grounded answer' : 'Saved evidence preview'}:</strong> {turn.content}</p>{turn.response?.claims?.map((claim, claimIndex) => <p className="field-note" key={claimIndex}>Sources: {claim.citationIds.map((id) => turn.response!.citations.find((citation) => citation.id === id)?.title).filter(Boolean).join(', ')}</p>)}{turn.response?.citations.map((citation) => <p className="field-note" key={citation.id}><SavedItemLink itemId={citation.id}>{citation.title}</SavedItemLink>: {citation.snippet}</p>)}</li>)}</ol>}<form className="phase2-inline-form" onSubmit={(event) => void askLibrary(event)}><label className="visually-hidden" htmlFor="library-question">{libraryConversation.length ? 'Ask a follow-up question about your saved library' : 'Question about your saved library'}</label><input ref={askInputRef} id="library-question" type="search" maxLength={120} required value={askQuestion} onChange={(event) => setAskQuestion(event.target.value)} placeholder={libraryConversation.length ? 'Ask a follow-up question' : 'Ask about your saved items, e.g. design systems'} /><button className="primary-button" type="submit" disabled={askBusy || !askQuestion.trim()}>{askBusy ? 'Searching…' : libraryConversation.length ? 'Send follow-up' : 'Ask / find evidence'}</button></form>{askError && <p className="notice error" role="alert">{askError}</p>}{askBusy && <p className="phase2-state" role="status">Searching your private library…</p>}</section>
+    {webSearchError && <div className="notice error" role="alert"><span>{webSearchError}</span><button className="quiet-button" type="button" onClick={() => void searchTheWeb({ preventDefault() {} } as FormEvent<HTMLFormElement>)}>Try again</button></div>}
+    {webSearchBusy && <p className="phase2-state" role="status">Searching public sources…</p>}
+    {webSearchResult && <section className="phase2-panel web-search-results" aria-labelledby="web-search-result-title"><h2 id="web-search-result-title">Web results for “{search}”</h2><p>{webSearchResult.summary}</p><h3>Sources</h3><ul>{webSearchResult.citations.map((citation) => <li key={citation.url}><a href={citation.url} target="_blank" rel="noreferrer">{citation.title}</a>{citation.snippet && <p>{citation.snippet}</p>}</li>)}</ul></section>}
+    {searchMode === 'web' && search && <h2 className="library-saved-matches-heading">Saved keyword matches</h2>}
+    <details className="library-more-tools"><summary>Filters and more tools</summary>
+      <div className="phase2-panel" aria-label="Library filters"><div className="phase2-filter-grid"><label>Type<select value={type} onChange={(event) => updateFilter('type', event.target.value)}><option value="">All types</option><option value="page">Pages</option><option value="note">Notes</option></select></label><label>Status<select value={status} onChange={(event) => updateFilter('status', event.target.value)}><option value="">All statuses</option><option value="queued">Queued</option><option value="processing">Processing</option><option value="retry_wait">Retry scheduled</option><option value="paused">Paused</option><option value="partial">Partially ready</option><option value="ready">Ready</option><option value="failed">Failed</option><option value="cancelled">Canceled</option></select></label><label>Tag<select value={tagId} onChange={(event) => updateFilter('tagId', event.target.value)}><option value="">Any tag</option>{tags.map((tag) => <option value={tag.id} key={tag.id}>{tag.name}</option>)}</select></label><label>Collection<select value={collectionId} onChange={(event) => updateFilter('collectionId', event.target.value)}><option value="">Any collection</option>{collections.map((collection) => <option value={collection.id} key={collection.id}>{collection.name}</option>)}</select></label><label>Sort<select value={sort} onChange={(event) => updateFilter('sort', event.target.value)}><option value="relevance">Most relevant</option><option value="created_desc">Newest first</option><option value="created_asc">Oldest first</option><option value="title_asc">Title A–Z</option><option value="title_desc">Title Z–A</option></select></label></div>{hasActiveFilters && <div className="phase2-filter-summary"><p>Filtered by{search && <> <strong>“{search}”</strong></>}{type && <> <strong>{type === 'page' ? 'Pages' : 'Notes'}</strong></>}{status && <> <strong>{readableStatus(status as Status)}</strong></>}{selectedTag && <> <strong>Tag: {selectedTag.name}</strong></>}{selectedCollection && <> <strong>Collection: {selectedCollection.name}</strong></>}</p><button className="phase2-text-button" type="button" onClick={clearFilters}>Clear filters</button></div>}</div>
+      <section className="phase2-panel library-answer-panel" aria-labelledby="library-answer-title"><div className="phase2-heading-actions"><div><h2 id="library-answer-title">Ask your library</h2><p className="phase2-helper">A separate AI tool that answers from saved items. Your prompt and matching saved text may be sent to Meta AI when grounded answers are enabled. This does not affect Saved keyword search.</p></div>{libraryConversation.length > 0 && <button className="quiet-button" type="button" onClick={startNewLibraryChat}>New conversation</button>}</div>{libraryConversation.length > 0 && <ol className="library-answer-result" role="log" aria-label="Library conversation" aria-live="polite" aria-relevant="additions">{libraryConversation.map((turn, index) => <li key={`${index}-${turn.role}`}><p><strong>{turn.role === 'user' ? 'You' : turn.response?.mode === 'grounded-ai' ? 'Grounded answer' : 'Saved evidence preview'}:</strong> {turn.content}</p>{turn.response?.claims?.map((claim, claimIndex) => <p className="field-note" key={claimIndex}>Sources: {claim.citationIds.map((id) => turn.response!.citations.find((citation) => citation.id === id)?.title).filter(Boolean).join(', ')}</p>)}{turn.response?.citations.map((citation) => <p className="field-note" key={citation.id}><SavedItemLink itemId={citation.id}>{citation.title}</SavedItemLink>: {citation.snippet}</p>)}</li>)}</ol>}<form className="phase2-inline-form" onSubmit={(event) => void askLibrary(event)}><label className="visually-hidden" htmlFor="library-question">{libraryConversation.length ? 'Ask a follow-up question about your saved library' : 'Question about your saved library'}</label><input ref={askInputRef} id="library-question" type="search" maxLength={120} required value={askQuestion} onChange={(event) => setAskQuestion(event.target.value)} placeholder={libraryConversation.length ? 'Ask a follow-up question' : 'Ask about your saved items, e.g. design systems'} /><button className="primary-button" type="submit" disabled={askBusy || !askQuestion.trim()}>{askBusy ? 'Searching…' : libraryConversation.length ? 'Send follow-up' : 'Ask / find evidence'}</button></form>{askError && <p className="notice error" role="alert">{askError}</p>}{askBusy && <p className="phase2-state" role="status">Searching your private library…</p>}</section>
+    </details>
     {error && <div className="notice error phase2-retry-notice" role="alert"><span>{error}</span><button className="quiet-button" type="button" onClick={() => void load()}>Try again</button></div>}
-    {loading ? <SkeletonCardGrid count={6} layout="grid-3" /> : items.length === 0 ? <div className="empty-state"><span>✳</span><h2>{hasActiveFilters ? 'No saved items match these filters.' : 'Your library is ready for its first save.'}</h2><p>{hasActiveFilters ? 'Change your filters or clear them to see your full library.' : 'Save a page or write a note to start building your library.'}</p><div className="phase2-heading-actions">{hasActiveFilters && <button className="quiet-button" type="button" onClick={clearFilters}>Clear filters</button>}<Link className="quiet-button" to="/app/notes/new" state={{ returnTo: `${location.pathname}${location.search}` }}>Write a note</Link><Link className="primary-button" to="/app/add">Save a page</Link></div></div> : <PortedLibraryGrid items={items} searchActive={Boolean(search && searchEventId)} feedback={searchFeedback} onFeedback={rateSearchResult} onRemove={remove} />}
-    {!loading && items.length > 0 && <nav className="phase2-pagination" aria-label="Library pages"><span>{hasMore ? 'More items are available.' : 'You are at the end of your library.'}</span><button type="button" className="quiet-button" disabled={!searchParams.get('cursor')} onClick={() => { const next = new URLSearchParams(searchParams); next.delete('cursor'); setSearchParams(next); }}>First page</button><button type="button" className="primary-button" disabled={!hasMore || !nextCursor} onClick={() => { if (nextCursor) { const next = new URLSearchParams(searchParams); next.set('cursor', nextCursor); setSearchParams(next); } }}>Next page</button></nav>}
-    <span className="visually-hidden" aria-live="polite">{items.length} saved items shown</span>
+    {loading ? <LibraryCardSkeletons count={12} /> : items.length === 0 ? <div className="empty-state"><span>✳</span><h2>{searchMode === 'web' && search ? 'No saved items match these keywords.' : hasActiveFilters ? 'No saved items match these filters.' : 'Your library is ready for its first save.'}</h2><p>{searchMode === 'web' && search ? 'Live public sources appear above when your web search is complete.' : hasActiveFilters ? 'Change your filters or clear them to see your full library.' : 'Save a page or write a note to start building your library.'}</p><div className="phase2-heading-actions">{hasActiveFilters && <button className="quiet-button" type="button" onClick={clearFilters}>Clear filters</button>}<Link className="quiet-button" to="/app/notes/new" state={{ returnTo: `${location.pathname}${location.search}` }}>Write a note</Link><Link className="primary-button" to="/app/add">Save a page</Link></div></div> : <PortedLibraryGrid items={items} searchActive={Boolean(search)} sort={sort} onSortChange={(value) => updateFilter('sort', value)} feedback={searchFeedback} onFeedback={rateSearchResult} onRemove={remove} hasMore={hasMore} loadingMore={loadingMore} loadMoreError={loadMoreError} onLoadMore={loadMore} />}
+    {!loading && <span className="visually-hidden" aria-live="polite">{items.length} saved items loaded</span>}
   </>;
 }
 function KnowledgeGraphPage() {

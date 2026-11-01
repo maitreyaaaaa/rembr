@@ -16,6 +16,8 @@ import { createJobRouter } from './jobs/routes.js';
 import { createAiRouter } from './ai/routes.js';
 import { createMetaModelClient, type MetaJsonSchema } from './ai/meta-client.js';
 import { createVisualSearchRouter, type VisualSearchModel } from './ai/visual-search-routes.js';
+import { createOpenRouterWebSearchModel } from './ai/openrouter-web-search.js';
+import { createWebSearchRouter } from './ai/web-search-routes.js';
 import { createKnowledgeRouter } from './knowledge/routes.js';
 import { createSmartCollectionRouter } from './smart-collections/routes.js';
 import { LocalAssetStorage, type AssetStorage } from './assets/storage.js';
@@ -150,6 +152,8 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
   app.use('/api', createVisualSearchRouter(database, assetStorage, {
     library, imageModel: options.imageSearchModel ?? answerClient, providerAvailable,
   }));
+  app.use('/api', createWebSearchRouter(database, assetStorage,
+    config.openRouterApiKey ? createOpenRouterWebSearchModel(config.openRouterApiKey, config.openRouterWebSearchModel) : undefined));
   app.use('/api', createKnowledgeRouter(database, assetStorage, { checkLink: options.checkLink,
     answerModel: options.answerModel ?? answerClient, providerAvailable }));
   app.use('/api', createSmartCollectionRouter(database, assetStorage));

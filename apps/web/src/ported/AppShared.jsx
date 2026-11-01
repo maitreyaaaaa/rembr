@@ -25,7 +25,7 @@ const PLATFORM_LOGOS = [
 const OUTCOME_WORDS = ['organized', 'searchable', 'findable', 'ready'];
 
 function BrandLogo({ className = 'h-8 w-28', align = 'left' }) {
-  return <img alt="Rembr" src="/brand/rembr-wordmark-white.png?v=4ed985b" className={`rembr-official-logo ${className} ${align === 'center' ? 'mx-auto' : ''}`} />;
+  return <img alt="Rembr" src="/brand/rembr-wordmark.svg?v=20261101" className={`rembr-official-logo ${className} ${align === 'center' ? 'mx-auto' : ''}`} />;
 }
 
 function RotatingPlatformLogo() {
