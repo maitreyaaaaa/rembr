@@ -1,5 +1,5 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { Archive, BookOpen, Folder, LogOut, Network, Plus, ScanSearch, Settings, Sparkles, Tag, Workflow } from 'lucide-react';
+import { Archive, ArrowLeft, Brain, ChevronDown, Database, FileText, Folder, LogOut, MoreHorizontal, Network, PanelLeftClose, PanelLeftOpen, Plus, ScanSearch, Settings, Tag, Upload, Workflow } from 'lucide-react';
 import {
   BrowserRouter, Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate, useOutletContext,
   useParams, useSearchParams,
@@ -7,12 +7,20 @@ import {
 import { AvatarUpload } from './components/AvatarUpload.js';
 import { Progress } from './components/ui/progress.js';
 import { SavedItemLink } from './components/SavedItemLink.js';
+import { PortedLibraryGrid } from './ported/LibraryCards.js';
+import { RembrDetailDrawer, type RembrDetailAction } from './ported/RembrDetailDrawer.js';
+import { RembrAddFlow } from './ported/RembrAddFlow.js';
+import { RembrCheckupPanel } from './ported/RembrCheckupPanel.js';
+import { RembrKnowledgeGraphPanel } from './ported/RembrKnowledgeGraphPanel.js';
+import { AppShellSkeleton, SkeletonCardGrid } from './ported/LoadingStates.jsx';
+import { Banner as SourceBanner } from './ported/Common.jsx';
 
 const MarketingSite = lazy(() => import('./MarketingSite.js').then(({ MarketingSite: page }) => ({ default: page })));
-const HowToUsePage = lazy(() => import('./components/HowToUsePage.js').then(({ HowToUsePage: page }) => ({ default: page })));
-const HelpPage = lazy(() => import('./components/SupportPages.js').then(({ HelpPage: page }) => ({ default: page })));
-const PricingPage = lazy(() => import('./components/SupportPages.js').then(({ PricingPage: page }) => ({ default: page })));
-const LegalPage = lazy(() => import('./components/SupportPages.js').then(({ LegalPage: page }) => ({ default: page })));
+const PortedLanding = lazy(() => import('./ported/PortedLanding.js').then(({ PortedLanding: page }) => ({ default: page })));
+const HowToUsePage = lazy(() => import('./ported/PublicPages.js').then(({ PortedHowToPage: page }) => ({ default: page })));
+const HelpPage = lazy(() => import('./ported/PublicPages.js').then(({ PortedHelpPage: page }) => ({ default: page })));
+const PricingPage = lazy(() => import('./ported/PublicPages.js').then(({ PortedPricingPage: page }) => ({ default: page })));
+const LegalPage = lazy(() => import('./ported/PublicPages.js').then(({ PortedLegalPage: page }) => ({ default: page })));
 const PasswordStrengthField = lazy(() => import('./components/PasswordStrengthField.js').then(({ PasswordStrengthField: field }) => ({ default: field })));
 const SmartCollectionsPage = lazy(() => import('./components/SmartCollectionsPage.js').then(({ SmartCollectionsPage: page }) => ({ default: page })));
 
@@ -163,12 +171,14 @@ function date(value?: string): string {
   return Number.isNaN(parsed.getTime()) ? '' : new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(parsed);
 }
 function sameAppPath(value: string | null | undefined): string {
-  return value === '/app' || value?.startsWith('/app/') ? value : '/app';
+  if (!value) return '/app';
+  const pathname = value.split(/[?#]/, 1)[0] ?? '';
+  return pathname === '/app' || pathname.startsWith('/app/') ? value : '/app';
 }
 
 function AppRoutes() {
-  return <BrowserRouter><Suspense fallback={<main className="center-state" role="status">Loading Rembr…</main>}><Routes>
-    <Route path="/" element={<MarketingSite />} />
+  return <BrowserRouter><Suspense fallback={<AppShellSkeleton />}><Routes>
+    <Route path="/" element={<PortedLanding />} />
     <Route path="/features" element={<MarketingSite />} />
     <Route path="/about" element={<MarketingSite />} />
     <Route path="/contact" element={<MarketingSite />} />
@@ -266,6 +276,12 @@ function ProtectedShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const [accountDenied, setAccountDenied] = useState(false);
+  const detailReturnTo = (location.state as { returnTo?: string } | null)?.returnTo;
+  const detailReturnPath = detailReturnTo?.split(/[?#]/, 1)[0] ?? '';
+  const detailBackground = /^\/app\/items\/[^/]+$/.test(location.pathname)
+    ? detailReturnPath === '/app' ? <LibraryPage /> : detailReturnPath === '/app/checkup' ? <LibraryCheckupPage /> : detailReturnPath === '/app/graph' ? <KnowledgeGraphPage /> : null
+    : null;
+  const hasDetailBackground = Boolean(detailBackground);
 
   useEffect(() => {
     const handle = (event: Event) => {
@@ -281,51 +297,101 @@ function ProtectedShell() {
     return () => window.removeEventListener('rembr:auth-error', handle);
   }, [location.pathname, location.search, navigate, setSession]);
 
-  if (loading) return <main className="center-state" role="status">Checking your session…</main>;
+  if (loading) return <AppShellSkeleton />;
   if (accountDenied) return <main className="phase2-centered"><section className="phase2-card"><h1>Account unavailable</h1><p>This account is disabled, so its library is unavailable.</p><Link className="quiet-button" to="/login">Back to sign in</Link></section></main>;
   if (!session) return <Navigate to={`/login?returnTo=${encodeURIComponent(`${location.pathname}${location.search}`)}`} replace />;
   if (!session.profileComplete && !location.pathname.startsWith('/app/setup/')) return <Navigate to="/app/setup/profile" replace state={{ returnTo: `${location.pathname}${location.search}` }} />;
-  return <div className="workspace phase2-workspace"><AppNav session={session} onLogout={async () => { await api('/api/auth/logout', { method: 'POST' }); setSession(null); navigate('/login', { replace: true }); }} /><div className="phase2-main"><Outlet context={{ session, setSession }} /></div></div>;
+  return <div className="dashboard-shell flex h-screen overflow-hidden bg-black text-foreground">
+    <AppNav session={session} onLogout={async () => { await api('/api/auth/logout', { method: 'POST' }); setSession(null); navigate('/login', { replace: true }); }} />
+    <main className="rembr-dashboard-main min-w-0 flex-1 overflow-y-auto">
+      {detailBackground && <div className="rembr-detail-underlay" aria-hidden="true" inert><div className="phase2-main">{detailBackground}</div></div>}
+      <div className={hasDetailBackground ? 'rembr-detail-route' : undefined}><div className="phase2-main"><Outlet context={{ session, setSession }} /></div></div>
+    </main>
+  </div>;
 }
 
 function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promise<void> }) {
   const [logoutBusy, setLogoutBusy] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [hoverExpanded, setHoverExpanded] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
   const location = useLocation();
-  const activeMoreLink = [{ path: '/app/imports', label: 'Imports' }, { path: '/app/tags', label: 'Tags' }, { path: '/app/graph', label: 'Connections' }, { path: '/app/checkup', label: 'Review' }, { path: '/app/settings', label: 'Settings' }].find(({ path }) => location.pathname.startsWith(path));
+  const sidebarExpanded = expanded || hoverExpanded;
+  const navItems = [
+    { path: '/app', label: 'Saved library', icon: <Brain />, exact: true },
+    { path: '/app/smart-collections', label: 'Smart collections', icon: <Folder /> },
+    { path: '/app/workflows', label: 'Workflows', icon: <Workflow /> },
+    { path: '/app/add', label: 'Add saves', icon: <Upload /> },
+  ];
+  const moreItems = [
+    { path: '/app/collections', label: 'Collections', icon: <Database /> },
+    { path: '/app/imports', label: 'Imports', icon: <Archive /> },
+    { path: '/app/tags', label: 'Tags', icon: <Tag /> },
+    { path: '/app/graph', label: 'Connections', icon: <Network /> },
+    { path: '/app/checkup', label: 'Review', icon: <ScanSearch /> },
+    { path: '/app/settings/profile', label: 'Settings', icon: <Settings /> },
+  ];
+  const activeMoreLink = moreItems.find(({ path }) => location.pathname.startsWith(path));
   const accountLabel = session.profile?.username ? `@${session.profile.username}` : session.user.email;
-  return <header className="phase2-topbar">
-    <Link className="wordmark" to="/app" aria-label="Rembr library">rembr<span aria-hidden="true">.</span></Link>
-    <nav aria-label="Workspace navigation" className="phase2-nav">
-      <NavLink to="/app" label="Library" icon={<BookOpen />} />
-      <NavLink to="/app/collections" label="Collections" icon={<Folder />} />
-      <NavLink to="/app/smart-collections" label="Smart collections" icon={<Sparkles />} />
-      <NavLink to="/app/add" label="Add saves" icon={<Plus />} />
-      <details className={`phase2-nav-more${activeMoreLink ? ' active' : ''}`}>
-        <summary aria-label={activeMoreLink ? `More navigation, ${activeMoreLink.label} selected` : 'More navigation'} title={activeMoreLink?.label ?? 'More navigation'}>
-          <Archive aria-hidden="true" /><span className="visually-hidden">More navigation</span>
-        </summary>
-        <div className="phase2-nav-menu">
-          <NavLink to="/app/imports" label="Imports" icon={<Archive />} />
-          <NavLink to="/app/tags" label="Tags" icon={<Tag />} />
-          <NavLink to="/app/graph" label="Connections" icon={<Network />} />
-          <NavLink to="/app/checkup" label="Review" icon={<ScanSearch />} />
-          <NavLink to="/app/settings/profile" label="Settings" icon={<Settings />} />
+  const avatar = session.profile?.avatarAssetUrl ?? session.profile?.avatarUrl;
+  const userMark = session.profile?.username?.slice(0, 1) ?? session.user.email.slice(0, 1);
+  const isActive = (path: string, exact = false) => exact ? location.pathname === path : location.pathname.startsWith(path);
+  const handleLogout = () => { setLogoutBusy(true); void onLogout().finally(() => setLogoutBusy(false)); };
+  return <>
+    <aside className={`iscraper-sidebar hidden h-screen shrink-0 flex-col overflow-hidden border-r border-white/5 bg-black transition-[width] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] md:flex ${sidebarExpanded ? 'is-expanded w-60' : 'w-[76px]'}`}
+      onMouseEnter={() => { if (!expanded) setHoverExpanded(true); }} onMouseLeave={() => setHoverExpanded(false)} aria-label="Workspace navigation">
+      <div className={`flex border-b border-white/5 p-3 ${sidebarExpanded ? 'items-center gap-2' : 'flex-col items-center gap-2'}`}>
+        <Link to="/" title="Back to Rembr home" aria-label="Back to Rembr home" className={`flex min-h-11 items-center rounded-lg transition hover:bg-white/5 ${sidebarExpanded ? 'min-w-0 flex-1 gap-3 px-2' : 'h-11 w-11 justify-center'}`}>
+          <ArrowLeft className="h-4 w-4 shrink-0 text-muted-foreground" />{sidebarExpanded && <span className="rembr-source-wordmark">rembr<span>.</span></span>}
+        </Link>
+        <button type="button" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? 'Collapse sidebar' : 'Expand sidebar'} aria-expanded={expanded} title={expanded ? 'Collapse sidebar' : 'Expand sidebar'} className="grid h-11 w-11 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-white/5 hover:text-primary">
+          {expanded ? <PanelLeftClose className="h-5 w-5" /> : <PanelLeftOpen className="h-5 w-5" />}
+        </button>
+      </div>
+      <Link to="/app/settings/profile" title={`Signed in as ${accountLabel}`} className={`flex items-center border-b border-white/5 text-xs text-muted-foreground transition hover:bg-white/5 hover:text-foreground ${sidebarExpanded ? 'gap-3 px-5 py-3' : 'justify-center px-3 py-3'}`}>
+        <span className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full border border-white/10 bg-primary text-sm font-bold text-primary-foreground">{avatar ? <img src={avatar} alt="" className="h-full w-full object-cover" /> : userMark.toUpperCase()}</span>
+        {sidebarExpanded && <span className="min-w-0"><span className="block">Signed in as</span><span className="block truncate font-semibold text-foreground">{accountLabel}</span></span>}
+      </Link>
+      <nav className={`flex-1 space-y-1 p-3 ${sidebarExpanded ? '' : 'flex flex-col items-center'}`} aria-label="Main navigation">
+        {navItems.map((item) => <Link key={item.path} to={item.path} title={item.label} aria-label={item.label} aria-current={isActive(item.path, item.exact) ? 'page' : undefined}
+          className={`flex items-center rounded-lg text-sm transition ${isActive(item.path, item.exact) ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'} ${sidebarExpanded ? 'gap-3 px-3 py-2.5' : 'h-11 w-11 justify-center'}`}>
+          {item.icon}{sidebarExpanded && <span className="truncate">{item.label}</span>}
+        </Link>)}
+        <div className={`relative ${sidebarExpanded ? '' : 'w-11'}`}>
+          <button type="button" onClick={() => setMoreOpen((open) => !open)} aria-expanded={moreOpen} aria-controls="rembr-more-navigation" title={activeMoreLink?.label ?? 'More'} aria-label={activeMoreLink?.label ? `More navigation, ${activeMoreLink.label} selected` : 'More navigation'}
+            className={`flex w-full items-center rounded-lg text-sm transition ${activeMoreLink ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'} ${sidebarExpanded ? 'gap-3 px-3 py-2.5' : 'h-11 justify-center'}`}>
+            <MoreHorizontal className="h-4 w-4 shrink-0" />{sidebarExpanded && <><span className="flex-1 text-left">More</span><ChevronDown className={`h-4 w-4 transition-transform ${moreOpen ? 'rotate-180' : ''}`} /></>}
+          </button>
+          {moreOpen && <div id="rembr-more-navigation" className={`iscraper-more-menu ${sidebarExpanded ? 'is-expanded' : ''}`}>
+            {moreItems.map((item) => <Link key={item.path} to={item.path} onClick={() => setMoreOpen(false)} aria-current={isActive(item.path) ? 'page' : undefined} className={isActive(item.path) ? 'is-active' : ''}>{item.icon}<span>{item.label}</span></Link>)}
+            <Link to="/how-to-use" onClick={() => setMoreOpen(false)}><FileText className="h-4 w-4" /><span>How to use</span></Link>
+          </div>}
         </div>
-      </details>
-      <NavLink to="/app/workflows" label="Workflows (planned)" icon={<Workflow />} />
+      </nav>
+      <div className="flex flex-col items-center gap-2 border-t border-white/5 p-3">
+        <button type="button" className="grid h-11 w-11 place-items-center rounded-lg text-muted-foreground transition hover:bg-white/5 hover:text-foreground" aria-label="Sign out" title="Sign out" disabled={logoutBusy} onClick={handleLogout}><LogOut className="h-4 w-4" /></button>
+      </div>
+    </aside>
+    <header className="mobile-app-topbar sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-white/10 bg-black/90 p-3 backdrop-blur md:hidden">
+      <Link to="/" aria-label="Rembr home" className="flex min-h-11 min-w-11 items-center gap-2"><ArrowLeft className="h-4 w-4" /><span className="rembr-source-wordmark">rembr<span>.</span></span></Link>
+      <Link to="/app/settings/profile" className="grid h-11 w-11 place-items-center overflow-hidden rounded-full border border-white/10 bg-primary text-sm font-bold text-primary-foreground" aria-label="Open account settings">{avatar ? <img src={avatar} alt="" className="h-full w-full object-cover" /> : userMark.toUpperCase()}</Link>
+    </header>
+    {moreOpen && <button type="button" className="mobile-navigation-backdrop md:hidden" onClick={() => setMoreOpen(false)} aria-label="Close more navigation" />}
+    <nav className="mobile-bottom-navigation md:hidden" aria-label="Main navigation" onKeyDown={(event) => { if (event.key === 'Escape') setMoreOpen(false); }}>
+      <div id="rembr-mobile-more" className="mobile-more-panel" role="group" aria-label="More sections" hidden={!moreOpen}>
+        {moreItems.map((item) => <Link key={item.path} to={item.path} onClick={() => setMoreOpen(false)} aria-current={isActive(item.path) ? 'page' : undefined} className={`mobile-more-item ${isActive(item.path) ? 'is-active' : ''}`}>{item.icon}<span>{item.label}</span></Link>)}
+        <Link to="/how-to-use" onClick={() => setMoreOpen(false)} className="mobile-more-item"><FileText className="h-4 w-4" /><span>How to use</span></Link>
+      </div>
+      {[
+        { path: '/app', label: 'Library', icon: <Database />, exact: true },
+        { path: '/app/smart-collections', label: 'Smart', icon: <Brain /> },
+        { path: '/app/add', label: 'Add', icon: <Plus />, add: true },
+        { path: '/app/workflows', label: 'Flows', icon: <Workflow /> },
+      ].map((item) => <Link key={item.path} to={item.path} aria-current={isActive(item.path, item.exact) ? 'page' : undefined} className={`mobile-bottom-navigation-button ${isActive(item.path, item.exact) ? 'is-active' : ''} ${item.add ? 'is-add' : ''}`}>{item.icon}<span>{item.label}</span></Link>)}
+      <button type="button" onClick={() => setMoreOpen((open) => !open)} aria-expanded={moreOpen} aria-controls="rembr-mobile-more" className={`mobile-bottom-navigation-button ${activeMoreLink || moreOpen ? 'is-active' : ''}`}><MoreHorizontal className="h-5 w-5" /><span>More</span></button>
     </nav>
-    <div className="phase2-account" title={accountLabel}>
-      <span className="phase2-user-mark" aria-hidden="true">{(session.profile?.username ?? session.user.email).slice(0, 1).toUpperCase()}</span>
-      <span className="visually-hidden">{accountLabel}</span>
-      <button type="button" className="quiet-button phase2-signout" aria-label="Sign out" title="Sign out" disabled={logoutBusy} onClick={() => { setLogoutBusy(true); void onLogout().finally(() => setLogoutBusy(false)); }}><LogOut aria-hidden="true" /></button>
-    </div>
-  </header>;
+  </>;
 }
-function NavLink({ to, label, icon }: { to: string; label: string; icon: ReactNode }) {
-  const location = useLocation(); const active = to === '/app' ? location.pathname === '/app' : location.pathname.startsWith(to);
-  return <Link to={to} className={active ? 'phase2-nav-link active' : 'phase2-nav-link'} aria-label={label} title={label} aria-current={active ? 'page' : undefined}>{icon}<span className="visually-hidden">{label}</span></Link>;
-}
-
 function PlannedWorkflowPage() {
   return <div className="phase2-centered phase2-planned-screen"><section className="phase2-card"><p className="eyebrow"><span className="eyebrow-mark" aria-hidden="true" />PLANNED SURFACE</p><h1>Workflows are not available in Rembr yet.</h1><p className="phase2-helper">This workspace will stay empty until Rembr has an approved, working workflow service. Your saved library and current tools are ready to use.</p><Link className="primary-button" to="/app">Back to library</Link></section></div>;
 }
@@ -489,14 +555,13 @@ function LibraryPage() {
     </section>
     <section className="phase2-panel library-answer-panel" aria-labelledby="library-answer-title"><div className="phase2-heading-actions"><div><h2 id="library-answer-title">Ask your library</h2><p className="phase2-helper">Ask follow-up questions about matching saved items. With grounded answers enabled, Rembr may send matching saved text or stored media-analysis excerpts, plus recent conversation context, to Meta AI; claims are shown only with citations to retrieved items.</p></div>{libraryConversation.length > 0 && <button className="quiet-button" type="button" onClick={startNewLibraryChat}>New conversation</button>}</div>{libraryConversation.length > 0 && <ol className="library-answer-result" role="log" aria-label="Library conversation" aria-live="polite" aria-relevant="additions">{libraryConversation.map((turn, index) => <li key={`${index}-${turn.role}`}><p><strong>{turn.role === 'user' ? 'You' : turn.response?.mode === 'grounded-ai' ? 'Grounded answer' : 'Saved evidence preview'}:</strong> {turn.content}</p>{turn.response?.claims?.map((claim, claimIndex) => <p className="field-note" key={claimIndex}>Sources: {claim.citationIds.map((id) => turn.response!.citations.find((citation) => citation.id === id)?.title).filter(Boolean).join(', ')}</p>)}{turn.response?.citations.map((citation) => <p className="field-note" key={citation.id}><SavedItemLink itemId={citation.id}>{citation.title}</SavedItemLink>: {citation.snippet}</p>)}</li>)}</ol>}<form className="phase2-inline-form" onSubmit={(event) => void askLibrary(event)}><label className="visually-hidden" htmlFor="library-question">{libraryConversation.length ? 'Ask a follow-up question about your saved library' : 'Question about your saved library'}</label><input ref={askInputRef} id="library-question" type="search" maxLength={120} required value={askQuestion} onChange={(event) => setAskQuestion(event.target.value)} placeholder={libraryConversation.length ? 'Ask a follow-up question' : 'Ask about your saved items, e.g. design systems'} /><button className="primary-button" type="submit" disabled={askBusy || !askQuestion.trim()}>{askBusy ? 'Searching…' : libraryConversation.length ? 'Send follow-up' : 'Ask / find evidence'}</button></form>{askError && <p className="notice error" role="alert">{askError}</p>}{askBusy && <p className="phase2-state" role="status">Searching your private library…</p>}</section>
     {error && <div className="notice error phase2-retry-notice" role="alert"><span>{error}</span><button className="quiet-button" type="button" onClick={() => void load()}>Try again</button></div>}
-    {loading ? <div className="phase2-state" role="status">Loading your library…</div> : items.length === 0 ? <div className="empty-state"><span>✳</span><h2>{hasActiveFilters ? 'No saved items match these filters.' : 'Your library is ready for its first save.'}</h2><p>{hasActiveFilters ? 'Change your filters or clear them to see your full library.' : 'Save a page or write a note to start building your library.'}</p><div className="phase2-heading-actions">{hasActiveFilters && <button className="quiet-button" type="button" onClick={clearFilters}>Clear filters</button>}<Link className="quiet-button" to="/app/notes/new" state={{ returnTo: `${location.pathname}${location.search}` }}>Write a note</Link><Link className="primary-button" to="/app/add">Save a page</Link></div></div> : <ul className="item-list">{items.map((item) => <li className="item-card" key={item.id}><div className="item-main"><div className="item-info"><p className="item-domain">{item.kind === 'note' ? 'PERSONAL NOTE' : safeHost(item.url)}</p><SavedItemLink className="item-title" itemId={item.id}>{item.title}</SavedItemLink><p className="item-description">{item.description || item.note?.body || item.textPreview || 'No description yet.'}</p><div className="phase2-pills">{item.tags?.map((tag) => <span className="phase2-pill" key={tag.id}>{tag.name}</span>)}{item.collections?.map((collection) => <span className="phase2-pill soft" key={collection.id}>{collection.name}</span>)}</div>{search && searchEventId && <div className="search-result-feedback"><span>Was this result useful?</span><button className="quiet-button" type="button" aria-pressed={searchFeedback[item.id] === 'helpful'} onClick={() => void rateSearchResult(item, 'helpful')}>Helpful</button><button className="quiet-button" type="button" aria-pressed={searchFeedback[item.id] === 'not_helpful'} onClick={() => void rateSearchResult(item, 'not_helpful')}>Not helpful</button>{searchFeedback[item.id] && <span role="status">Thanks for the feedback.</span>}</div>}</div><div className="item-actions"><span className={`status status-${item.status}`}><span>●</span>{readableStatus(item.status)}</span><time dateTime={item.createdAt}>{date(item.createdAt)}</time><Link className="quiet-button" to={`/app/items/${encodeURIComponent(item.id)}/edit`} state={{ returnTo: `${location.pathname}${location.search}` }}>Edit</Link><button className="quiet-button danger-button" onClick={() => void remove(item)} type="button">Remove</button></div></div></li>)}</ul>}
+    {loading ? <SkeletonCardGrid count={6} layout="grid-3" /> : items.length === 0 ? <div className="empty-state"><span>✳</span><h2>{hasActiveFilters ? 'No saved items match these filters.' : 'Your library is ready for its first save.'}</h2><p>{hasActiveFilters ? 'Change your filters or clear them to see your full library.' : 'Save a page or write a note to start building your library.'}</p><div className="phase2-heading-actions">{hasActiveFilters && <button className="quiet-button" type="button" onClick={clearFilters}>Clear filters</button>}<Link className="quiet-button" to="/app/notes/new" state={{ returnTo: `${location.pathname}${location.search}` }}>Write a note</Link><Link className="primary-button" to="/app/add">Save a page</Link></div></div> : <PortedLibraryGrid items={items} searchActive={Boolean(search && searchEventId)} feedback={searchFeedback} onFeedback={rateSearchResult} onRemove={remove} />}
     {!loading && items.length > 0 && <nav className="phase2-pagination" aria-label="Library pages"><span>{hasMore ? 'More items are available.' : 'You are at the end of your library.'}</span><button type="button" className="quiet-button" disabled={!searchParams.get('cursor')} onClick={() => { const next = new URLSearchParams(searchParams); next.delete('cursor'); setSearchParams(next); }}>First page</button><button type="button" className="primary-button" disabled={!hasMore || !nextCursor} onClick={() => { if (nextCursor) { const next = new URLSearchParams(searchParams); next.set('cursor', nextCursor); setSearchParams(next); } }}>Next page</button></nav>}
     <span className="visually-hidden" aria-live="polite">{items.length} saved items shown</span>
   </>;
 }
-function safeHost(value: string) { try { return new URL(value).hostname; } catch { return 'SAVED PAGE'; } }
-
 function KnowledgeGraphPage() {
+  const navigate = useNavigate();
   const [graph, setGraph] = useState<KnowledgeGraph | null>(null);
   const [filter, setFilter] = useState('');
   const [loading, setLoading] = useState(true);
@@ -511,22 +576,6 @@ function KnowledgeGraphPage() {
     finally { setLoading(false); }
   }, []);
   useEffect(() => { void load(); }, [load]);
-  const groups = useMemo(() => {
-    const query = filter.trim().toLowerCase();
-    if (!query) return graph?.groups ?? [];
-    return (graph?.groups ?? []).filter((group) => group.label.toLowerCase().includes(query) || group.items.some((item) => item.title.toLowerCase().includes(query)));
-  }, [filter, graph]);
-  const visualGraph = useMemo(() => {
-    const concepts = groups.slice(0, 8);
-    const relatedItems = new Map<string, KnowledgeGraphItem>();
-    for (const concept of concepts) for (const item of concept.items.slice(0, 2)) relatedItems.set(item.id, item);
-    const items = [...relatedItems.values()].slice(0, 16);
-    const height = Math.max(250, items.length * 52 + 56, concepts.length * 68 + 56);
-    const conceptPositions = new Map(concepts.map((concept, index) => [concept.id, { x: 170, y: 28 + (index + 0.5) * (height - 56) / Math.max(concepts.length, 1) }]));
-    const itemPositions = new Map(items.map((item, index) => [item.id, { x: 625, y: 28 + (index + 0.5) * (height - 56) / Math.max(items.length, 1) }]));
-    const edges = concepts.flatMap((concept) => concept.items.slice(0, 2).filter((item) => itemPositions.has(item.id)).map((item) => ({ conceptId: concept.id, itemId: item.id })));
-    return { concepts, items, height, conceptPositions, itemPositions, edges };
-  }, [groups]);
   function exportGraph() {
     if (!graph) return;
     const payload = {
@@ -580,19 +629,24 @@ function KnowledgeGraphPage() {
     }
   }
 
-  return <><PageHeader title="Connections" description="See how saved pages and notes link through topics, tags, domains, and named entities." actions={<div className="phase2-card-actions"><button className="quiet-button" type="button" disabled={exportingObsidian} onClick={() => void exportObsidianGraph()}>{exportingObsidian ? 'Preparing export…' : obsidianExported ? 'Obsidian export downloaded' : 'Export Obsidian graph'}</button><button className="quiet-button" type="button" disabled={loading || !graph} onClick={exportGraph}>{exported ? 'Graph downloaded' : 'Download graph JSON'}</button></div>} />
-    {error && <div className="notice error phase2-retry-notice" role="alert"><span>{error}</span><button className="quiet-button" type="button" onClick={() => void load()}>Try again</button></div>}
-    {loading ? <div className="phase2-state" role="status">Building your knowledge graph…</div> : graph && <>
-      <section className="phase2-panel" aria-label="Knowledge graph summary"><div className="phase2-filter-grid"><div><p className="eyebrow">Saved items</p><strong>{graph.stats.indexedItems}</strong></div><div><p className="eyebrow">Connected concepts</p><strong>{graph.stats.conceptNodes}</strong></div><div><p className="eyebrow">Relationships</p><strong>{graph.stats.links}</strong></div></div><p className="phase2-helper">The graph uses your saved-item domains, tags, and collections. Opt-in media-analysis topics and typed brand, tool, person, and repository labels are included when available; the graph works without AI. Downloaded JSON includes the counts and whether this bounded graph is truncated.</p>{graph.truncated && <p className="phase2-helper" role="status">Showing the most-connected concepts across the latest saved items. Narrow this view to explore a specific topic.</p>}</section>
-      {visualGraph.concepts.length > 0 && <section className="phase2-panel" aria-label="Knowledge graph map"><h2>Graph map</h2><p className="phase2-helper">A sample of the strongest links in your library. Use the connected-concepts list for the complete accessible view.</p><div className="knowledge-graph-scroll" role="region" aria-label="Scrollable graph map" tabIndex={0} style={{ overflowX: 'auto' }}><svg aria-hidden="true" viewBox={`0 0 800 ${visualGraph.height}`} style={{ display: 'block', width: '100%', minWidth: 640, maxHeight: 560 }}>{visualGraph.edges.map((edge) => { const source = visualGraph.conceptPositions.get(edge.conceptId); const target = visualGraph.itemPositions.get(edge.itemId); return source && target ? <line key={`${edge.conceptId}:${edge.itemId}`} x1={source.x} y1={source.y} x2={target.x} y2={target.y} stroke="#c7d1e8" strokeWidth="1.5" /> : null; })}{visualGraph.concepts.map((concept) => { const position = visualGraph.conceptPositions.get(concept.id)!; return <g key={concept.id}><circle cx={position.x} cy={position.y} r="8" fill="#16a08d" /><text x={position.x + 16} y={position.y + 4} fill="#253046" fontSize="12">{concept.label.slice(0, 28)}</text></g>; })}{visualGraph.items.map((item) => { const position = visualGraph.itemPositions.get(item.id)!; return <g key={item.id}><circle cx={position.x} cy={position.y} r="6" fill="#315cff" /><text x={position.x + 14} y={position.y + 4} fill="#253046" fontSize="12">{item.title.slice(0, 24)}</text></g>; })}</svg></div></section>}
-      <section className="phase2-panel" aria-labelledby="graph-concepts-title"><div className="phase2-page-heading"><div><h2 id="graph-concepts-title">Connected concepts</h2><p>Each concept links to the saved items that share it.</p></div><label>Filter concepts<input type="search" maxLength={80} value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Topic, tag, entity, or page" /></label></div>
-        {groups.length ? <ul className="phase2-manage-list">{groups.map((group) => <li key={group.id}><div><strong>{group.label}</strong><span className="phase2-pill soft">{group.type}</span><p className="phase2-helper">{group.itemCount} linked {group.itemCount === 1 ? 'item' : 'items'}</p><ul className="phase2-manage-list">{group.items.map((item) => <li key={item.id}><SavedItemLink itemId={item.id}>{item.title}</SavedItemLink><span className={`status status-${item.status}`}>{readableStatus(item.status as Status)}</span></li>)}</ul>{group.itemCount > group.items.length && <p className="phase2-helper">Showing {group.items.length} of {group.itemCount} linked items.</p>}</div></li>)}</ul> : <div className="empty-state"><h2>{filter ? 'No concepts match that filter.' : 'Your graph is ready to grow.'}</h2><p>{filter ? 'Try a broader topic or clear the filter.' : 'Save pages, add tags or collections, or enable optional media analysis to connect your library.'}</p>{filter && <button className="quiet-button" type="button" onClick={() => setFilter('')}>Clear filter</button>}</div>}
-      </section>
-    </>}
-  </>;
+  return <RembrKnowledgeGraphPanel
+    graph={graph}
+    loading={loading}
+    error={error}
+    filter={filter}
+    onFilterChange={setFilter}
+    onRetry={() => void load()}
+    onSelectItem={(itemId) => navigate(`/app/items/${encodeURIComponent(itemId)}`, { state: { returnTo: '/app/graph' } })}
+    onExportJson={exportGraph}
+    onExportObsidian={() => void exportObsidianGraph()}
+    exportingObsidian={exportingObsidian}
+    exported={exported}
+    obsidianExported={obsidianExported}
+  />;
 }
 
 function LibraryCheckupPage() {
+  const navigate = useNavigate();
   const [checkup, setCheckup] = useState<LibraryCheckup | null>(null);
   const [loading, setLoading] = useState(true);
   const [checkingLinks, setCheckingLinks] = useState(false);
@@ -623,38 +677,26 @@ function LibraryCheckupPage() {
     catch (cause) { setError(messageOf(cause, 'Could not check your saved links.')); }
     finally { setCheckingLinks(false); }
   }
-  const sections: Array<{ title: string; description: string; items: CheckupItem[] }> = checkup ? [
-    { title: 'Needs a look', description: 'Paused, failed, partial, or retrying saves.', items: checkup.needsAttention },
-    { title: 'Saved 3+ months ago', description: 'Older items you may want to revisit.', items: checkup.olderSaves },
-    { title: 'A few from your library', description: 'A stable weekly selection to make rediscovery easier.', items: checkup.weeklyRediscovery },
-  ] : [];
-  return <><PageHeader title="Review your library" description="Find broken links and pages you may want to revisit." actions={<button className="quiet-button" type="button" disabled={loading} onClick={() => void load()}>{loading ? 'Refreshing…' : 'Refresh checkup'}</button>} />
-    {error && <div className="notice error phase2-retry-notice" role="alert"><span>{error}</span><button className="quiet-button" type="button" onClick={() => void load()}>Try again</button></div>}
-    {loading && !checkup ? <div className="phase2-state" role="status">Reviewing your library…</div> : checkup && <>
-      <section className="phase2-panel" aria-label="Library checkup summary"><div className="phase2-filter-grid"><div><p className="eyebrow">Saved items</p><strong>{checkup.summary.savedItems}</strong></div><div><p className="eyebrow">Needs a look</p><strong>{checkup.summary.needsAttention}</strong></div><div><p className="eyebrow">Not organized</p><strong>{checkup.summary.unorganizedItems}</strong></div><div><p className="eyebrow">Older than 90 days</p><strong>{checkup.summary.olderSaves}</strong></div></div><p className="phase2-helper">Checkup never changes or deletes saved items automatically. Link probes run only when you request them; reminders are also your choice. These features work with AI providers disabled.</p></section>
-      <section className="phase2-panel" aria-labelledby="duplicate-imports-title"><div className="phase2-page-heading"><div><h2 id="duplicate-imports-title">Already-saved import entries</h2><p>These import entries were matched to saves already in your library. They are not duplicate saved items.</p></div><span className="phase2-pill soft">{checkup.duplicateImports.count} {checkup.duplicateImports.count === 1 ? 'entry' : 'entries'}</span></div>{checkup.duplicateImports.recent.length ? <><ul className="phase2-manage-list">{checkup.duplicateImports.recent.map((entry) => <li key={entry.id}><div><SavedItemLink itemId={entry.itemId}>{entry.matchedItemTitle}</SavedItemLink><p className="phase2-helper">Imported again as “{entry.importedTitle || 'Untitled entry'}” from {entry.sourcePlatform}. {date(entry.importedAt)}</p></div><span className="phase2-pill soft">Already saved</span></li>)}</ul>{checkup.duplicateImports.count > checkup.duplicateImports.recent.length && <p className="phase2-helper">Showing the {checkup.duplicateImports.recent.length} most recent entries.</p>}</> : <p className="phase2-state">No import entries were skipped as already saved.</p>}</section>
-      <section className="phase2-panel" aria-labelledby="link-health-title"><div className="phase2-page-heading"><div><h2 id="link-health-title">Saved link health</h2><p>Check public links when you ask. Recent checks are kept for seven days to avoid repeat visits.</p></div><button className="quiet-button" type="button" disabled={checkingLinks} onClick={() => void checkLinks()}>{checkingLinks ? 'Checking up to 10…' : 'Check up to 10 links'}</button></div><div className="phase2-filter-grid"><div><p className="eyebrow">Checked</p><strong>{checkup.linkHealth.checkedItems}</strong></div><div><p className="eyebrow">Not found</p><strong>{checkup.linkHealth.brokenCount}</strong></div><div><p className="eyebrow">Could not confirm</p><strong>{checkup.linkHealth.unknownCount}</strong></div></div>{checkup.linkHealth.lastCheckedAt && <p className="phase2-helper">Last checked {date(checkup.linkHealth.lastCheckedAt)}. “Could not confirm” may mean the site blocked or timed out during the check.</p>}{checkup.linkHealth.brokenLinks.length > 0 ? <ul className="phase2-manage-list">{checkup.linkHealth.brokenLinks.map((item) => <li key={item.id}><div><SavedItemLink itemId={item.itemId}>{item.title}</SavedItemLink><p className="phase2-helper">HTTP {item.httpStatus ?? 'unknown'} · checked {date(item.checkedAt)}</p></div><span className="phase2-pill soft">Not found</span></li>)}</ul> : <p className="phase2-state">No confirmed broken links. Run a check to review saved pages.</p>}</section>
-      {(checkup.dueReminders.length > 0 || checkup.upcomingReminders.length > 0) && <section className="phase2-panel"><h2>Reminders</h2>{checkup.dueReminders.length > 0 && <><h3>Due now</h3><ReminderItems items={checkup.dueReminders} busyId={reminderBusyId} onUpdate={updateReminder} /></>}{checkup.upcomingReminders.length > 0 && <><h3>Coming up</h3><ReminderItems items={checkup.upcomingReminders} busyId={reminderBusyId} onUpdate={updateReminder} /></>}</section>}
-      {checkup.dailyPick && <section className="phase2-panel"><h2>Picked for today</h2><p className="phase2-helper">A consistent daily pick from your recent library.</p><CheckupItems items={[checkup.dailyPick]} busyId={reminderBusyId} onRemind={scheduleReminder} /></section>}
-      {sections.map((section) => <section className="phase2-panel" key={section.title}><h2>{section.title}</h2><p className="phase2-helper">{section.description}</p>{section.items.length ? <CheckupItems items={section.items} busyId={reminderBusyId} onRemind={scheduleReminder} /> : <p className="phase2-state">Nothing to show here right now.</p>}</section>)}
-    </>}
-  </>;
-}
-
-function CheckupItems({ items, busyId, onRemind }: { items: CheckupItem[]; busyId: string; onRemind: (itemId: string, preset: 'tomorrow' | 'week' | 'month', note: string) => void }) {
-  return <ul className="phase2-manage-list">{items.map((item) => <li key={item.id}><div className="checkup-item-main"><SavedItemLink itemId={item.id}>{item.title}</SavedItemLink><span className={`status status-${item.status}`}>{readableStatus(item.status as Status)}</span><time dateTime={item.created_at}>{date(item.created_at)}</time></div><form className="checkup-reminder-form" onSubmit={(event) => { event.preventDefault(); const data = new FormData(event.currentTarget); const value = data.get('preset'); const note = data.get('note'); if ((value === 'tomorrow' || value === 'week' || value === 'month') && typeof note === 'string') onRemind(item.id, value, note); }}><label className="sr-only" htmlFor={`reminder-preset-${item.id}`}>Reminder time for {item.title}</label><select id={`reminder-preset-${item.id}`} name="preset" defaultValue="week"><option value="tomorrow">Tomorrow</option><option value="week">In a week</option><option value="month">In a month</option></select><label className="sr-only" htmlFor={`reminder-note-${item.id}`}>Optional reminder note for {item.title}</label><input id={`reminder-note-${item.id}`} name="note" type="text" maxLength={300} placeholder="Optional note" /><button className="quiet-button" type="submit" disabled={busyId === item.id}>{busyId === item.id ? 'Setting…' : 'Set reminder'}</button></form></li>)}</ul>;
-}
-
-function ReminderItems({ items, busyId, onUpdate }: { items: CheckupReminder[]; busyId: string; onUpdate: (reminderId: string, status: 'done' | 'dismissed') => void }) {
-  return <ul className="phase2-manage-list">{items.map((reminder) => <li key={reminder.id}><div className="checkup-item-main"><SavedItemLink itemId={reminder.item.id}>{reminder.item.title}</SavedItemLink><time dateTime={reminder.remindAt}>{date(reminder.remindAt)}</time>{reminder.note && <span>{reminder.note}</span>}</div><div className="phase2-card-actions"><button className="quiet-button" type="button" disabled={busyId === reminder.id} onClick={() => onUpdate(reminder.id, 'done')}>Done</button><button className="quiet-button" type="button" disabled={busyId === reminder.id} onClick={() => onUpdate(reminder.id, 'dismissed')}>Dismiss</button></div></li>)}</ul>;
+  return <RembrCheckupPanel
+    checkup={checkup}
+    loading={loading}
+    checkingLinks={checkingLinks}
+    reminderBusyId={reminderBusyId}
+    error={error}
+    onRetry={() => void load()}
+    onCheckLinks={() => void checkLinks()}
+    onOpenItem={(itemId) => navigate(`/app/items/${encodeURIComponent(itemId)}`, { state: { returnTo: '/app/checkup' } })}
+    onScheduleReminder={(itemId, preset, note) => void scheduleReminder(itemId, preset, note)}
+    onUpdateReminder={(reminderId, status) => void updateReminder(reminderId, status)}
+  />;
 }
 
 function AddPage() {
   const [url, setUrl] = useState(''); const [files, setFiles] = useState<File[]>([]); const [busy, setBusy] = useState(false); const [progress, setProgress] = useState(0); const [error, setError] = useState(''); const [activeImportId, setActiveImportId] = useState(''); const navigate = useNavigate();
   const uploadController = useRef<AbortController | null>(null); const idempotencyKey = useRef<string | null>(null);
-  async function submitUrl(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setBusy(true); setError(''); try { const body = await api<{ item: SavedItem; duplicate: boolean }>('/api/items', { method: 'POST', body: JSON.stringify({ url }) }); navigate(`/app/items/${encodeURIComponent(body.item.id)}`); } catch (cause) { setError(messageOf(cause, 'Could not save that page.')); } finally { setBusy(false); } }
-  async function submitFiles(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); setError('');
+  async function submitUrl(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setBusy(true); setError(''); try { const body = await api<{ item: SavedItem; duplicate: boolean }>('/api/items', { method: 'POST', body: JSON.stringify({ url }) }); navigate(`/app/items/${encodeURIComponent(body.item.id)}`, { state: { returnTo: '/app' } }); } catch (cause) { setError(messageOf(cause, 'Could not save that page.')); } finally { setBusy(false); } }
+  async function submitFiles(event?: FormEvent<HTMLFormElement>) {
+    event?.preventDefault(); setError('');
     const total = files.reduce((sum, file) => sum + file.size, 0);
     if (!files.length || files.length > 20) { setError('Select between 1 and 20 export files.'); return; }
     if (files.some((file) => file.size < 1 || file.size > 25 * 1024 * 1024)) { setError('Each export file must be 25 MiB or smaller.'); return; }
@@ -687,10 +729,22 @@ function AddPage() {
     }
     finally { uploadController.current = null; setActiveImportId(''); setBusy(false); }
   }
-  return <><PageHeader title="Save or import" description="Save a public page or import bookmarks from a supported service." />
-    <section className="phase2-panel phase2-narrow"><h2>Save one public page</h2><form className="phase2-form" onSubmit={(event) => void submitUrl(event)}><label htmlFor="save-url">Public page URL</label><input id="save-url" type="url" autoComplete="url" placeholder="https://example.com/article" required maxLength={2048} value={url} onChange={(event) => setUrl(event.target.value)} /><button className="primary-button" disabled={busy}>{busy ? 'Saving…' : 'Save page'}</button></form></section>
-    <section className="phase2-panel phase2-narrow"><h2>Import a platform export</h2><p className="phase2-helper">Choose HTML, HTM, JS, JSON, CSV, TXT, or ZIP exports. New recognized links are queued automatically after parsing. Up to 20 files, 25 MiB per file, and 100 MiB total. Instagram imports include at most the 300 newest saved posts and reels; other platforms keep their existing limits.</p><form className="phase2-form" onSubmit={(event) => void submitFiles(event)}><label htmlFor="export-files">Export files</label><input id="export-files" type="file" accept=".html,.htm,.js,.json,.csv,.txt,.zip" multiple disabled={busy} onChange={(event) => { setFiles(Array.from(event.target.files ?? [])); idempotencyKey.current = null; setError(''); }} /><p className="phase2-helper">{files.length ? `${files.length} file${files.length === 1 ? '' : 's'} selected · ${(files.reduce((sum, file) => sum + file.size, 0) / (1024 * 1024)).toFixed(1)} MiB` : 'Raw files are deleted after parsing and durable queueing.'}</p>{error && <p className="notice error" role="alert">{error}</p>}{busy && <p className="phase2-state" role="status">Uploading export files… {progress}%</p>}{busy && activeImportId && <button className="quiet-button" type="button" onClick={() => uploadController.current?.abort()}>Cancel upload</button>}<button className="primary-button" disabled={busy || files.length === 0}>{busy ? 'Uploading…' : 'Upload and import'}</button><Link className="phase2-text-button" to="/app/imports">View import history</Link></form></section>
-    <div className="phase2-back"><Link to="/app">Back to library</Link></div></>;
+  return <RembrAddFlow
+    url={url}
+    onUrlChange={setUrl}
+    onSaveLink={(event) => { event.preventDefault(); void submitUrl(event); }}
+    onWriteNote={() => navigate('/app/notes/new', { state: { returnTo: '/app' } })}
+    files={files}
+    onFilesChange={(nextFiles) => { setFiles(nextFiles); idempotencyKey.current = null; setError(''); }}
+    onImport={() => void submitFiles()}
+    busy={busy}
+    progress={progress}
+    error={error}
+    activeImportId={activeImportId}
+    onCancelImport={() => uploadController.current?.abort()}
+    onHowTo={() => navigate('/how-to-use')}
+    onViewImports={() => navigate('/app/imports')}
+  />;
 }
 
 interface ImportSummary { id: string; status: string; source: string; file_count: number; parsed_count: number; new_count: number; duplicate_count: number; skipped_count: number; failed_count: number; cleanup_status: string; error_code: string | null; created_at: string }
@@ -864,26 +918,136 @@ function ImportDetailPage() {
 
 function ItemDetailPage() {
   const location = useLocation();
-  const { itemId = '' } = useParams(); const [item, setItem] = useState<SavedItem | null>(null); const [aiAnalysis, setAiAnalysis] = useState<AiAnalysisView | null>(null); const [summary, setSummary] = useState<SavedItemSummary | null>(null); const [allTags, setAllTags] = useState<Tag[]>([]); const [loading, setLoading] = useState(true); const [busyJobAction, setBusyJobAction] = useState(false); const [summaryBusy, setSummaryBusy] = useState(false); const [error, setError] = useState('');
-  const load = useCallback(async (quiet = false) => { if (!quiet) setLoading(true); setError(''); try { const [itemResult, aiResult, summaryResult] = await Promise.all([api<{ item: SavedItem }>(`/api/items/${encodeURIComponent(itemId)}`), api<AiAnalysisView>(`/api/ai/items/${encodeURIComponent(itemId)}`).catch(() => null), api<{ summary: SavedItemSummary | null; stale: boolean }>(`/api/knowledge/items/${encodeURIComponent(itemId)}/summary`).catch(() => ({ summary: null, stale: false }))]); setItem(itemResult.item); setAiAnalysis(aiResult); setSummary(summaryResult.summary ? { ...summaryResult.summary, stale: summaryResult.stale } : null); } catch (cause) { setError(messageOf(cause, 'Could not load this item.')); } finally { if (!quiet) setLoading(false); } }, [itemId]);
+  const navigate = useNavigate();
+  const { itemId = '' } = useParams();
+  const [item, setItem] = useState<SavedItem | null>(null);
+  const [aiAnalysis, setAiAnalysis] = useState<AiAnalysisView | null>(null);
+  const [summary, setSummary] = useState<SavedItemSummary | null>(null);
+  const [allTags, setAllTags] = useState<Tag[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [busyJobAction, setBusyJobAction] = useState<RembrDetailAction | null>(null);
+  const [summaryBusy, setSummaryBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const load = useCallback(async (quiet = false) => {
+    if (!quiet) setLoading(true);
+    setError('');
+    try {
+      const [itemResult, aiResult, summaryResult] = await Promise.all([
+        api<{ item: SavedItem }>(`/api/items/${encodeURIComponent(itemId)}`),
+        api<AiAnalysisView>(`/api/ai/items/${encodeURIComponent(itemId)}`).catch(() => null),
+        api<{ summary: SavedItemSummary | null; stale: boolean }>(`/api/knowledge/items/${encodeURIComponent(itemId)}/summary`).catch(() => ({ summary: null, stale: false })),
+      ]);
+      setItem(itemResult.item);
+      setAiAnalysis(aiResult);
+      setSummary(summaryResult.summary ? { ...summaryResult.summary, stale: summaryResult.stale } : null);
+    } catch (cause) {
+      setError(messageOf(cause, 'Could not load this item.'));
+    } finally {
+      if (!quiet) setLoading(false);
+    }
+  }, [itemId]);
+
   useEffect(() => { void load(); }, [load]);
-  useEffect(() => { if (!item || !['queued', 'processing', 'retry_wait', 'cancel_requested', 'paused'].includes(item.status)) return undefined; const timer = window.setInterval(() => { void load(true); }, 2500); return () => window.clearInterval(timer); }, [item, load]);
-  useEffect(() => { if (!aiAnalysis || !['queued', 'processing'].includes(aiAnalysis.status)) return undefined; const timer = window.setInterval(() => { void load(true); }, 4000); return () => window.clearInterval(timer); }, [aiAnalysis, load]);
-  useEffect(() => { let alive = true; void api<{ tags: Tag[] }>('/api/tags').then((result) => { if (alive) setAllTags(result.tags); }).catch(() => undefined); return () => { alive = false; }; }, []);
-  async function updateTag(tag: Tag, add: boolean) { if (!item) return; setError(''); try { await api(`/api/items/${encodeURIComponent(item.id)}/tags/${encodeURIComponent(tag.id)}`, { method: add ? 'PUT' : 'DELETE' }); await load(); } catch (cause) { setError(messageOf(cause, 'Could not update item tags.')); } }
-  async function jobAction(action: 'cancel' | 'retry' | 'reprocess') { if (!item) return; setBusyJobAction(true); setError(''); try { await api(`/api/items/${encodeURIComponent(item.id)}/job/${action}`, { method: 'POST' }); await load(); } catch (cause) { setError(messageOf(cause, `Could not ${action} this job.`)); } finally { setBusyJobAction(false); } }
-  async function generateSummary() { if (!item) return; setSummaryBusy(true); setError(''); try { const result = await api<{ summary: SavedItemSummary }>(`/api/knowledge/items/${encodeURIComponent(item.id)}/summary`, { method: 'POST', body: JSON.stringify({}) }); setSummary({ ...result.summary, stale: false }); } catch (cause) { setError(messageOf(cause, 'Could not generate a summary.')); } finally { setSummaryBusy(false); } }
-  if (loading) return <div className="phase2-state" role="status">Loading saved item…</div>;
-  if (error || !item) return <ErrorState message={error || 'This item was not found.'} />;
-  const isNote = item.kind === 'note';
-  const canCancel = ['queued', 'processing', 'retry_wait', 'cancel_requested'].includes(item.status);
-  const canRetry = item.status === 'failed';
-  const canReprocess = item.status === 'ready' || item.status === 'partial';
+  useEffect(() => {
+    if (!item || !['queued', 'processing', 'retry_wait', 'cancel_requested', 'paused'].includes(item.status)) return undefined;
+    const timer = window.setInterval(() => { void load(true); }, 2500);
+    return () => window.clearInterval(timer);
+  }, [item, load]);
+  useEffect(() => {
+    if (!aiAnalysis || !['queued', 'processing'].includes(aiAnalysis.status)) return undefined;
+    const timer = window.setInterval(() => { void load(true); }, 4000);
+    return () => window.clearInterval(timer);
+  }, [aiAnalysis, load]);
+  useEffect(() => {
+    let alive = true;
+    void api<{ tags: Tag[] }>('/api/tags').then((result) => { if (alive) setAllTags(result.tags); }).catch(() => undefined);
+    return () => { alive = false; };
+  }, []);
+
+  async function updateTag(tag: Tag, add: boolean) {
+    if (!item) return;
+    setError('');
+    try {
+      await api(`/api/items/${encodeURIComponent(item.id)}/tags/${encodeURIComponent(tag.id)}`, { method: add ? 'PUT' : 'DELETE' });
+      await load();
+    } catch (cause) {
+      setError(messageOf(cause, 'Could not update item tags.'));
+    }
+  }
+
+  async function jobAction(action: RembrDetailAction) {
+    if (!item) return;
+    setBusyJobAction(action);
+    setError('');
+    try {
+      await api(`/api/items/${encodeURIComponent(item.id)}/job/${action}`, { method: 'POST' });
+      await load();
+    } catch (cause) {
+      setError(messageOf(cause, `Could not ${action} this job.`));
+    } finally {
+      setBusyJobAction(null);
+    }
+  }
+
+  async function generateSummary() {
+    if (!item) return;
+    setSummaryBusy(true);
+    setError('');
+    try {
+      const result = await api<{ summary: SavedItemSummary }>(`/api/knowledge/items/${encodeURIComponent(item.id)}/summary`, { method: 'POST', body: JSON.stringify({}) });
+      setSummary({ ...result.summary, stale: false });
+    } catch (cause) {
+      setError(messageOf(cause, 'Could not generate a summary.'));
+    } finally {
+      setSummaryBusy(false);
+    }
+  }
+
+  if (loading) return <div className="fixed inset-0 z-50 flex justify-end bg-black/70 backdrop-blur-sm" role="status" aria-label="Loading saved item">
+    <section className="h-full w-full max-w-2xl space-y-8 overflow-hidden border-l border-white/10 bg-black p-6 sm:p-8" aria-busy="true">
+      <div className="flex justify-end"><div className="h-10 w-10 animate-pulse rounded-lg bg-white/10" /></div>
+      <div className="space-y-4"><div className="h-3 w-36 animate-pulse rounded bg-white/10" /><div className="h-10 w-4/5 animate-pulse rounded bg-white/10" /><div className="h-4 w-3/5 animate-pulse rounded bg-white/10" /><div className="flex gap-2"><div className="h-10 w-32 animate-pulse rounded-full bg-white/10" /><div className="h-10 w-28 animate-pulse rounded-full bg-white/10" /></div></div>
+      <div className="h-40 animate-pulse rounded-2xl border border-white/10 bg-white/[0.025]" /><div className="h-56 animate-pulse rounded-2xl border border-white/10 bg-white/[0.025]" />
+      <span className="visually-hidden">Loading saved item…</span>
+    </section>
+  </div>;
+  if (error && !item) return <ErrorState message={error} />;
+  if (!item) return <ErrorState message="This item was not found." />;
+
   const returnTo = (location.state as { returnTo?: string } | null)?.returnTo;
   const libraryHref = sameAppPath(returnTo);
-  return <><div className="phase2-back"><Link to={libraryHref}>← {libraryHref === '/app' ? 'Back to library' : 'Back to previous view'}</Link></div><PageHeader title={item.title} description={item.description || (isNote ? 'A note in your private library.' : 'Saved page and processing status.')} actions={<><Link className="quiet-button" to={`/app/items/${encodeURIComponent(item.id)}/edit`} state={{ returnTo: libraryHref }}>Edit details</Link>{isNote && <Link className="primary-button" to={`/app/notes/${encodeURIComponent(item.id)}/edit`} state={{ returnTo: libraryHref }}>Edit note</Link>}</>} />
-    {error && <p className="notice error" role="alert">{error}</p>}<section className="phase2-panel" aria-labelledby="library-summary-title"><div className="phase2-card-actions"><div><h2 id="library-summary-title">Library summary</h2><p className="phase2-helper">Generate a concise summary from this saved page or note. The source is sent to Meta only when you request it and have enabled library AI in Settings.</p></div><button className="quiet-button" type="button" disabled={summaryBusy} onClick={() => void generateSummary()}>{summaryBusy ? 'Generating…' : summary ? 'Regenerate summary' : 'Generate summary'}</button></div>{summary && <>{summary.stale && <p className="notice" role="status">The saved page or note changed after this summary was created. Regenerate it to use the current source.</p>}<p>{summary.summary}</p><p className="phase2-helper">Source: <Link to={`/app/items/${encodeURIComponent(item.id)}`}>{item.title}</Link> · {summary.sourceCharacters.toLocaleString()} characters · Generated by {summary.model} on {date(summary.createdAt)}.</p></>}</section><div className="phase2-detail-grid"><article className="phase2-panel"><h2>{isNote ? 'Note' : 'Saved copy'}</h2>{isNote ? <><p className="phase2-preserve-text">{item.note?.body || 'This note is empty.'}</p>{item.note?.links?.length ? <section><h3>Links</h3><ul className="phase2-link-list">{item.note.links.map((link) => <li key={link}><a href={link} target="_blank" rel="noreferrer">{link}</a></li>)}</ul></section> : null}{item.note?.assets?.length ? <section className="phase2-assets"><h3>Images</h3>{item.note.assets.map((asset) => <img key={asset.id} src={asset.url} alt="Note attachment" loading="lazy" />)}</section> : null}</> : <><p className="phase2-status-line"><span className={`status status-${item.status}`}>● {readableStatus(item.status)}</span></p>{(canCancel || canRetry || canReprocess) && <div className="phase2-heading-actions" aria-label="Processing recovery actions">{canCancel && <button className="quiet-button" type="button" disabled={busyJobAction || item.status === 'cancel_requested'} onClick={() => void jobAction('cancel')}>{item.status === 'cancel_requested' ? 'Canceling…' : 'Cancel processing'}</button>}{canRetry && <button className="quiet-button" type="button" disabled={busyJobAction} onClick={() => void jobAction('retry')}>Retry</button>}{canReprocess && <button className="quiet-button" type="button" disabled={busyJobAction} onClick={() => void jobAction('reprocess')}>Reprocess</button>}</div>}<p className="phase2-preserve-text">{item.text || item.textPreview || (item.status === 'failed' ? 'Rembr could not make a readable copy. The source link is still available.' : 'The readable copy will appear when processing finishes.')}</p>{aiAnalysis && aiAnalysis.status !== 'not_requested' && <section className="phase2-ai-result" aria-labelledby="ai-result-title"><h2 id="ai-result-title">AI media notes</h2><p className="phase2-helper" role="status">{aiAnalysis.status === 'processing' || aiAnalysis.status === 'queued' ? 'Analysis is running…' : aiAnalysis.status === 'paused' ? `Analysis paused: ${(aiAnalysis.pauseReason ?? 'budget').replaceAll('_', ' ')}.` : aiAnalysis.status === 'failed' ? 'Analysis could not be completed. Your saved page is available.' : aiAnalysis.result?.status === 'partial' ? 'Partial analysis. Some public media was unavailable or skipped.' : aiAnalysis.status === 'completed' ? 'Analysis complete.' : ''}</p>{aiAnalysis.result && <><h3>{aiAnalysis.result.summary || 'Visual notes'}</h3>{aiAnalysis.result.visualDescription && <p>{aiAnalysis.result.visualDescription}</p>}{aiAnalysis.result.ocrText && <div><h4>Text in media</h4><p className="phase2-preserve-text">{aiAnalysis.result.ocrText}</p></div>}{aiAnalysis.result.transcript && <div><h4>Speech transcript</h4><p className="phase2-preserve-text">{aiAnalysis.result.transcript}</p></div>}{aiAnalysis.result.keywords.length > 0 && <p><strong>Keywords</strong>: {aiAnalysis.result.keywords.join(', ')}</p>}{aiAnalysis.result.tags.length > 0 && <p><strong>AI topics</strong>: {aiAnalysis.result.tags.join(', ')}</p>}{aiAnalysis.result.brands.length > 0 && <p><strong>Brand labels</strong>: {aiAnalysis.result.brands.join(', ')}</p>}{aiAnalysis.result.tools.length > 0 && <p><strong>Tool labels</strong>: {aiAnalysis.result.tools.join(', ')}</p>}{aiAnalysis.result.people.length > 0 && <p><strong>People named in text</strong>: {aiAnalysis.result.people.join(', ')}</p>}{aiAnalysis.result.repositories.length > 0 && <p><strong>Repository labels</strong>: {aiAnalysis.result.repositories.join(', ')}</p>}<p className="phase2-helper">Generated by {aiAnalysis.result.model}. {aiAnalysis.result.imageCount} images · {aiAnalysis.result.videoCount} videos analyzed.</p></>}</section>}{item.media?.some((media) => media.status === 'ready' && media.url) && <section className="phase2-assets"><h3>Saved media</h3>{item.media.filter((media) => media.status === 'ready' && media.url).map((media) => media.mime?.startsWith("video/") ? <video key={media.id} src={media.url!} controls preload="metadata" aria-label="Video saved from this page" /> : media.mime?.startsWith("audio/") ? <audio key={media.id} src={media.url!} controls preload="metadata" aria-label="Audio saved from this page" /> : <img key={media.id} src={media.url!} alt="Image saved from this page" loading="lazy" />)}</section>}{item.media?.some((media) => media.status === 'failed') && <p className="phase2-helper" role="status">Some page media could not be saved. The readable page is still available.</p>}<a className="source-link" href={item.url} target="_blank" rel="noreferrer">Open original page ↗</a></>}</article><aside className="phase2-panel"><h2>Organize</h2><h3>Tags</h3><div className="phase2-tag-choices">{allTags.length ? allTags.map((tag) => { const attached = item.tags?.some((current) => current.id === tag.id); return <label className="phase2-check" key={tag.id}><input type="checkbox" checked={Boolean(attached)} onChange={(event) => void updateTag(tag, event.target.checked)} /><span>{tag.name}</span></label>; }) : <p className="phase2-helper">No tags yet. <Link to="/app/tags">Create one</Link></p>}</div><p><Link to="/app/tags">Manage tags</Link></p><h3>Collections</h3><ul className="phase2-link-list">{item.collections?.map((collection) => <li key={collection.id}><Link to={`/app/collections/${encodeURIComponent(collection.id)}`}>{collection.name}</Link></li>)}</ul><Link to="/app/collections">Manage collections</Link><hr /><p className="phase2-helper">Saved {date(item.createdAt)}{item.fetchedAt ? ` · Processed ${date(item.fetchedAt)}` : ''}</p></aside></div>
-  </>;
+
+  return <RembrDetailDrawer
+    item={item}
+    analysis={aiAnalysis}
+    summary={summary}
+    allTags={allTags}
+    busyAction={busyJobAction}
+    summaryBusy={summaryBusy}
+    error={error}
+    onClose={() => navigate(libraryHref, { replace: true })}
+    onOpenOriginal={(currentItem) => {
+      try {
+        const original = new URL(currentItem.url);
+        if (!['https:', 'http:'].includes(original.protocol)) throw new Error('Only web links can be opened from Rembr.');
+        window.open(original.href, '_blank', 'noopener,noreferrer');
+      } catch (cause) {
+        setError(cause instanceof Error ? cause.message : 'Could not open the original page.');
+      }
+    }}
+    onEdit={(currentItem) => navigate(
+      currentItem.kind === 'note'
+        ? `/app/notes/${encodeURIComponent(currentItem.id)}/edit`
+        : `/app/items/${encodeURIComponent(currentItem.id)}/edit`,
+      { state: { returnTo: libraryHref } },
+    )}
+    onCancelProcessing={() => void jobAction('cancel')}
+    onRetryProcessing={() => void jobAction('retry')}
+    onReprocess={() => void jobAction('reprocess')}
+    onGenerateSummary={() => void generateSummary()}
+    onToggleTag={(tag, add) => void updateTag(tag, add)}
+  />;
 }
 
 function ItemEditPage() {
@@ -956,6 +1120,6 @@ async function saveSemanticSearchPreference(enabled: boolean) { setAiBusy(true);
 function PageHeader({ title, description, actions }: { title: string; description: string; actions?: ReactNode }) {
   return <div className="phase2-page-heading"><div><h1>{title}</h1><p>{description}</p></div>{actions && <div className="phase2-heading-actions">{actions}</div>}</div>;
 }
-function ErrorState({ message }: { message: string }) { return <div className="phase2-state phase2-error-state" role="alert"><h2>We could not open this view.</h2><p>{message}</p><div className="phase2-heading-actions"><button className="quiet-button" type="button" onClick={() => window.location.reload()}>Try again</button><Link className="quiet-button" to="/app">Back to library</Link></div></div>; }
+function ErrorState({ message }: { message: string }) { return <div className="phase2-state phase2-error-state" role="alert"><h2>We could not open this view.</h2><SourceBanner type="error">{message}</SourceBanner><div className="phase2-heading-actions"><button className="quiet-button" type="button" onClick={() => window.location.reload()}>Try again</button><Link className="quiet-button" to="/app">Back to library</Link></div></div>; }
 
 export function App() { return <AppRoutes />; }

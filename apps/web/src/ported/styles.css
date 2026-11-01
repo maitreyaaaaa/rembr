@@ -1,0 +1,387 @@
+@import "tailwindcss" source(none);
+@source "../";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-glow: var(--glow);
+  --color-glow-2: var(--glow-2);
+  --font-display: var(--font-display);
+  --font-mono: var(--font-mono);
+}
+
+@font-face {
+  font-family: "Space Grotesk";
+  src: url("https://fonts.gstatic.com/s/spacegrotesk/v22/V8mQoQDjQSkFtoMM3T6r8E7mF71Q-gOoraIAEj62UUsj.ttf") format("truetype");
+  font-weight: 300;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Space Grotesk";
+  src: url("https://fonts.gstatic.com/s/spacegrotesk/v22/V8mQoQDjQSkFtoMM3T6r8E7mF71Q-gOoraIAEj7oUUsj.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Space Grotesk";
+  src: url("https://fonts.gstatic.com/s/spacegrotesk/v22/V8mQoQDjQSkFtoMM3T6r8E7mF71Q-gOoraIAEj7aUUsj.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Space Grotesk";
+  src: url("https://fonts.gstatic.com/s/spacegrotesk/v22/V8mQoQDjQSkFtoMM3T6r8E7mF71Q-gOoraIAEj42Vksj.ttf") format("truetype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Space Grotesk";
+  src: url("https://fonts.gstatic.com/s/spacegrotesk/v22/V8mQoQDjQSkFtoMM3T6r8E7mF71Q-gOoraIAEj4PVksj.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  --radius: 0.75rem;
+
+  /* Pure black canvas */
+  --background: oklch(0 0 0);
+  --foreground: oklch(0.98 0 0);
+
+  --card: oklch(0 0 0);
+  --card-foreground: oklch(0.98 0 0);
+  --popover: oklch(0 0 0);
+  --popover-foreground: oklch(0.98 0 0);
+
+  /* Acid lime primary */
+  --primary: oklch(0.92 0.24 130);
+  --primary-foreground: oklch(0 0 0);
+
+  --secondary: oklch(0.14 0 0);
+  --secondary-foreground: oklch(0.98 0 0);
+
+  --muted: oklch(0.12 0 0);
+  --muted-foreground: oklch(0.62 0 0);
+
+  /* Orange accent */
+  --accent: #ff6900;
+  --accent-foreground: #000;
+
+  --destructive: oklch(0.65 0.25 27);
+  --destructive-foreground: oklch(0.98 0 0);
+
+  --border: oklch(1 0 0 / 8%);
+  --input: oklch(1 0 0 / 12%);
+  --ring: oklch(0.92 0.24 130);
+
+  --glow: oklch(0.92 0.24 130);
+  --glow-2: #ff6900;
+
+  --font-display: "Space Grotesk", system-ui, sans-serif;
+  --font-mono: ui-monospace, "JetBrains Mono", monospace;
+}
+
+.dark {
+  --background: oklch(0 0 0);
+  --foreground: oklch(0.98 0 0);
+}
+
+@layer base {
+  * { border-color: var(--color-border); }
+  html {
+    overflow-x: hidden;
+    background-color: #000;
+    scrollbar-color: var(--color-accent) #000;
+  }
+  body {
+    margin: 0;
+    display: block;
+    width: 100%;
+    min-width: 320px;
+    min-height: 100vh;
+    overflow-x: hidden;
+    background-color: #000;
+    color: var(--color-foreground);
+    font-family: var(--font-display);
+    -webkit-font-smoothing: antialiased;
+    scroll-behavior: smooth;
+  }
+  #root {
+    width: 100%;
+    min-height: 100vh;
+    overflow-x: hidden;
+    background-color: #000;
+  }
+  ::-webkit-scrollbar {
+    width: 12px;
+    height: 12px;
+  }
+  ::-webkit-scrollbar-track {
+    background: #000;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-accent);
+    border: 3px solid #000;
+    border-radius: 999px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #ff7f24;
+  }
+  ::selection {
+    background: var(--color-primary);
+    color: #000;
+  }
+}
+
+@layer utilities {
+  .text-balance { text-wrap: balance; }
+  .text-glow {
+    text-shadow: 0 0 24px color-mix(in oklab, var(--glow) 50%, transparent);
+  }
+  .grid-bg {
+    background-image:
+      linear-gradient(to right, oklch(1 0 0 / 0.06) 1px, transparent 1px),
+      linear-gradient(to bottom, oklch(1 0 0 / 0.06) 1px, transparent 1px);
+    background-size: 56px 56px;
+  }
+  .radial-fade {
+    mask-image: radial-gradient(ellipse at center, #000 30%, transparent 75%);
+  }
+  .glow-ring {
+    box-shadow:
+      0 0 0 1px oklch(1 0 0 / 0.08),
+      0 0 60px -10px color-mix(in oklab, var(--glow) 70%, transparent);
+  }
+  .hero-content,
+  .parallax-grid,
+  .parallax-glow-primary,
+  .parallax-glow-secondary,
+  .step-card,
+  [data-index-tile],
+  .cta-bg {
+    will-change: transform;
+  }
+  .step-card,
+  [data-index-tile] {
+    transform-origin: center bottom;
+  }
+  .index-section {
+    contain: paint;
+  }
+  .noise::before {
+    content: "";
+    position: absolute; inset: 0;
+    pointer-events: none;
+    opacity: 0.06;
+    mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  }
+  .marquee {
+    animation: marquee 30s linear infinite;
+  }
+  @keyframes marquee {
+    from { transform: translateX(0); }
+    to { transform: translateX(-50%); }
+  }
+  .blink {
+    animation: blink 1s steps(2, start) infinite;
+  }
+  @keyframes blink { to { visibility: hidden; } }
+}
+
+@layer components {
+  .is-loading-surface {
+    position: relative;
+    overflow: hidden;
+    background:
+      linear-gradient(90deg, rgba(229, 231, 235, 0.16), rgba(229, 231, 235, 0.32), rgba(229, 231, 235, 0.16));
+    background-size: 220% 100%;
+    border-color: rgba(229, 231, 235, 0.14);
+    animation: loading-surface-shimmer 1.45s ease-in-out infinite;
+  }
+
+  .is-loading-spinner,
+  svg.animate-spin {
+    color: rgb(209, 213, 219);
+  }
+
+  .is-progress-track {
+    height: 0.4rem;
+    overflow: hidden;
+    border-radius: 999px;
+    background: rgba(229, 231, 235, 0.18);
+  }
+
+  .is-progress-fill {
+    height: 100%;
+    min-width: 0.65rem;
+    border-radius: inherit;
+    background: rgba(229, 231, 235, 0.72);
+    transition: width 420ms ease;
+  }
+
+  .is-progress-fill-indeterminate {
+    width: 38%;
+    animation: loading-progress-slide 1.2s ease-in-out infinite;
+  }
+
+  @keyframes loading-surface-shimmer {
+    0% { background-position: 120% 0; }
+    100% { background-position: -120% 0; }
+  }
+
+  @keyframes loading-progress-slide {
+    0% { transform: translateX(-120%); }
+    100% { transform: translateX(280%); }
+  }
+
+  .app-route-enter {
+    min-height: 100dvh;
+    animation: app-route-enter 180ms ease-out both;
+  }
+
+  .app-view-enter {
+    animation: app-view-enter 170ms ease-out both;
+  }
+
+  .automation-menu-chevron {
+    transition: transform 180ms ease-out;
+  }
+
+  .automation-submenu {
+    display: grid;
+    grid-template-rows: 0fr;
+    opacity: 0;
+    pointer-events: none;
+    transition: grid-template-rows 190ms ease-out, opacity 150ms ease-out;
+  }
+
+  .automation-submenu[data-open="true"] {
+    grid-template-rows: 1fr;
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .automation-submenu-inner {
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  .automation-submenu-item {
+    opacity: 0;
+    transform: translateY(-3px);
+    transition: opacity 120ms ease-out, transform 120ms ease-out;
+  }
+
+  .automation-submenu[data-open="true"] .automation-submenu-item {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .automation-submenu[data-open="true"] .automation-submenu-item:nth-child(1) { transition-delay: 15ms; }
+  .automation-submenu[data-open="true"] .automation-submenu-item:nth-child(2) { transition-delay: 30ms; }
+  .automation-submenu[data-open="true"] .automation-submenu-item:nth-child(3) { transition-delay: 45ms; }
+  .automation-submenu[data-open="true"] .automation-submenu-item:nth-child(4) { transition-delay: 60ms; }
+  .automation-submenu[data-open="true"] .automation-submenu-item:nth-child(5) { transition-delay: 75ms; }
+  .automation-submenu[data-open="true"] .automation-submenu-item:nth-child(6) { transition-delay: 90ms; }
+  .automation-submenu[data-open="true"] .automation-submenu-item:nth-child(7) { transition-delay: 105ms; }
+  .automation-submenu[data-open="true"] .automation-submenu-item:nth-child(8) { transition-delay: 120ms; }
+
+  button:not(:disabled) {
+    touch-action: manipulation;
+  }
+
+  button:not(:disabled):active {
+    transform: scale(0.985);
+  }
+
+  dialog[open] {
+    animation: app-dialog-enter 160ms ease-out both;
+  }
+
+  dialog[open]::backdrop {
+    animation: app-dialog-backdrop-enter 160ms ease-out both;
+  }
+
+  @keyframes app-route-enter {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @keyframes app-view-enter {
+    from { opacity: 0; transform: translateY(7px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes app-dialog-enter {
+    from { opacity: 0; transform: translateY(7px) scale(0.99); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+
+  @keyframes app-dialog-backdrop-enter {
+    from { opacity: 0; }
+    to { opacity: 1; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .app-route-enter,
+    .app-view-enter,
+    dialog[open],
+    dialog[open]::backdrop,
+    .automation-menu-chevron,
+    .automation-submenu,
+    .automation-submenu-item {
+      animation: none;
+      transition: none;
+    }
+
+    .automation-submenu-item {
+      opacity: 1;
+      transform: none;
+    }
+
+    button:not(:disabled):active {
+      transform: none;
+    }
+
+    .is-loading-surface,
+    .is-progress-fill,
+    .is-progress-fill-indeterminate {
+      animation: none;
+      transition: none;
+    }
+  }
+}

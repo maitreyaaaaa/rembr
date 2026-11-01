@@ -2,6 +2,8 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './App.js';
 import './components/arc/foundation.css';
+import './ported/styles.css';
+import './ported/mobile.css';
 import './styles.css';
 import './marketing-site.css';
 
