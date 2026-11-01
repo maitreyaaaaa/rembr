@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type R
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { useGSAP } from '@gsap/react';
+import { PlatformLogoTicker, type PlatformLogo } from './components/PlatformLogoTicker.js';
 
 type Page = 'home' | 'features' | 'about' | 'contact';
 
@@ -24,30 +25,20 @@ function Arrow({ diagonal = false }: { diagonal?: boolean }) {
   return <span aria-hidden="true" className={diagonal ? 'arrow-mark arrow-mark-diagonal' : 'arrow-mark'}>{diagonal ? '↗' : '→'}</span>;
 }
 
-const sourcePlatforms: Array<{ name: string; logo: string; background: string }> = [
-  { name: 'Instagram', logo: '/platforms/instagram-download.webp', background: '#fff9d9' },
-  { name: 'Pinterest', logo: '/platforms/pinterest-download.png', background: '#ff0000' },
-  { name: 'Facebook', logo: '/platforms/facebook.svg', background: '#1877f2' },
-  { name: 'LinkedIn', logo: '/platforms/linkedin-download.png', background: '#fff9d9' },
-  { name: 'X', logo: '/platforms/x-download.png', background: '#fff' },
+const sourcePlatforms: PlatformLogo[] = [
+  { name: 'Instagram', logo: '/platforms/instagram.svg', background: 'linear-gradient(135deg, #7b2ff7 2%, #e1306c 48%, #ff9a44 100%)' },
+  { name: 'Pinterest', logo: '/platforms/pinterest.svg', background: '#e60023' },
+  { name: 'Facebook', logo: '/platforms/facebook.svg', background: '#0866ff' },
+  { name: 'LinkedIn', logo: '/platforms/linkedin-download.png', background: '#0a66c2', fullTile: true },
+  { name: 'X', logo: '/platforms/x.svg', background: '#050505' },
 ];
 
 function RotatingPlatformLogo() {
-  const [activeIndex, setActiveIndex] = useState(0);
-
-  useEffect(() => {
-    const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
-    if (motionPreference.matches) return;
-    const timer = window.setInterval(() => setActiveIndex((current) => (current + 1) % sourcePlatforms.length), 1400);
-    return () => window.clearInterval(timer);
-  }, []);
-
-  const platform = sourcePlatforms[activeIndex]!;
-  return <span className="platform-ticker" role="img" aria-label={`Platform examples: ${sourcePlatforms.map(({ name }) => name).join(', ')}`}>
-    <span className="platform-ticker-icon" key={platform.name} style={{ background: platform.background }}>
-      <img className="platform-logo" src={platform.logo} alt="" />
-    </span>
-  </span>;
+  return <PlatformLogoTicker
+    platforms={sourcePlatforms}
+    className="platform-ticker"
+    iconClassName="platform-ticker-icon"
+  />;
 }
 
 function SiteHeader({ page }: { page: Page }) {
