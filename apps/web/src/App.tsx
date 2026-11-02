@@ -12,7 +12,7 @@ import { GlobalButtonTooltips } from './components/ui/GlobalButtonTooltips.js';
 import { LibraryPage, KnowledgeGraphPage, LibraryCheckupPage } from './features/library/pages.js';
 import { AddPage, ImportsPage, ImportDetailPage } from './features/imports/pages.js';
 import { ItemDetailPage, ItemEditPage, NoteEditorPage } from './features/items/pages.js';
-import { AdvancedOptionsPage, SettingsPage } from './features/settings/SettingsPage.js';
+import { SettingsPage } from './features/settings/SettingsPage.js';
 import { DeveloperAccessPage } from './features/settings/DeveloperAccessPage.js';
 import { McpAccessPage } from './features/settings/McpAccessPage.js';
 import { WorkOSMcpConsentPage } from './features/auth/WorkOSMcpConsentPage.js';
@@ -62,7 +62,7 @@ function AppRoutes() {
       <Route path="checkup" element={<LibraryCheckupPage />} />
       <Route path="settings/profile" element={<SettingsPage />} />
       <Route path="settings/preferences" element={<SettingsPage />} />
-      <Route path="settings/advanced" element={<AdvancedOptionsPage />} />
+      <Route path="settings/advanced" element={<SettingsPage />} />
       <Route path="settings/developer-access" element={<DeveloperAccessPage />} />
       <Route path="settings/mcp-access" element={<McpAccessPage />} />
     </Route>
@@ -140,6 +140,7 @@ function ProtectedShell() {
     ? detailReturnPath === '/app/checkup' ? <LibraryCheckupPage /> : detailReturnPath === '/app/graph' ? <KnowledgeGraphPage /> : <LibraryPage />
     : null;
   const hasDetailBackground = Boolean(detailBackground);
+  const isFullScreenSettings = location.pathname === '/app/settings/profile' || location.pathname === '/app/settings/preferences' || location.pathname === '/app/settings/advanced';
 
   useEffect(() => {
     const handle = (event: Event) => {
@@ -164,7 +165,7 @@ function ProtectedShell() {
     <AppNav session={session} onLogout={async () => { await api('/api/auth/logout', { method: 'POST' }); setSession(null); navigate('/login', { replace: true }); }} />
     <main className="rembr-dashboard-main min-w-0 flex-1 overflow-y-auto">
       {detailBackground && <div className="rembr-detail-underlay" aria-hidden="true" inert><div className="phase2-main">{detailBackground}</div></div>}
-      <div className={hasDetailBackground ? 'rembr-detail-route' : undefined}><div className="phase2-main"><Outlet context={{ session, setSession }} /></div></div>
+      <div className={hasDetailBackground ? 'rembr-detail-route' : isFullScreenSettings ? 'rembr-settings-route' : undefined}><div className={`phase2-main ${isFullScreenSettings ? 'phase2-main-settings' : ''}`}><Outlet context={{ session, setSession }} /></div></div>
     </main>
     <QuickAddDock />
     {tourOpen && <RembrWorkspaceTour
