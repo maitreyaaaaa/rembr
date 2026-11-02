@@ -1616,6 +1616,10 @@ body [role='alert'] button { border-color: rgb(255 255 255 / 40%); background: #
 .mcp-access-page .phase2-panel h2 { font-family: Arial, sans-serif; letter-spacing: -.02em; }
 .mcp-access-page .phase2-helper, .mcp-access-page .field-note { color: #aeb8c4; }
 .mcp-access-page .mcp-endpoint-copy code { background: #17191c; color: #dce5ef; }
+.mcp-config-panel .mcp-section-heading { align-items: center; }
+.mcp-config-panel .mcp-section-heading > button { min-height: 32px; flex: 0 0 auto; padding-inline: 10px; font-size: 11px; }
+.mcp-config-code { max-width: 100%; overflow: auto; margin: 12px 0 0; padding: 12px; border: 1px solid #292d32; border-radius: 6px; background: #111315; color: #dce5ef; }
+.mcp-config-code code { color: inherit; font: 12px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre; }
 @media (max-width: 680px) {
   .developer-access-heading { align-items: center; padding: 12px; }
   .developer-access-heading-actions { gap: 8px; }

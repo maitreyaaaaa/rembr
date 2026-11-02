@@ -6,8 +6,10 @@ import { DeveloperAccessTabs } from './DeveloperAccessTabs.js';
 
 export function McpAccessPage() {
   const [copied, setCopied] = useState(false);
+  const [configCopied, setConfigCopied] = useState(false);
   const [copyError, setCopyError] = useState(false);
   const endpoint = `${window.location.origin}/mcp`;
+  const configSnippet = JSON.stringify({ servers: { rembr: { type: 'http', url: endpoint } } }, null, 2);
 
   async function copyEndpoint() {
     try {
@@ -17,6 +19,18 @@ export function McpAccessPage() {
       window.setTimeout(() => setCopied(false), 2200);
     } catch {
       setCopied(false);
+      setCopyError(true);
+    }
+  }
+
+  async function copyConfig() {
+    try {
+      await navigator.clipboard.writeText(configSnippet);
+      setCopyError(false);
+      setConfigCopied(true);
+      window.setTimeout(() => setConfigCopied(false), 2200);
+    } catch {
+      setConfigCopied(false);
       setCopyError(true);
     }
   }
@@ -58,6 +72,12 @@ export function McpAccessPage() {
           <li><span>3</span><div><strong>Sign in and approve</strong><p>Review the selected permissions in Rembr, then confirm with WorkOS.</p></div></li>
         </ol>
         <a className="mcp-doc-link" href="https://modelcontextprotocol.io/docs/develop/connect-remote-servers" target="_blank" rel="noreferrer">About remote MCP servers <ExternalLink size={14} aria-hidden="true" /></a>
+      </section>
+      <section className="phase2-panel mcp-config-panel" aria-labelledby="mcp-config-title">
+        <div className="mcp-section-heading"><div><p className="mcp-step-label">04 / CLIENT CONFIG</p><h2 id="mcp-config-title">VS Code configuration</h2></div><button className="secondary-button" type="button" onClick={() => void copyConfig()} aria-label={configCopied ? 'VS Code MCP configuration copied' : 'Copy VS Code MCP configuration'}>{configCopied ? <Check size={15} aria-hidden="true" /> : <Copy size={15} aria-hidden="true" />}{configCopied ? 'Copied' : 'Copy config'}</button></div>
+        <p className="phase2-helper">Add this to your workspace <code>.vscode/mcp.json</code>. VS Code will open Rembr sign-in and ask you to approve access.</p>
+        <pre className="mcp-config-code"><code>{configSnippet}</code></pre>
+        {copyError && <p className="field-note" role="alert">Copy was blocked by your browser. Select the configuration and copy it manually.</p>}
       </section>
       <p className="mcp-api-key-note">Need direct HTTP access from a script? <Link to="/app/settings/developer-access">Create a scoped API key <span aria-hidden="true">↗</span></Link></p>
     </div>
