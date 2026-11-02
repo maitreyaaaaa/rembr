@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../../app/api.js';
 import { PageHeader } from '../../app/RouteStates.js';
+import { DeveloperAccessTabs } from './DeveloperAccessTabs.js';
 
 type Scope = 'library:read' | 'library:write' | 'collections:read';
 type ApiKeyInfo = { id: string; name: string; scopes: Scope[]; prefix: string; createdAt: string; expiresAt: string; lastUsedAt: string | null; revokedAt: string | null };
@@ -53,7 +54,7 @@ export function DeveloperAccessPage() {
   }
 
   return <>
-    <PageHeader title="Developer access" description="Create scoped keys for scripts and integrations that connect to Rembr." />
+    <PageHeader title="Developer access" description="Create scoped keys for scripts and integrations that connect to Rembr." actions={<DeveloperAccessTabs />} />
     {error && <p className="notice error" role="alert">{error}</p>}
     {message && <p className="notice success" role="status">{message}</p>}
     {created && <section className="phase2-panel phase2-narrow" aria-labelledby="new-key-title">

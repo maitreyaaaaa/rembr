@@ -4,7 +4,10 @@ import type { DatabaseHandle } from '../db/database.js';
 import { config } from '../config.js';
 import { requireUser } from './sessions.js';
 
-const completeSchema = z.object({ externalAuthId: z.string().trim().min(8).max(255) }).strict();
+const completeSchema = z.object({
+  externalAuthId: z.string().trim().min(8).max(255),
+  access: z.enum(['read', 'read_write']),
+}).strict();
 const ACCESS_CLAIM = 'urn:rembr:access';
 
 function workosHeaders() {
@@ -45,10 +48,9 @@ export function createWorkOSMcpAuthRouter(database: DatabaseHandle) {
             claim: ACCESS_CLAIM,
             type: 'enum',
             label: 'Rembr access',
-            choices: [
-              { value: 'read', label: 'Read saved items and collections' },
-              { value: 'read_write', label: 'Read saved items and collections, and save links' },
-            ],
+            choices: [parsed.data.access === 'read'
+              ? { value: 'read', label: 'Read saved items and collections' }
+              : { value: 'read_write', label: 'Read saved items and collections, and save links' }],
           }],
         }),
       });
