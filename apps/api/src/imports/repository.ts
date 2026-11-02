@@ -3,6 +3,7 @@ import { basename } from 'node:path';
 import type { DatabaseHandle } from '../db/database.js';
 import type { ParsedImportItem } from './parser.js';
 import { AI_DISCLOSURE_VERSION } from '../ai/preferences.js';
+import { curateHashtags } from '../organization/tag-policy.js';
 
 const ACCEPT_BATCH_SIZE = 250;
 const LOOKUP_BATCH_SIZE = 400;
@@ -355,13 +356,13 @@ export function createImportRepository(database: DatabaseHandle) {
             duplicateCount += 1; continue;
           }
           const itemId = randomUUID(); const jobId = randomUUID(); const correlationId = String(state.request_id ?? importId);
-          const hashtags = Array.isArray(entry.metadata.hashtags) ? entry.metadata.hashtags : [];
+          const hashtags = curateHashtags(entry.metadata.hashtags);
           savedItemRows.push([itemId, ownerId, entry.url, entry.url, entry.title, entry.description, now, now, entry.platform, entry.sourceId, JSON.stringify(entry.metadata)]);
           jobRows.push([jobId, ownerId, itemId, importId, correlationId, sourceOrder, now, now, now]);
           entryRows.push([randomUUID(), ownerId, importId, uploadFileId, itemId, jobId, entry.platform, entry.url, entry.sourceId, entry.title, JSON.stringify(entry.metadata), 'queued', null, sourceOrder, now]);
           if (aiEnabled && entry.platform === 'instagram') aiJobRows.push([randomUUID(), ownerId, importId, itemId, now, now, now]);
           itemIdsByUrl.set(entry.url, itemId);
-          for (const rawTag of hashtags.slice(0, 20)) {
+          for (const rawTag of hashtags) {
             const name = String(rawTag).trim().slice(0, 40); const normalized = name.toLowerCase(); if (!normalized) continue;
             if (!tagNames.has(normalized)) tagNames.set(normalized, name);
             tagLinks.push({ itemId, normalized });

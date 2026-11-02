@@ -1,6 +1,7 @@
 import { inflateRawSync } from 'node:zlib';
 import { load } from 'cheerio';
 import { repairMisdecodedUtf8 } from '../items/text-normalization.js';
+import { curateHashtags } from '../organization/tag-policy.js';
 
 export type ImportPlatform = 'instagram' | 'pinterest' | 'x';
 export interface ImportFile { name: string; bytes: Buffer }
@@ -179,7 +180,7 @@ function stringsFromJson(value: unknown, result: string[] = []): string[] {
 }
 
 function hashtags(value: string): string[] {
-  return [...new Set([...value.matchAll(/#([\p{L}\p{N}_]+)/gu)].map((match) => match[1]!.toLowerCase()))].slice(0, 40);
+  return curateHashtags([...value.matchAll(/#([\p{L}\p{N}_]+)/gu)].map((match) => match[1]!.toLowerCase()));
 }
 
 function instagramMapValue(map: Record<string, unknown>, labels: string[]): string {
@@ -310,8 +311,13 @@ function xJsonRecords(value: unknown, sourceFile: string, found: ParsedImportIte
     const mediaStrings = stringsFromJson(media).find((entry) => /^https?:\/\//i.test(entry));
     const sourceId = finalUrl.match(/status\/(\d+)/)?.[1] ?? (idString || null);
     const title = text.slice(0, 240) || `X bookmark ${sourceId ?? ''}`.trim();
-    found.push({ platform: 'x', url: finalUrl, sourceId, title, description: text, collection: 'X bookmarks',
-      metadata: { sourceFile, author, username, createdAt, mediaUrl: mediaStrings ?? '', hashtags: hashtags(text) } });
+    const rawCollection = preferred.collection_name ?? preferred.collectionName ?? preferred.folder_name ?? preferred.folderName ?? preferred.collection ?? preferred.folder;
+    const collectionValue = rawCollection && typeof rawCollection === 'object'
+      ? (rawCollection as Record<string, unknown>).name ?? (rawCollection as Record<string, unknown>).title ?? (rawCollection as Record<string, unknown>).label
+      : rawCollection;
+    const collection = typeof collectionValue === 'string' && collectionValue.trim() ? repairMisdecodedUtf8(collectionValue.trim()).slice(0, 80) : 'X bookmarks';
+    found.push({ platform: 'x', url: finalUrl, sourceId, title, description: text, collection,
+      metadata: { sourceFile, author, username, createdAt, mediaUrl: mediaStrings ?? '', hashtags: hashtags(text), collections: [collection] } });
     return found;
   }
   for (const child of Object.values(object)) xJsonRecords(child, sourceFile, found);
@@ -413,9 +419,14 @@ export function selectParsedImportItems(found: ParsedImportItem[]): ParsedImport
     else {
       const previousSavedAt = typeof previous.metadata.savedAt === 'string' ? Date.parse(previous.metadata.savedAt) : Number.NaN;
       const duplicateSavedAt = typeof item.metadata.savedAt === 'string' ? Date.parse(item.metadata.savedAt) : Number.NaN;
-      const metadata = Number.isFinite(duplicateSavedAt) && (!Number.isFinite(previousSavedAt) || duplicateSavedAt > previousSavedAt)
-        ? { ...previous.metadata, savedAt: item.metadata.savedAt! }
-        : previous.metadata;
+      const metadata = {
+        ...previous.metadata,
+        ...(Number.isFinite(duplicateSavedAt) && (!Number.isFinite(previousSavedAt) || duplicateSavedAt > previousSavedAt) ? { savedAt: item.metadata.savedAt! } : {}),
+        collections: [...new Set([
+          ...(Array.isArray(previous.metadata.collections) ? previous.metadata.collections : previous.collection ? [previous.collection] : []),
+          ...(Array.isArray(item.metadata.collections) ? item.metadata.collections : item.collection ? [item.collection] : []),
+        ])].slice(0, 20),
+      };
       unique.set(item.url, { ...previous, metadata, title: previous.title.length > 0 ? previous.title : item.title, collection: previous.collection ?? item.collection });
     }
   }

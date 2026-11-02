@@ -1,6 +1,6 @@
 import { useRef, useState, type DragEvent, type FormEvent } from 'react';
 import { ArrowRight, CheckCircle2, FileText, Link2, PackageOpen, Upload, X } from 'lucide-react';
-import { LoadingSpinner, ProgressBar } from './LoadingStates.jsx';
+import { LoadingSpinner, ProgressBar } from '../../components/ui/LoadingStates.jsx';
 
 type AddMode = 'link' | 'archive';
 

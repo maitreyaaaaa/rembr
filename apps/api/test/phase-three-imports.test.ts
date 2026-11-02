@@ -238,7 +238,7 @@ test('large import acceptance batches writes and deduplicates repeated URLs acro
         : `https://www.pinterest.com/pin/${sourceIndex + 1}/`;
       return {
         platform, url, sourceId: `BATCH${sourceIndex}`, title: `Saved post ${sourceIndex}`, description: '', collection: 'Saved posts',
-        metadata: { sourceFile: 'saved_posts.json', hashtags: [`tag${sourceIndex}`], collections: ['Saved posts'] },
+        metadata: { sourceFile: 'saved_posts.json', hashtags: ['project-management'], collections: ['Saved posts'] },
         ...(platform === 'instagram' ? { sourceOrder: index } : {}),
       };
     });
@@ -250,6 +250,32 @@ test('large import acceptance batches writes and deduplicates repeated URLs acro
     assert.equal(Number((await database.prepare(`SELECT count(*) AS count FROM import_entries WHERE import_id=? AND status='duplicate'`).get(manifest.id) as { count: number }).count), 1);
     assert.equal(Number((await database.prepare('SELECT count(*) AS count FROM item_tags WHERE owner_id=?').get(account.id) as { count: number }).count), 500);
     assert.equal(Number((await database.prepare('SELECT count(*) AS count FROM collection_items WHERE owner_id=?').get(account.id) as { count: number }).count), 500);
+  });
+});
+
+test('import acceptance reuses matching owner collections and assigns source folders in the same pass', async () => {
+  await withApi(async (_baseUrl, database) => {
+    await register(_baseUrl, 'collection-importer@example.test', 'collection_importer');
+    const account = await database.prepare('SELECT id FROM users WHERE email=?').get('collection-importer@example.test') as { id: string };
+    const repository = createImportRepository(database);
+    const manifest = await repository.create(account.id, 'collection-import', 'collection-import-key', [{ name: 'bookmarks.json', mime: 'application/json', size: 1, chunks: 1 }]);
+    await database.prepare(`UPDATE imports SET status='staged' WHERE owner_id=? AND id=?`).run(account.id, manifest.id);
+    await database.prepare(`UPDATE import_upload_files SET state='staged' WHERE owner_id=? AND import_id=?`).run(account.id, manifest.id);
+    await database.prepare(`INSERT INTO collections (id,owner_id,name,normalized_name,created_at,updated_at) VALUES (?,?,?,?,?,?)`)
+      .run('existing-reading-list', account.id, 'Reading list', 'reading list', new Date().toISOString(), new Date().toISOString());
+    const lease = await repository.claimForParsing(account.id, manifest.id);
+    assert.ok(lease);
+    const files = await repository.files(account.id, manifest.id);
+    const item: ParsedImportItem = {
+      platform: 'x', url: 'https://x.com/i/status/88112233', sourceId: '88112233', title: 'A saved post', description: '', collection: 'reading LIST',
+      metadata: { sourceFile: 'bookmarks.json', collections: ['reading LIST'] },
+    };
+    const result = await repository.accept(account.id, manifest.id, lease, files.map((file) => ({ id: String(file.id), key: String(file.storage_key), name: String(file.original_name) })), [item]);
+    assert.equal(result.newCount, 1);
+    const saved = await database.prepare('SELECT id FROM saved_items WHERE owner_id=? AND original_url=?').get(account.id, item.url) as { id: string };
+    const linked = await database.prepare('SELECT collection_id FROM collection_items WHERE owner_id=? AND item_id=?').get(account.id, saved.id) as { collection_id: string };
+    assert.equal(linked.collection_id, 'existing-reading-list');
+    assert.equal(Number((await database.prepare('SELECT count(*) AS count FROM collections WHERE owner_id=?').get(account.id) as { count: number }).count), 1);
   });
 });
 

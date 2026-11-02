@@ -13,7 +13,7 @@ import {
   X,
   Zap,
 } from 'lucide-react';
-import { LoadingSpinner, SkeletonRows } from './LoadingStates.jsx';
+import { LoadingSpinner, SkeletonRows } from '../../components/ui/LoadingStates.jsx';
 
 export interface RembrCheckupItem {
   id: string;

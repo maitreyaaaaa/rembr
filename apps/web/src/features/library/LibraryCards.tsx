@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { AlertCircle, ArrowUpRight, CheckCircle2, Clock3, Eye, FileText, Image as ImageIcon, LoaderCircle, RotateCcw, XCircle } from 'lucide-react';
+import { AlertCircle, ArrowUpRight, CheckCircle2, Clock3, Eye, FileText, Globe, Image as ImageIcon, LoaderCircle, RotateCcw, XCircle } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 
 interface LibraryCardItem {
@@ -46,6 +46,28 @@ function host(url: string) {
   try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return 'Saved page'; }
 }
 
+function platformFor(item: LibraryCardItem) {
+  if (item.kind === 'note') return { label: 'My note', logo: null };
+  const domain = host(item.url).replace(/^m\./, '').toLowerCase();
+  const known: Array<{ domains: string[]; label: string; logo: string }> = [
+    { domains: ['instagram.com'], label: 'Instagram', logo: '/platforms/instagram.svg' },
+    { domains: ['x.com', 'twitter.com'], label: 'X', logo: '/platforms/x.svg' },
+    { domains: ['pinterest.com', 'pin.it'], label: 'Pinterest', logo: '/platforms/pinterest.svg' },
+    { domains: ['linkedin.com'], label: 'LinkedIn', logo: '/platforms/linkedin.svg' },
+    { domains: ['facebook.com', 'fb.com'], label: 'Facebook', logo: '/platforms/facebook.svg' },
+    { domains: ['youtube.com', 'youtu.be'], label: 'YouTube', logo: '/platforms/youtube.svg' },
+    { domains: ['reddit.com'], label: 'Reddit', logo: '/platforms/reddit.svg' },
+    { domains: ['tiktok.com'], label: 'TikTok', logo: '/platforms/tiktok.svg' },
+    { domains: ['substack.com'], label: 'Substack', logo: '/platforms/substack.svg' },
+  ];
+  return known.find(({ domains }) => domains.some((candidate) => domain === candidate || domain.endsWith(`.${candidate}`))) ?? { label: 'Website', logo: null };
+}
+
+function SourceBadge({ item }: { item: LibraryCardItem }) {
+  const platform = platformFor(item);
+  return <span className="source-platform-badge">{platform.logo ? <img src={platform.logo} alt="" /> : item.kind === 'note' ? <FileText aria-hidden="true" /> : <Globe aria-hidden="true" />}<span>{platform.label}</span></span>;
+}
+
 function itemData(item: LibraryCardItem) {
   const note = item.kind === 'note';
   const thumbnail = item.cover?.url
@@ -62,17 +84,23 @@ function itemData(item: LibraryCardItem) {
 
 export function PortedLibraryGrid({ items, searchActive, feedback, onFeedback, onRemove, hasMore = false, loadingMore = false, loadMoreError = '', onLoadMore, sort = 'created_desc', onSortChange }: Props) {
   const [layout, setLayout] = useState<(typeof layouts)[number]['key']>('grid');
+  const [viewportHeight, setViewportHeight] = useState(() => window.innerHeight);
   const sentinelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const updateViewportHeight = () => setViewportHeight(window.innerHeight);
+    window.addEventListener('resize', updateViewportHeight, { passive: true });
+    return () => window.removeEventListener('resize', updateViewportHeight);
+  }, []);
   useEffect(() => {
     const sentinel = sentinelRef.current;
     if (!sentinel || !hasMore || loadingMore || loadMoreError || !onLoadMore) return undefined;
     const root = document.querySelector('.rembr-dashboard-main');
     const observer = new IntersectionObserver((entries) => {
       if (entries.some((entry) => entry.isIntersecting)) onLoadMore();
-    }, { root, rootMargin: '640px 0px', threshold: 0 });
+    }, { root, rootMargin: `${Math.max(480, Math.round(viewportHeight * 0.8))}px 0px`, threshold: 0 });
     observer.observe(sentinel);
     return () => observer.disconnect();
-  }, [hasMore, loadingMore, loadMoreError, onLoadMore]);
+  }, [hasMore, loadingMore, loadMoreError, onLoadMore, viewportHeight]);
   return <section className="source-library-results" aria-label="Saved library">
     <div className="source-library-toolbar">
       <p className="source-library-count">{items.length}{hasMore ? '+' : ''} saved {items.length === 1 && !hasMore ? 'item' : 'items'}</p>
@@ -90,7 +118,7 @@ export function PortedLibraryGrid({ items, searchActive, feedback, onFeedback, o
     </div>
     <div className={`source-library-grid ${layout === 'list' ? 'is-list' : layout === 'gallery' ? 'is-gallery' : 'is-masonry'}`}>
       {items.map((item, index) => <LibraryCard key={item.id} item={item} index={index} layout={layout} searchActive={searchActive} feedback={feedback[item.id]} onFeedback={onFeedback} onRemove={onRemove} />)}
-      {loadingMore && <LibraryCardSkeletons count={4} layout={layout} />}
+      {loadingMore && <LibraryCardSkeletons count={Math.min(20, Math.max(4, Math.ceil((window.innerWidth - 100) / 320) * 2))} layout={layout} />}
     </div>
     <div ref={sentinelRef} className="library-infinite-scroll-sentinel" aria-hidden="true" />
     {loadMoreError && <div className="phase2-state" role="alert">{loadMoreError} <button className="quiet-button" type="button" onClick={onLoadMore}>Retry</button></div>}
@@ -122,7 +150,7 @@ function LibraryCard({ item, index, layout, searchActive, feedback, onFeedback, 
   const ratios = ['4 / 5', '3 / 4', '1 / 1', '2 / 3', '5 / 4', '3 / 5'];
   if (layout === 'list') return <article className="source-library-row">
     <Link className="source-library-row-copy" to={detailHref} state={{ returnTo }}>
-      <div className="source-library-meta"><span>{note ? 'My note' : 'Saved page'}</span>{chip && <span>{chip}</span>}<span className={`source-status is-${item.status}`}><StatusIcon />{statusLabel}</span></div>
+      <div className="source-library-meta"><SourceBadge item={item} />{chip && <span>{chip}</span>}<span className={`source-status is-${item.status}`}><StatusIcon />{statusLabel}</span></div>
       <h2>{title}</h2><p className="source-library-domain">{source}</p><p className="source-library-preview">{preview}</p>
     </Link>
     {thumbnail ? <img src={thumbnail} alt="" loading="lazy" decoding="async" /> : <div className="source-library-row-placeholder">{note ? <FileText /> : <Eye />}</div>}
@@ -132,15 +160,15 @@ function LibraryCard({ item, index, layout, searchActive, feedback, onFeedback, 
   if (layout === 'gallery') return <article className="source-library-gallery group">
     <Link className="source-library-gallery-visual" to={detailHref} state={{ returnTo }}>
       {thumbnail ? <img src={thumbnail} alt="" loading="lazy" decoding="async" /> : <div className="source-library-gallery-empty"><span>{note ? <FileText /> : <ImageIcon />}</span><small>Preview pending</small><p>{preview}</p></div>}
-      <span className="source-library-platform">{note ? 'My note' : 'Saved page'}</span>
+      <span className="source-library-platform"><SourceBadge item={item} /></span>
     </Link>
     <div className="source-library-gallery-copy"><div className="source-library-meta"><span>{source}</span><span className={`source-status is-${item.status}`}><StatusIcon />{statusLabel}</span></div><Link to={detailHref} state={{ returnTo }}><h2>{title}</h2></Link><p className="source-library-preview">{preview}</p>{chip && <span className="source-library-chip">{chip}</span>}<LibraryCardActions item={item} returnTo={returnTo} searchActive={searchActive} feedback={feedback} onFeedback={onFeedback} onRemove={onRemove} /></div>
   </article>;
 
-  return <article className="source-library-pin group" style={{ '--pin-backdrop': backdrops[index % backdrops.length], '--pin-ratio': ratios[index % ratios.length] } as React.CSSProperties}>
+  return <article className="source-library-pin group" style={{ '--pin-backdrop': backdrops[index % backdrops.length], '--pin-ratio': thumbnail ? ratios[index % ratios.length] : '1.3 / 1' } as React.CSSProperties}>
     <Link className="source-library-pin-cover" to={detailHref} state={{ returnTo }}>
       {thumbnail && <img src={thumbnail} alt="" loading="lazy" decoding="async" />}
-      <div className="source-library-pin-top"><span>{note ? 'My note' : 'Saved page'}</span><i>{note ? <FileText /> : <Eye />}</i></div>
+      <div className="source-library-pin-top"><SourceBadge item={item} /><i>{note ? <FileText /> : <Eye />}</i></div>
       <div className="source-library-pin-title">{chip && <span>{chip}</span>}<h2>{title}</h2></div>
     </Link>
     <div className="source-library-pin-copy"><div className="source-library-meta"><span>{source}</span>{!note && <span className={`source-status is-${item.status}`}><StatusIcon />{statusLabel}</span>}</div><p className="source-library-preview">{preview}</p><LibraryCardActions item={item} returnTo={returnTo} searchActive={searchActive} feedback={feedback} onFeedback={onFeedback} onRemove={onRemove} /></div>

@@ -10,6 +10,7 @@ import { createApp } from '../src/app.js';
 import { createTestDatabase } from '../src/db/database.js';
 import { AI_SEARCH_DISCLOSURE_VERSION } from '../src/knowledge/ai-search-preferences.js';
 import { MetaApiError } from '../src/ai/meta-client.js';
+import { utcMonthStart } from '../src/ai/usage.js';
 import { recoverAssets } from '../src/assets/recovery.js';
 import { LocalAssetStorage } from '../src/assets/storage.js';
 
@@ -175,6 +176,30 @@ test('item list filters, keyset pagination, metadata overrides and organization 
   });
 });
 
+test('an item can have at most five tags', async () => {
+  await withApi(async (baseUrl, database) => {
+    const owner = await register(baseUrl, 'tag-limit@example.test');
+    await profile(baseUrl, owner.cookie, 'tag_limit_user');
+    const created = await createPage(baseUrl, owner.cookie, 'https://tag-limit.test/saved');
+    const item = (await created.json() as { item: { id: string } }).item;
+    const tagIds: string[] = [];
+    for (let index = 1; index <= 6; index += 1) {
+      const response = await fetch(`${baseUrl}/api/tags`, { method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: `Topic ${index}` }) });
+      assert.equal(response.status, 201);
+      tagIds.push((await response.json() as { tag: { id: string } }).tag.id);
+    }
+    for (const tagId of tagIds.slice(0, 5)) {
+      assert.equal((await fetch(`${baseUrl}/api/items/${item.id}/tags/${tagId}`, { method: 'PUT', headers: { Cookie: owner.cookie } })).status, 204);
+    }
+    const rejected = await fetch(`${baseUrl}/api/items/${item.id}/tags/${tagIds[5]}`, { method: 'PUT', headers: { Cookie: owner.cookie } });
+    assert.equal(rejected.status, 409);
+    assert.equal((await rejected.json() as { error: { code: string } }).error.code, 'tag_limit');
+    assert.equal(Number((await database.prepare('SELECT count(*) AS count FROM item_tags WHERE item_id=?').get(item.id) as { count: string }).count), 5);
+    assert.equal((await fetch(`${baseUrl}/api/items/${item.id}/tags/${tagIds[0]}`, { method: 'DELETE', headers: { Cookie: owner.cookie } })).status, 204);
+    assert.equal((await fetch(`${baseUrl}/api/items/${item.id}/tags/${tagIds[5]}`, { method: 'PUT', headers: { Cookie: owner.cookie } })).status, 204);
+  });
+});
+
 test('Phase 4 grounded answers require separate consent and only retain citations to retrieved owner items', async () => {
   let modelCalls = 0;
   let preflightCalls = 0;
@@ -209,7 +234,7 @@ test('Phase 4 grounded answers require separate consent and only retain citation
     assert.match(modelPrompt, /untrusted data/i);
     assert.deepEqual(body.claims, [{ text: 'The note is about accessible product teams.', citationIds: [item.id] }]);
     assert.deepEqual(body.citations.map((citation) => citation.id), [item.id]);
-    const monthUsage = await database.prepare(`SELECT spent_microusd,reserved_microusd FROM ai_monthly_usage WHERE month_start='2026-10-01'`).get() as { spent_microusd: string; reserved_microusd: string };
+    const monthUsage = await database.prepare('SELECT spent_microusd,reserved_microusd FROM ai_monthly_usage WHERE month_start=?').get(utcMonthStart()) as { spent_microusd: string; reserved_microusd: string };
     assert.equal(Number(monthUsage.spent_microusd), 295);
     assert.equal(Number(monthUsage.reserved_microusd), 0);
     const ledger = await database.prepare('SELECT status,actual_microusd FROM ai_search_usage_reservations').get() as { status: string; actual_microusd: string };
@@ -226,7 +251,7 @@ test('Phase 4 grounded answers require separate consent and only retain citation
     assert.match(modelPrompt, /"conversation"/);
     assert.match(modelPrompt, /What did I save about design systems/);
     assert.equal(modelCalls, 2);
-    const finalMonthUsage = await database.prepare(`SELECT spent_microusd,reserved_microusd FROM ai_monthly_usage WHERE month_start='2026-10-01'`).get() as { spent_microusd: string; reserved_microusd: string };
+    const finalMonthUsage = await database.prepare('SELECT spent_microusd,reserved_microusd FROM ai_monthly_usage WHERE month_start=?').get(utcMonthStart()) as { spent_microusd: string; reserved_microusd: string };
     assert.equal(Number(finalMonthUsage.spent_microusd), 590);
     assert.equal(Number(finalMonthUsage.reserved_microusd), 0);
   }, { providerAvailable: async () => true, answerModel: {

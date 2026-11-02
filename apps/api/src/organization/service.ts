@@ -4,7 +4,7 @@ import { createLibraryRepository, type ItemCursorKey } from '../library/reposito
 import { createOrganizationRepository } from './repository.js';
 
 export class OrganizationServiceError extends Error {
-  constructor(public readonly code: 'tag_exists' | 'collection_exists' | 'not_found' | 'invalid_cursor', message: string) { super(message); }
+  constructor(public readonly code: 'tag_exists' | 'tag_limit' | 'collection_exists' | 'not_found' | 'invalid_cursor', message: string) { super(message); }
 }
 
 interface Cursor { version: 1; owner: string; fingerprint: string; sort: 'created_desc'; key: string; id: string }
@@ -41,8 +41,14 @@ export function createOrganizationService(database: DatabaseHandle) {
       if (!await repository.deleteTag(ownerId,id)) throw new OrganizationServiceError('not_found','Tag not found.');
     },
     async addTag(ownerId: string,itemId: string,tagId: string) {
-      try { await repository.addTag(ownerId,itemId,tagId,new Date().toISOString()); }
-      catch { throw new OrganizationServiceError('not_found','Item or tag not found.'); }
+      try {
+        const result = await repository.addTag(ownerId,itemId,tagId,new Date().toISOString());
+        if (result === 'not_found') throw new OrganizationServiceError('not_found','Item or tag not found.');
+        if (result === 'limit') throw new OrganizationServiceError('tag_limit','A save can have up to five tags. Remove a tag before adding another.');
+      } catch (cause) {
+        if (cause instanceof OrganizationServiceError) throw cause;
+        throw new OrganizationServiceError('not_found','Item or tag not found.');
+      }
     },
     removeTag(ownerId: string,itemId: string,tagId: string) { return repository.removeTag(ownerId,itemId,tagId); },
     listCollections(ownerId: string) { return repository.listCollections(ownerId); },

@@ -7,7 +7,7 @@ import {
   RotateCcw, Search, ShieldCheck, Sparkles, Tag, Upload, Zap,
 } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { PlatformLogoTicker } from '../components/PlatformLogoTicker';
+import { PlatformLogoTicker } from '../../components/PlatformLogoTicker';
 
 gsap.registerPlugin(ScrollTrigger);
 

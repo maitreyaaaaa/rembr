@@ -7,6 +7,7 @@ import {
   BookOpen,
   Brain,
   CalendarDays,
+  ChevronDown,
   CheckCircle2,
   CircleHelp,
   Clock3,
@@ -15,6 +16,7 @@ import {
   Image as ImageIcon,
   LoaderCircle,
   RotateCcw,
+  Search,
   Tag,
   X,
 } from 'lucide-react';
@@ -105,23 +107,13 @@ export interface RembrDetailAnalysis {
   };
 }
 
-export interface RembrDetailSummary {
-  summary: string;
-  model: string;
-  sourceCharacters: number;
-  createdAt: string;
-  stale?: boolean;
-}
-
 export type RembrDetailAction = 'cancel' | 'retry' | 'reprocess';
 
 export interface RembrDetailDrawerProps {
   item: RembrDetailItem;
   analysis?: RembrDetailAnalysis | null;
-  summary?: RembrDetailSummary | null;
   allTags?: RembrDetailTag[];
   busyAction?: RembrDetailAction | null;
-  summaryBusy?: boolean;
   error?: string;
   onClose: () => void;
   onOpenOriginal: (item: RembrDetailItem) => void;
@@ -129,7 +121,6 @@ export interface RembrDetailDrawerProps {
   onCancelProcessing: (item: RembrDetailItem) => void;
   onRetryProcessing: (item: RembrDetailItem) => void;
   onReprocess: (item: RembrDetailItem) => void;
-  onGenerateSummary?: () => void;
   onToggleTag?: (tag: RembrDetailTag, add: boolean) => void;
 }
 
@@ -144,6 +135,7 @@ const statusText: Record<RembrDetailStatus, string> = {
   ready: 'Ready to read',
   failed: 'Could not process',
 };
+const MAX_ITEM_TAGS = 5;
 
 function formatDate(value?: string | null) {
   if (!value) return '';
@@ -169,10 +161,8 @@ function actionLabel(action: RembrDetailAction) {
 export function RembrDetailDrawer({
   item,
   analysis,
-  summary,
   allTags = [],
   busyAction = null,
-  summaryBusy = false,
   error = '',
   onClose,
   onOpenOriginal,
@@ -180,12 +170,13 @@ export function RembrDetailDrawer({
   onCancelProcessing,
   onRetryProcessing,
   onReprocess,
-  onGenerateSummary,
   onToggleTag,
 }: RembrDetailDrawerProps) {
   const panelRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const [preview, setPreview] = useState<{ url: string; label: string } | null>(null);
+  const [tagSearch, setTagSearch] = useState('');
+  const [tagPickerOpen, setTagPickerOpen] = useState(false);
   const isNote = item.kind === 'note';
   const readyMedia = (item.media ?? []).filter((asset) => asset.status === 'ready' && asset.url);
   const noteAssets = item.note?.assets ?? [];
@@ -193,6 +184,11 @@ export function RembrDetailDrawer({
   const canReprocess = item.status === 'ready' || item.status === 'partial';
   const displayTitle = item.titleOverride || item.title || 'Untitled save';
   const savedText = item.text || item.textPreview;
+  const attachedTagIds = new Set(item.tags.map((tag) => tag.id));
+  const normalizedTagSearch = tagSearch.trim().toLocaleLowerCase();
+  const matchingTags = normalizedTagSearch.length >= 2
+    ? allTags.filter((tag) => !attachedTagIds.has(tag.id) && tag.name.toLocaleLowerCase().includes(normalizedTagSearch)).slice(0, 8)
+    : [];
 
   useEffect(() => {
     const panel = panelRef.current;
@@ -244,24 +240,17 @@ export function RembrDetailDrawer({
         role="dialog"
         aria-modal="true"
         aria-labelledby="rembr-detail-title"
-        aria-describedby="rembr-detail-subtitle"
         onClick={(event) => event.stopPropagation()}
         onKeyDown={onDialogKeyDown}
         className="ml-auto flex h-full w-full max-w-2xl flex-col overflow-y-auto border-l border-white/10 bg-black text-foreground shadow-2xl shadow-black"
       >
-        <header className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b border-white/10 bg-black/90 px-5 py-4 backdrop-blur sm:px-8 sm:py-5">
-          <div className="min-w-0">
-            <p className="truncate font-mono text-[11px] text-muted-foreground">{item.id}</p>
-            <p id="rembr-detail-subtitle" className="mt-1 text-xs text-muted-foreground">
-              {isNote ? 'Note in your private library' : 'Saved page and readable copy'}
-            </p>
-          </div>
+        <header className="sticky top-0 z-10 flex items-center justify-end border-b border-white/10 bg-black/90 px-4 py-2 backdrop-blur sm:px-6">
           <button ref={closeRef} type="button" onClick={onClose} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-white/5 hover:text-foreground" aria-label="Close item details">
             <X className="h-5 w-5" />
           </button>
         </header>
 
-        <div className="space-y-7 p-5 sm:space-y-8 sm:p-8">
+        <div className="space-y-5 p-4 sm:space-y-6 sm:p-6">
           {error && <div role="alert" className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /><p>{error}</p></div>}
           <section aria-labelledby="rembr-detail-title">
             <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xs text-primary">
@@ -275,7 +264,7 @@ export function RembrDetailDrawer({
               </span>}
             </div>
 
-            <h2 id="rembr-detail-title" className="mb-3 break-words font-display text-3xl font-bold tracking-tight sm:text-4xl">
+            <h2 id="rembr-detail-title" className="mb-2 break-words font-display text-2xl font-bold leading-tight tracking-tight sm:text-3xl">
               {displayTitle}
             </h2>
             {(item.descriptionOverride || item.description) && <p className="mb-4 max-w-2xl text-sm leading-relaxed text-muted-foreground">{item.descriptionOverride || item.description}</p>}
@@ -301,12 +290,6 @@ export function RembrDetailDrawer({
             <p>Rembr could not make a readable copy. The source link is still available{item.errorCode ? ` (${item.errorCode.replaceAll('_', ' ')}).` : '.'}</p>
           </div>}
 
-          {(summary?.summary || onGenerateSummary) && <section className="rounded-2xl border border-white/10 bg-white/[0.025] p-5" aria-labelledby="rembr-summary-heading">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-2 font-mono text-xs uppercase tracking-widest text-muted-foreground"><Brain className="h-3.5 w-3.5 text-primary" /> Library summary</div>{onGenerateSummary && <button type="button" disabled={summaryBusy} onClick={onGenerateSummary} className="inline-flex min-h-9 items-center gap-2 rounded-full border border-white/10 px-3 text-xs font-semibold text-muted-foreground transition hover:border-primary hover:text-primary disabled:opacity-60">{summaryBusy && <LoaderCircle className="h-3.5 w-3.5 animate-spin" />}{summaryBusy ? 'Generating…' : summary?.summary ? 'Regenerate' : 'Generate summary'}</button>}</div>
-            <h3 id="rembr-summary-heading" className="sr-only">Library summary</h3>
-            {summary?.summary ? <><p className="text-sm leading-relaxed text-foreground">{summary.summary}</p><p className="mt-3 text-xs text-muted-foreground">{summary.stale ? 'This summary may be out of date. Generate a new one to use the current source.' : `Generated by ${summary.model}${summary.createdAt ? ` · ${formatDate(summary.createdAt)}` : ''}${summary.sourceCharacters ? ` · ${summary.sourceCharacters.toLocaleString()} source characters` : ''}.`}</p></> : <p className="text-sm leading-relaxed text-muted-foreground">Generate a concise summary from this saved page or note. Rembr sends the source to Meta only when you request a summary and have enabled library AI in Settings.</p>}
-          </section>}
-
           {isNote ? <section aria-labelledby="rembr-note-heading">
             <SectionHeading icon={<FileText className="h-3.5 w-3.5" />} label="Note" />
             <h3 id="rembr-note-heading" className="sr-only">Note contents</h3>
@@ -319,11 +302,14 @@ export function RembrDetailDrawer({
                 : <p className="rounded-xl border border-white/10 bg-white/[0.025] p-4 text-sm leading-relaxed text-muted-foreground">{item.status === 'failed' ? 'No readable copy is available for this save.' : 'There is no readable text for this save yet.'}</p>}
           </section>}
 
-          {analysis && analysis.status !== 'not_requested' && <section className="rounded-2xl border border-white/10 bg-white/[0.025] p-5" aria-labelledby="rembr-analysis-heading">
-            <SectionHeading icon={<Brain className="h-3.5 w-3.5" />} label="AI media notes" />
-            <h3 id="rembr-analysis-heading" className="sr-only">AI media notes</h3>
-            <p className="mb-4 text-sm text-muted-foreground">{analysisStatusText(analysis)}</p>
-            {analysis.result && <div className="space-y-4 text-sm leading-relaxed">
+          {analysis && analysis.status !== 'not_requested' && <details className="group rounded-2xl border border-white/10 bg-white/[0.025]">
+            <summary className="flex min-h-12 cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-semibold text-muted-foreground outline-none marker:hidden hover:text-primary focus-visible:ring-2 focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
+              <Brain className="h-4 w-4 text-primary" /> Read more <span className="font-normal text-muted-foreground">· AI media notes</span><ChevronDown className="ml-auto h-4 w-4 transition-transform group-open:rotate-180" />
+            </summary>
+            <section className="space-y-4 border-t border-white/10 p-4" aria-labelledby="rembr-analysis-heading">
+              <h3 id="rembr-analysis-heading" className="font-mono text-xs uppercase tracking-widest text-muted-foreground">AI media notes</h3>
+              <p className="text-sm text-muted-foreground">{analysisStatusText(analysis)}</p>
+              {analysis.result && <div className="space-y-3 text-sm leading-relaxed">
               {analysis.result.summary && <p className="font-semibold text-foreground">{analysis.result.summary}</p>}
               {analysis.result.visualDescription && <DetailText label="Visual notes">{analysis.result.visualDescription}</DetailText>}
               {analysis.result.ocrText && <DetailText label="Text in media" preserve>{analysis.result.ocrText}</DetailText>}
@@ -335,8 +321,9 @@ export function RembrDetailDrawer({
               {analysis.result.people.length > 0 && <DetailText label="People named in text">{analysis.result.people.join(', ')}</DetailText>}
               {analysis.result.repositories.length > 0 && <DetailText label="Repository labels">{analysis.result.repositories.join(', ')}</DetailText>}
               <p className="text-xs text-muted-foreground">Generated by {analysis.result.model}. {analysis.result.imageCount} images and {analysis.result.videoCount} videos analyzed.</p>
-            </div>}
-          </section>}
+              </div>}
+            </section>
+          </details>}
 
           {!isNote && readyMedia.length > 0 && <section aria-label="Saved media">
             <SectionHeading icon={<ImageIcon className="h-3.5 w-3.5" />} label="Saved media" />
@@ -357,15 +344,27 @@ export function RembrDetailDrawer({
             <ul className="space-y-2">{item.note.links.map((link) => <li key={link}><a href={link} target="_blank" rel="noreferrer" className="break-all text-sm text-muted-foreground underline decoration-white/20 underline-offset-4 hover:text-primary">{link}</a></li>)}</ul>
           </section> : null}
 
-          {(allTags.length > 0 || item.tags.length > 0 || item.collections.length > 0) && <section>
-            {(allTags.length > 0 || item.tags.length > 0) && <div className="mb-4"><SectionHeading icon={<Tag className="h-3.5 w-3.5" />} label="Tags" /><div className="flex flex-wrap gap-2">{allTags.length ? allTags.map((tag) => { const attached = item.tags.some((current) => current.id === tag.id); return <button key={tag.id} type="button" aria-pressed={attached} disabled={!onToggleTag} onClick={() => onToggleTag?.(tag, !attached)} className={`rounded-full border px-3 py-1.5 text-xs transition ${attached ? 'border-primary/35 bg-primary/10 text-primary' : 'border-white/10 text-muted-foreground hover:border-primary/60 hover:text-primary'}`}>{tag.name}</button>; }) : item.tags.map((tag) => <span key={tag.id} className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-muted-foreground">{tag.name}</span>)}</div>{onToggleTag && <p className="mt-2 text-xs text-muted-foreground">Select tags to organize this save.</p>}</div>}
+          {(item.tags.length > 0 || onToggleTag || item.collections.length > 0) && <section>
+            {(item.tags.length > 0 || onToggleTag) && <div className="mb-4">
+              <SectionHeading icon={<Tag className="h-3.5 w-3.5" />} label="Tags" />
+              <div className="flex flex-wrap gap-2">{item.tags.slice(0, MAX_ITEM_TAGS).map((tag) => onToggleTag
+                ? <button key={tag.id} type="button" aria-label={`Remove tag ${tag.name}`} onClick={() => onToggleTag(tag, false)} className="rounded-full border border-primary/35 bg-primary/10 px-3 py-1.5 text-xs text-primary transition hover:border-destructive/60 hover:text-destructive">{tag.name} <span aria-hidden="true">×</span></button>
+                : <span key={tag.id} className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-muted-foreground">{tag.name}</span>)}</div>
+              {onToggleTag && item.tags.length < MAX_ITEM_TAGS && <button type="button" aria-expanded={tagPickerOpen} onClick={() => { setTagPickerOpen((open) => !open); setTagSearch(''); }} className="mt-3 inline-flex min-h-9 items-center gap-2 rounded-full border border-white/10 px-3 text-xs font-semibold text-muted-foreground transition hover:border-primary hover:text-primary"><Tag className="h-3.5 w-3.5" /> Add tag</button>}
+              {tagPickerOpen && item.tags.length < MAX_ITEM_TAGS && <div className="mt-3 max-w-md">
+                <label className="relative block"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><input autoFocus type="search" value={tagSearch} onChange={(event) => setTagSearch(event.target.value)} placeholder="Find a tag" className="min-h-10 w-full rounded-xl border border-white/10 bg-black px-10 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-primary" /></label>
+                {normalizedTagSearch.length > 0 && normalizedTagSearch.length < 2 && <p className="mt-2 text-xs text-muted-foreground">Type at least two characters.</p>}
+                {matchingTags.length > 0 && <div className="mt-2 flex max-h-36 flex-wrap gap-2 overflow-y-auto">{matchingTags.map((tag) => <button key={tag.id} type="button" onClick={() => { onToggleTag?.(tag, true); setTagSearch(''); }} className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-muted-foreground transition hover:border-primary hover:text-primary">{tag.name}</button>)}</div>}
+                {normalizedTagSearch.length >= 2 && matchingTags.length === 0 && <p className="mt-2 text-xs text-muted-foreground">No matching tags.</p>}
+              </div>}
+              {item.tags.length >= MAX_ITEM_TAGS && <p className="mt-2 text-xs text-muted-foreground">Five tags maximum. Remove one to add another.</p>}
+            </div>}
             {item.collections.length > 0 && <div><SectionHeading icon={<Folder className="h-3.5 w-3.5" />} label="Collections" /><div className="flex flex-wrap gap-2">{item.collections.map((collection) => <Link key={collection.id} to={`/app/collections/${encodeURIComponent(collection.id)}`} className="rounded-full border border-primary/25 bg-primary/5 px-3 py-1.5 text-xs text-primary">{collection.name}</Link>)}</div><Link to="/app/collections" className="mt-3 inline-block text-xs text-muted-foreground underline underline-offset-4 hover:text-primary">Manage collections</Link></div>}
           </section>}
 
           <footer className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-white/10 pt-5 text-xs text-muted-foreground">
             <CalendarDays className="h-3.5 w-3.5" /> Saved {formatDate(item.createdAt)}
             {item.fetchedAt && <><span aria-hidden="true">·</span><Clock3 className="h-3.5 w-3.5" /> Processed {formatDate(item.fetchedAt)}</>}
-            {summary?.stale && <span className="text-warning">Summary needs refresh</span>}
           </footer>
         </div>
       </section>

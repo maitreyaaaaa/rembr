@@ -56,6 +56,26 @@ test('Instagram JSON retains caption, owner, saved date, hashtags, and collectio
   assert.equal(item?.metadata.savedAt, new Date(1_700_000_000_000).toISOString());
 });
 
+test('a saved post assigned to multiple Instagram collections keeps every collection on deduplication', () => {
+  const url = 'https://www.instagram.com/p/MULTICOLLECTION01/';
+  const record = (collection: string) => ({ title: collection, items: [{
+    media: [{ uri: url }],
+    string_map_data: { Caption: { value: 'A saved reference' }, 'Collection name': { value: collection } },
+  }] });
+  const [item] = parsePlatformExports([{ name: 'saved_collections.json', bytes: Buffer.from(JSON.stringify({ saved_saved_collections: [record('Research'), record('Read Later')] })) }]);
+  assert.equal(item?.url, url);
+  assert.deepEqual(item?.metadata.collections, ['Research', 'Read Later']);
+});
+
+test('X JSON bookmarks retain a source folder as an automatic collection', () => {
+  const [item] = parsePlatformExports([{ name: 'bookmark.js', bytes: Buffer.from(JSON.stringify([{ tweet: {
+    tweet_id: '321654', screen_name: 'mira', full_text: 'A saved thread', collection_name: 'Reading list',
+  } }])) }]);
+  assert.equal(item?.platform, 'x');
+  assert.equal(item?.collection, 'Reading list');
+  assert.deepEqual(item?.metadata.collections, ['Reading list']);
+});
+
 test('Instagram JSON maps the current label_values export shape and record timestamp', () => {
   const bytes = Buffer.from(JSON.stringify([{ fbid: 'ignored', timestamp: 1_700_000_001, media: [], label_values: [
     { label: 'URL', href: 'https://www.instagram.com/p/CURRENT123/' },
