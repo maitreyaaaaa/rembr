@@ -1539,6 +1539,107 @@ body [role='alert'] button { border-color: rgb(255 255 255 / 40%); background: #
   .developer-access-create-button { transition: none; }
 }
 
+/* Sensitive-access surfaces use restrained borders, tight rows, and neutral controls. */
+.rembr-sensitive-route { min-height: 100%; }
+.phase2-main-sensitive { width: 100%; max-width: none; margin: 0; padding: 14px clamp(12px, 1.7vw, 22px) 32px; }
+.phase2-main-sensitive > .phase2-page-heading { margin: 2px 0 12px; }
+.phase2-main-sensitive > .phase2-page-heading h1 { font-family: Arial, sans-serif; font-size: 21px; font-weight: 600; letter-spacing: -.03em; }
+.phase2-main-sensitive > .phase2-page-heading > div:first-child > p:last-child { color: #aeb8c4; font-size: 11px; }
+.phase2-main-sensitive .phase2-tab-links { border-color: #30343a; background: #0d0f11; }
+.phase2-main-sensitive .phase2-tab-links a { color: #b8c1cb; }
+.phase2-main-sensitive .phase2-tab-links a.active { background: #eef0f2; color: #16181a; }
+.developer-access-card { width: 100%; max-width: none; margin: 0 0 12px; border-color: #242628; border-radius: 15px; background: #090a0b; font-family: Arial, sans-serif; }
+.developer-access-heading { min-height: 78px; gap: 14px; padding: 14px 16px; border-color: #242628; }
+.developer-access-heading-actions { display: flex; align-items: center; gap: 14px; }
+.developer-access-heading-actions > a { color: #c5d8f0; font-size: 11px; text-decoration: none; }
+.developer-access-heading-actions > a:hover { color: #fff; text-decoration: underline; text-underline-offset: 3px; }
+.developer-access-heading h2 { font-family: Arial, sans-serif; font-size: 19px; font-weight: 500; letter-spacing: -.025em; }
+.developer-access-heading p { margin-top: 3px; color: #b9c0c8; font-size: 12px; }
+.developer-access-create-button { min-height: 32px; gap: 7px; padding-inline: 11px; border-color: #c5c8cb; border-radius: 6px; background: #f1f2f3; color: #16181a; font-family: Arial, sans-serif; font-size: 12px; font-weight: 500; }
+.developer-access-create-button:hover { background: #fff; transform: none; }
+.developer-access-create-form { gap: 12px; padding: 14px 16px; border-color: #242628; background: #0b0c0e; }
+.developer-access-form-heading h3 { font-family: Arial, sans-serif; font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+.developer-access-form-heading p { color: #aeb8c4; }
+.developer-access-form-grid { grid-template-columns: minmax(0, 1fr) 170px; gap: 12px; }
+.developer-access-form-grid > label, .developer-access-permissions legend { color: #d7dce1; }
+.developer-access-form-grid input, .developer-access-form-grid select { min-height: 34px; border-color: #303439; border-radius: 6px; background: #101214; font-family: Arial, sans-serif; }
+.developer-access-form-grid input:focus-visible, .developer-access-form-grid select:focus-visible { outline-color: #82b8ff; }
+.developer-access-permission { min-width: min(210px, 100%); padding: 8px 9px; border-color: #272b30; border-radius: 6px; background: #0b0d0f; }
+.developer-access-permission input { accent-color: #82b8ff; }
+.developer-access-permission strong { color: #e1e5e9; }
+.developer-access-permission small { color: #aab2bc; }
+.developer-access-create-form > .primary-button { min-height: 34px; padding-inline: 12px; border: 1px solid #c5c8cb; border-radius: 6px; background: #f1f2f3; color: #16181a; }
+.developer-access-card .developer-keys-table { min-width: 760px; font-family: Arial, sans-serif; font-size: 12px; }
+.developer-access-card .developer-keys-table th, .developer-access-card .developer-keys-table td { padding: 11px 16px; border-bottom-color: #232629; }
+.developer-access-card .developer-keys-table thead th { color: #c0c7d0; font-size: 11px; }
+.developer-access-card .developer-keys-table tbody tr:hover { background: rgb(160 190 225 / 4%); }
+.developer-key-name-row { color: #e8edf2; }
+.developer-key-name-row svg { color: #c6d0dc; }
+.developer-access-card .developer-keys-status { margin-left: 25px; color: #b5c4d6; }
+.developer-access-card .developer-keys-status.is-active { color: #b7c7d8; }
+.developer-access-card .developer-keys-status.is-expired, .developer-access-card .developer-keys-status.is-revoked { color: #89919a; }
+.developer-key-cell { display: flex; min-width: 270px; align-items: center; gap: 8px; }
+.developer-access-card .developer-keys-prefix { max-width: 250px; padding: 6px 8px; background: #17191c; color: #dce5ef; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+.developer-key-unavailable { color: #aeb8c4; font-size: 10px; white-space: nowrap; }
+.developer-access-card .developer-keys-scopes span { padding: 3px 6px; background: #191d22; color: #c9d8ea; font-size: 10px; }
+.developer-access-card .developer-keys-secondary { color: #aeb8c4; }
+.developer-access-card .developer-keys-actions { min-width: 74px; white-space: nowrap; }
+.developer-access-card .developer-keys-actions .developer-keys-secondary { display: inline-flex; align-items: center; gap: 4px; margin: 0; }
+.developer-key-revoke { padding: 4px 0; border: 0; background: transparent; color: #c5d8f0; font: inherit; font-size: 11px; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.developer-key-revoke:hover { color: #f0f5fb; }
+.developer-secret-notice { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 12px 18px; margin: 0 0 12px; padding: 12px 16px; border: 1px solid #39414a; border-radius: 9px; background: #0b0d10; font-family: Arial, sans-serif; }
+.developer-secret-copy h2 { margin: 0; color: #eef2f6; font-size: 14px; font-weight: 600; }
+.developer-secret-copy p { margin: 4px 0 0; color: #aeb8c4; font-size: 11px; }
+.developer-secret-value { display: flex; min-width: 0; align-items: center; gap: 4px; }
+.developer-secret-value code { max-width: min(440px, 42vw); overflow: hidden; padding: 6px 8px; border-radius: 5px; background: #17191c; color: #e2e9f1; font: 11px ui-monospace, SFMono-Regular, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.developer-secret-value button { display: grid; width: 28px; height: 28px; place-items: center; border: 0; border-radius: 5px; background: transparent; color: #c3ccd6; cursor: pointer; }
+.developer-secret-value button:hover { background: #1c2025; color: #fff; }
+.developer-sensitive-backdrop { position: fixed; z-index: 90; inset: 0; display: grid; place-items: center; padding: 16px; background: rgb(0 0 0 / 65%); backdrop-filter: blur(3px); }
+.developer-sensitive-dialog { width: min(440px, 100%); overflow: hidden; border: 1px solid #34383d; border-radius: 10px; background: #090a0b; color: #e9edf1; font-family: Arial, sans-serif; box-shadow: 0 18px 65px rgb(0 0 0 / 55%); }
+.developer-sensitive-dialog header { display: flex; align-items: center; justify-content: space-between; padding: 13px 15px; border-bottom: 1px solid #292c30; }
+.developer-sensitive-dialog header h2 { margin: 0; font-size: 15px; font-weight: 600; }
+.developer-sensitive-dialog header p { margin: 3px 0 0; color: #abb4be; font-size: 10px; }
+.developer-sensitive-dialog header button { display: grid; width: 28px; height: 28px; place-items: center; border: 1px solid #30343a; border-radius: 50%; background: transparent; color: #c6cdd5; cursor: pointer; }
+.developer-sensitive-dialog > p { margin: 0; padding: 15px; color: #c2c9d2; font-size: 12px; line-height: 1.55; }
+.developer-sensitive-dialog footer { display: flex; justify-content: flex-end; gap: 8px; padding: 10px 15px; border-top: 1px solid #292c30; }
+.developer-sensitive-dialog footer button { min-height: 30px; padding: 0 10px; border: 1px solid #353a40; border-radius: 6px; background: #111315; color: #dce1e7; font: inherit; font-size: 11px; cursor: pointer; }
+.developer-sensitive-dialog footer .developer-sensitive-confirm { border-color: #f0f1f2; background: #f0f1f2; color: #17191b; font-weight: 600; }
+.developer-sensitive-dialog button:focus-visible { outline: 2px solid #82b8ff; outline-offset: 2px; }
+.developer-api-guide { border-color: #282c31; border-radius: 9px; background: #090a0b; font-family: Arial, sans-serif; }
+.developer-api-guide-details { margin-top: 10px; border-bottom: 1px solid #24282d; font-family: Arial, sans-serif; }
+.developer-api-guide-details > summary { width: fit-content; padding: 5px 0; color: #aeb8c4; font-size: 11px; cursor: pointer; }
+.developer-api-guide-details[open] > summary { margin-bottom: 8px; color: #dce5ef; }
+.developer-api-guide-details .developer-api-guide { max-width: 100%; margin: 0 0 12px; padding: 12px; }
+.developer-api-guide h2 { color: #e8edf2; font-family: Arial, sans-serif; font-size: 15px; letter-spacing: -.01em; }
+.developer-api-guide .phase2-helper, .developer-api-guide .field-note { color: #aeb8c4; }
+.developer-api-guide pre { border: 1px solid #292d32; border-radius: 6px; background: #111315; }
+.developer-api-guide code { color: #dce5ef; }
+.mcp-access-page { max-width: none; gap: 12px; font-family: Arial, sans-serif; }
+.mcp-access-hero { min-height: 0; padding: 16px; border-color: #24282d; border-radius: 10px; background: #090a0b; }
+.mcp-access-hero .rg-kicker { margin-bottom: 8px; color: #b7c9de; }
+.mcp-access-hero h2 { font-family: Arial, sans-serif; font-size: clamp(22px, 3vw, 30px); font-weight: 600; letter-spacing: -.04em; }
+.mcp-access-hero-copy > p:not(.rg-kicker) { color: #b5bdc7; font-size: 12px; line-height: 1.55; }
+.mcp-access-assurances { margin-top: 12px; }
+.mcp-access-assurances span { color: #cbd3dc; }
+.mcp-access-assurances svg { color: #b6cce5; }
+.mcp-access-mark { display: none; }
+.mcp-access-page .phase2-panel { padding: 16px; border-color: #24282d; border-radius: 9px; background: #090a0b; }
+.mcp-access-page .phase2-panel h2 { font-family: Arial, sans-serif; letter-spacing: -.02em; }
+.mcp-access-page .phase2-helper, .mcp-access-page .field-note { color: #aeb8c4; }
+.mcp-access-page .mcp-endpoint-copy code { background: #17191c; color: #dce5ef; }
+@media (max-width: 680px) {
+  .developer-access-heading { align-items: center; padding: 12px; }
+  .developer-access-heading-actions { gap: 8px; }
+  .developer-access-heading-actions > a { font-size: 10px; }
+  .developer-access-form-grid { grid-template-columns: 1fr; }
+  .developer-secret-notice { grid-template-columns: 1fr; }
+  .developer-secret-value code { max-width: calc(100vw - 120px); }
+  .developer-sensitive-dialog footer { padding: 9px 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .developer-sensitive-backdrop { backdrop-filter: none; }
+}
+
 /* Full-screen account settings workspace. */
 .rembr-settings-route { height: 100%; min-height: 0; }
 .phase2-main-settings { width: 100%; height: 100%; min-height: 0; max-width: none; margin: 0; padding: 0; }

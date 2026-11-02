@@ -141,6 +141,7 @@ function ProtectedShell() {
     : null;
   const hasDetailBackground = Boolean(detailBackground);
   const isFullScreenSettings = location.pathname === '/app/settings/profile' || location.pathname === '/app/settings/preferences' || location.pathname === '/app/settings/advanced';
+  const isSensitiveAccess = location.pathname === '/app/settings/developer-access' || location.pathname === '/app/settings/mcp-access';
 
   useEffect(() => {
     const handle = (event: Event) => {
@@ -165,7 +166,7 @@ function ProtectedShell() {
     <AppNav session={session} onLogout={async () => { await api('/api/auth/logout', { method: 'POST' }); setSession(null); navigate('/login', { replace: true }); }} />
     <main className="rembr-dashboard-main min-w-0 flex-1 overflow-y-auto">
       {detailBackground && <div className="rembr-detail-underlay" aria-hidden="true" inert><div className="phase2-main">{detailBackground}</div></div>}
-      <div className={hasDetailBackground ? 'rembr-detail-route' : isFullScreenSettings ? 'rembr-settings-route' : undefined}><div className={`phase2-main ${isFullScreenSettings ? 'phase2-main-settings' : ''}`}><Outlet context={{ session, setSession }} /></div></div>
+      <div className={hasDetailBackground ? 'rembr-detail-route' : isFullScreenSettings ? 'rembr-settings-route' : isSensitiveAccess ? 'rembr-sensitive-route' : undefined}><div className={`phase2-main ${isFullScreenSettings ? 'phase2-main-settings' : isSensitiveAccess ? 'phase2-main-sensitive' : ''}`}><Outlet context={{ session, setSession }} /></div></div>
     </main>
     <QuickAddDock />
     {tourOpen && <RembrWorkspaceTour

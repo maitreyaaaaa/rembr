@@ -1,8 +1,7 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { KeyRound, Plus, X } from 'lucide-react';
+import { Check, Copy, Eye, EyeOff, KeyRound, Plus, X } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { api } from '../../app/api.js';
-import { PageHeader } from '../../app/RouteStates.js';
-import { DeveloperAccessTabs } from './DeveloperAccessTabs.js';
 
 type Scope = 'library:read' | 'library:write' | 'collections:read';
 type ApiKeyInfo = { id: string; name: string; scopes: Scope[]; prefix: string; createdAt: string; expiresAt: string; lastUsedAt: string | null; revokedAt: string | null };
@@ -19,6 +18,8 @@ export function DeveloperAccessPage() {
   const [scopes, setScopes] = useState<Scope[]>(['library:read', 'collections:read']);
   const [expiresInDays, setExpiresInDays] = useState(90);
   const [created, setCreated] = useState<ApiKeyCreated | null>(null);
+  const [revealCreated, setRevealCreated] = useState(false);
+  const [keyToRevoke, setKeyToRevoke] = useState<ApiKeyInfo | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -29,6 +30,12 @@ export function DeveloperAccessPage() {
     setKeys(result.keys);
   }
   useEffect(() => { void refresh().catch(() => setError('Could not load API keys.')); }, []);
+  useEffect(() => {
+    if (!keyToRevoke) return;
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape' && !busy) setKeyToRevoke(null); };
+    window.addEventListener('keydown', closeOnEscape);
+    return () => window.removeEventListener('keydown', closeOnEscape);
+  }, [keyToRevoke, busy]);
 
   function toggleScope(scope: Scope, enabled: boolean) {
     setScopes((current) => enabled ? [...new Set([...current, scope])] : current.filter((entry) => entry !== scope));
@@ -39,13 +46,13 @@ export function DeveloperAccessPage() {
       const result = await api<{ key: ApiKeyCreated }>('/api/developer-keys', {
         method: 'POST', body: JSON.stringify({ name, scopes, expiresInDays }),
       });
-      setCreated(result.key); setName(''); setShowCreateForm(false); await refresh();
+      setCreated(result.key); setRevealCreated(false); setName(''); setShowCreateForm(false); await refresh();
     } catch { setError('Could not create this key. Check its name and scopes, then try again.'); }
     finally { setBusy(false); }
   }
   async function revokeKey(id: string) {
     setBusy(true); setError(''); setMessage('');
-    try { await api<void>(`/api/developer-keys/${encodeURIComponent(id)}`, { method: 'DELETE' }); await refresh(); setMessage('API key revoked.'); }
+    try { await api<void>(`/api/developer-keys/${encodeURIComponent(id)}`, { method: 'DELETE' }); setKeyToRevoke(null); await refresh(); setMessage('API key revoked.'); }
     catch { setError('Could not revoke this key. Try again.'); }
     finally { setBusy(false); }
   }
@@ -56,21 +63,18 @@ export function DeveloperAccessPage() {
   }
 
   return <>
-    <PageHeader title="Developer access" description="Create scoped keys for scripts and integrations that connect to Rembr." actions={<DeveloperAccessTabs />} />
     {error && <p className="notice error" role="alert">{error}</p>}
     {message && <p className="notice success" role="status">{message}</p>}
-    {created && <section className="phase2-panel phase2-narrow" aria-labelledby="new-key-title">
-      <h2 id="new-key-title">Copy your new key now</h2>
-      <p className="phase2-helper">This secret is shown once. Anyone with it can use the selected permissions until it expires or you revoke it.</p>
-      <p><code className="developer-key-secret">{created.token}</code></p>
-      <button className="primary-button" type="button" onClick={() => void copyKey()}>Copy key</button>
+    {created && <section className="developer-secret-notice" aria-labelledby="new-key-title">
+      <div className="developer-secret-copy"><h2 id="new-key-title">Copy your new key now</h2><p>Shown once. Store it somewhere safe; Rembr cannot recover it later.</p></div>
+      <div className="developer-secret-value"><code>{revealCreated ? created.token : `${created.token.slice(0, 15)}${'•'.repeat(20)}${created.token.slice(-4)}`}</code><button type="button" aria-label={revealCreated ? 'Hide API key' : 'Show API key'} onClick={() => setRevealCreated((visible) => !visible)}>{revealCreated ? <EyeOff size={15} /> : <Eye size={15} />}</button><button type="button" aria-label="Copy API key" onClick={() => void copyKey()}><Copy size={15} /></button></div>
     </section>}
     <section className="developer-access-card" aria-labelledby="active-keys-title">
       <header className="developer-access-heading">
-        <div><h2 id="active-keys-title">API keys</h2><p>Each key is limited to its selected permissions and expiry.</p></div>
-        <button className="developer-access-create-button" type="button" aria-expanded={showCreateForm} aria-controls="create-key-form" onClick={() => setShowCreateForm((open) => !open)}>
+        <div><h2 id="active-keys-title">API keys</h2><p>Keys inherit the permissions selected for them.</p></div>
+        <div className="developer-access-heading-actions"><Link to="/app/settings/mcp-access">MCP access</Link><button className="developer-access-create-button" type="button" aria-expanded={showCreateForm} aria-controls="create-key-form" onClick={() => setShowCreateForm((open) => !open)}>
           {showCreateForm ? <X size={16} aria-hidden="true" /> : <Plus size={16} aria-hidden="true" />}{showCreateForm ? 'Close' : 'Create key'}
-        </button>
+        </button></div>
       </header>
       {showCreateForm && <form id="create-key-form" className="developer-access-create-form" onSubmit={(event) => void createKey(event)}>
         <div className="developer-access-form-heading"><div><h3>Create an API key</h3><p>Choose a clear name, only the permissions it needs, and an expiry.</p></div></div>
@@ -94,17 +98,17 @@ export function DeveloperAccessPage() {
             const status = key.revokedAt ? 'Revoked' : expired ? 'Expired' : 'Active';
             return <tr key={key.id}>
               <th scope="row" className="developer-keys-name"><span className="developer-key-name-row"><KeyRound size={15} aria-hidden="true" />{key.name}</span><span className={`developer-keys-status ${key.revokedAt ? 'is-revoked' : expired ? 'is-expired' : 'is-active'}`}>{status}</span></th>
-              <td><code className="developer-keys-prefix">{key.prefix}{'•'.repeat(12)}</code></td>
-              <td><div className="developer-keys-scopes">{key.scopes.map((scope) => <span key={scope}>{scope}</span>)}</div></td>
-              <td><span>{new Date(key.createdAt).toLocaleDateString()}</span><span className="developer-keys-secondary">Expires {new Date(key.expiresAt).toLocaleDateString()}</span></td>
+              <td><div className="developer-key-cell"><code className="developer-keys-prefix" aria-label={`Masked API key beginning ${key.prefix}`}>{key.prefix.replace(/_$/, '')}{'•'.repeat(12)}</code></div></td>
+              <td><div className="developer-keys-scopes">{key.scopes.map((scope) => <span key={scope}>{scope === 'library:read' ? 'Read' : scope === 'library:write' ? 'Read & write' : 'Collections'}</span>)}</div></td>
+              <td><span>{new Date(key.createdAt).toLocaleDateString()}</span><span className="developer-keys-secondary">{key.revokedAt ? 'Revoked' : `Expires ${new Date(key.expiresAt).toLocaleDateString()}`}</span></td>
               <td>{key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString() : <span className="developer-keys-secondary">Never</span>}</td>
-              <td className="developer-keys-actions">{key.revokedAt ? <span className="developer-keys-secondary">Revoked {new Date(key.revokedAt).toLocaleDateString()}</span> : <button className="secondary-button" type="button" disabled={busy} onClick={() => void revokeKey(key.id)}>Revoke</button>}</td>
+              <td className="developer-keys-actions">{key.revokedAt ? <span className="developer-keys-secondary"><Check size={13} aria-hidden="true" /> Revoked</span> : <button className="developer-key-revoke" type="button" disabled={busy} onClick={() => setKeyToRevoke(key)}>Revoke</button>}</td>
             </tr>;
           })}</tbody>
         </table>
       </div>}
     </section>
-    <section className="phase2-panel phase2-narrow developer-api-guide" aria-labelledby="api-guide-title">
+    <details className="developer-api-guide-details"><summary>API usage examples</summary><section className="phase2-panel developer-api-guide" aria-labelledby="api-guide-title">
       <h2 id="api-guide-title">Use a key</h2>
       <p className="phase2-helper">Keep your key in an environment variable. Send it as a Bearer token; never put it in a URL or browser code.</p>
       <p className="field-note">Set <code>REMBR_BASE_URL</code> to your Rembr instance URL and <code>REMBR_API_KEY</code> to the key you just created.</p>
@@ -112,6 +116,7 @@ export function DeveloperAccessPage() {
       <p className="field-note">Add <code>search</code> or <code>limit</code> (1–100) to filter results; follow <code>nextCursor</code> to load another page. Read access requires <code>library:read</code>.</p>
       <pre><code>curl -X POST "$REMBR_BASE_URL/api/v1/items" -H "Authorization: Bearer $REMBR_API_KEY" -H "Content-Type: application/json" -d '&#123;"url":"https://example.com/article"&#125;'</code></pre>
       <p className="field-note">Saving a link requires <code>library:write</code>; new links return <code>202</code> and duplicates return <code>200</code>. The key can also use <code>GET /api/v1/items/:id</code> with <code>library:read</code> and <code>GET /api/v1/collections</code> with <code>collections:read</code>.</p>
-    </section>
+    </section></details>
+    {keyToRevoke && <div className="developer-sensitive-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setKeyToRevoke(null); }}><section className="developer-sensitive-dialog" role="alertdialog" aria-modal="true" aria-labelledby="revoke-key-title" aria-describedby="revoke-key-description"><header><div><h2 id="revoke-key-title">Revoke API key</h2><p>Access control</p></div><button type="button" aria-label="Close confirmation" disabled={busy} onClick={() => setKeyToRevoke(null)}><X size={17} /></button></header><p id="revoke-key-description">“{keyToRevoke.name}” will stop working immediately. This cannot be undone.</p><footer><button type="button" disabled={busy} onClick={() => setKeyToRevoke(null)}>Cancel</button><button className="developer-sensitive-confirm" type="button" disabled={busy} onClick={() => void revokeKey(keyToRevoke.id)}>{busy ? 'Revoking…' : 'Revoke key'}</button></footer></section></div>}
   </>;
 }
