@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
+import { KeyRound, Plus, X } from 'lucide-react';
 import { api } from '../../app/api.js';
 import { PageHeader } from '../../app/RouteStates.js';
 import { DeveloperAccessTabs } from './DeveloperAccessTabs.js';
@@ -18,6 +19,7 @@ export function DeveloperAccessPage() {
   const [scopes, setScopes] = useState<Scope[]>(['library:read', 'collections:read']);
   const [expiresInDays, setExpiresInDays] = useState(90);
   const [created, setCreated] = useState<ApiKeyCreated | null>(null);
+  const [showCreateForm, setShowCreateForm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
@@ -37,7 +39,7 @@ export function DeveloperAccessPage() {
       const result = await api<{ key: ApiKeyCreated }>('/api/developer-keys', {
         method: 'POST', body: JSON.stringify({ name, scopes, expiresInDays }),
       });
-      setCreated(result.key); setName(''); await refresh();
+      setCreated(result.key); setName(''); setShowCreateForm(false); await refresh();
     } catch { setError('Could not create this key. Check its name and scopes, then try again.'); }
     finally { setBusy(false); }
   }
@@ -63,36 +65,36 @@ export function DeveloperAccessPage() {
       <p><code className="developer-key-secret">{created.token}</code></p>
       <button className="primary-button" type="button" onClick={() => void copyKey()}>Copy key</button>
     </section>}
-    <section className="phase2-panel phase2-narrow" aria-labelledby="create-key-title">
-      <h2 id="create-key-title">Create an API key</h2>
-      <form className="phase2-form" onSubmit={(event) => void createKey(event)}>
-        <label htmlFor="api-key-name">Key name</label>
-        <input id="api-key-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={60} required placeholder="e.g. Personal automation" />
-        <fieldset className="phase2-options">
-          <legend>Permissions</legend>
-          {scopeOptions.map(([scope, title, description]) => <label className="phase2-check" key={scope}>
+    <section className="developer-access-card" aria-labelledby="active-keys-title">
+      <header className="developer-access-heading">
+        <div><h2 id="active-keys-title">API keys</h2><p>Each key is limited to its selected permissions and expiry.</p></div>
+        <button className="developer-access-create-button" type="button" aria-expanded={showCreateForm} aria-controls="create-key-form" onClick={() => setShowCreateForm((open) => !open)}>
+          {showCreateForm ? <X size={16} aria-hidden="true" /> : <Plus size={16} aria-hidden="true" />}{showCreateForm ? 'Close' : 'Create key'}
+        </button>
+      </header>
+      {showCreateForm && <form id="create-key-form" className="developer-access-create-form" onSubmit={(event) => void createKey(event)}>
+        <div className="developer-access-form-heading"><div><h3>Create an API key</h3><p>Choose a clear name, only the permissions it needs, and an expiry.</p></div></div>
+        <div className="developer-access-form-grid">
+          <label htmlFor="api-key-name">Name<input id="api-key-name" value={name} onChange={(event) => setName(event.target.value)} maxLength={60} required placeholder="e.g. Personal automation" /></label>
+          <label htmlFor="api-key-expiry">Expires after<select id="api-key-expiry" value={expiresInDays} onChange={(event) => setExpiresInDays(Number(event.target.value))}><option value={30}>30 days</option><option value={90}>90 days</option><option value={180}>180 days</option><option value={365}>365 days</option></select></label>
+        </div>
+        <fieldset className="developer-access-permissions"><legend>Permissions</legend>
+          {scopeOptions.map(([scope, title, description]) => <label className="developer-access-permission" key={scope}>
             <input type="checkbox" checked={scopes.includes(scope)} onChange={(event) => toggleScope(scope, event.target.checked)} />
-            <span><strong>{title}</strong><br />{description}</span>
+            <span><strong>{title}</strong><small>{description}</small></span>
           </label>)}
         </fieldset>
-        <label htmlFor="api-key-expiry">Expires after</label>
-        <select id="api-key-expiry" value={expiresInDays} onChange={(event) => setExpiresInDays(Number(event.target.value))}>
-          <option value={30}>30 days</option><option value={90}>90 days</option><option value={180}>180 days</option><option value={365}>365 days</option>
-        </select>
         <button className="primary-button" disabled={busy || scopes.length === 0}>{busy ? 'Creating…' : 'Create API key'}</button>
-      </form>
-    </section>
-    <section className="phase2-panel phase2-narrow" aria-labelledby="active-keys-title">
-      <h2 id="active-keys-title">Your keys</h2>
-      {keys.length === 0 ? <p className="phase2-helper">No API keys yet.</p> : <div className="developer-keys-table-scroll" role="region" aria-label="Your API keys" tabIndex={0}>
+      </form>}
+      {keys.length === 0 ? <div className="developer-access-empty"><KeyRound size={18} aria-hidden="true" /><p>No API keys yet.</p><span>Create a scoped key to connect a script or integration.</span></div> : <div className="developer-keys-table-scroll" role="region" aria-label="Your API keys" tabIndex={0}>
         <table className="developer-keys-table">
-          <thead><tr><th scope="col">Name</th><th scope="col">Key prefix</th><th scope="col">Permissions</th><th scope="col">Created / expires</th><th scope="col">Last used</th><th scope="col"><span className="visually-hidden">Actions</span></th></tr></thead>
+          <thead><tr><th scope="col">Name</th><th scope="col">Key</th><th scope="col">Scope</th><th scope="col">Created</th><th scope="col">Last used</th><th scope="col"><span className="visually-hidden">Actions</span></th></tr></thead>
           <tbody>{keys.map((key) => {
             const expired = Date.parse(key.expiresAt) <= Date.now();
             const status = key.revokedAt ? 'Revoked' : expired ? 'Expired' : 'Active';
             return <tr key={key.id}>
-              <th scope="row" className="developer-keys-name">{key.name}<span className={`developer-keys-status ${key.revokedAt ? 'is-revoked' : expired ? 'is-expired' : 'is-active'}`}>{status}</span></th>
-              <td><code className="developer-keys-prefix">{key.prefix}…</code></td>
+              <th scope="row" className="developer-keys-name"><span className="developer-key-name-row"><KeyRound size={15} aria-hidden="true" />{key.name}</span><span className={`developer-keys-status ${key.revokedAt ? 'is-revoked' : expired ? 'is-expired' : 'is-active'}`}>{status}</span></th>
+              <td><code className="developer-keys-prefix">{key.prefix}{'•'.repeat(12)}</code></td>
               <td><div className="developer-keys-scopes">{key.scopes.map((scope) => <span key={scope}>{scope}</span>)}</div></td>
               <td><span>{new Date(key.createdAt).toLocaleDateString()}</span><span className="developer-keys-secondary">Expires {new Date(key.expiresAt).toLocaleDateString()}</span></td>
               <td>{key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString() : <span className="developer-keys-secondary">Never</span>}</td>
@@ -102,7 +104,7 @@ export function DeveloperAccessPage() {
         </table>
       </div>}
     </section>
-    <section className="phase2-panel phase2-narrow" aria-labelledby="api-guide-title">
+    <section className="phase2-panel phase2-narrow developer-api-guide" aria-labelledby="api-guide-title">
       <h2 id="api-guide-title">Use a key</h2>
       <p className="phase2-helper">Keep your key in an environment variable. Send it as a Bearer token; never put it in a URL or browser code.</p>
       <p className="field-note">Set <code>REMBR_BASE_URL</code> to your Rembr instance URL and <code>REMBR_API_KEY</code> to the key you just created.</p>

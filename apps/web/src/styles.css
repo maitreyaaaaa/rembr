@@ -1480,3 +1480,61 @@ body [role='alert'] button { border-color: rgb(255 255 255 / 40%); background: #
 @media (prefers-reduced-motion: reduce) {
   .mcp-consent-option { transition: none; }
 }
+
+/* Compact, table-first layout for credential management. */
+.developer-access-card { width: min(1120px, 100%); margin: 0 auto 24px; overflow: hidden; border: 1px solid #252825; border-radius: 14px; background: #080a08; }
+.developer-access-heading { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 20px; border-bottom: 1px solid #252825; }
+.developer-access-heading h2, .developer-access-form-heading h3 { margin: 0; color: #f2f3f1; font-family: var(--font-display); font-size: 18px; font-weight: 650; letter-spacing: -.035em; }
+.developer-access-heading p, .developer-access-form-heading p { margin: 5px 0 0; color: #969c92; font-size: 12px; line-height: 1.5; }
+.developer-access-create-button { display: inline-flex; min-height: 36px; align-items: center; justify-content: center; gap: 8px; padding: 0 13px; border: 1px solid #d9dbd8; border-radius: 7px; background: #f3f4f2; color: #111310; font: inherit; font-size: 12px; font-weight: 650; white-space: nowrap; cursor: pointer; transition: background-color 150ms ease, transform 150ms ease; }
+.developer-access-create-button:hover { background: #fff; transform: translateY(-1px); }
+.developer-access-create-button:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+.developer-access-create-form { display: grid; gap: 16px; padding: 19px 20px; border-bottom: 1px solid #252825; background: #0b0d0b; }
+.developer-access-form-heading h3 { font-size: 15px; }
+.developer-access-form-grid { display: grid; grid-template-columns: minmax(0, 1fr) 190px; gap: 14px; }
+.developer-access-form-grid > label { display: grid; gap: 7px; color: #dfe2dc; font-size: 11px; font-weight: 650; }
+.developer-access-form-grid input, .developer-access-form-grid select { width: 100%; min-height: 39px; padding: 8px 10px; border: 1px solid #303430; border-radius: 7px; background: #080a08; color: #f2f3f1; font: inherit; font-size: 12px; }
+.developer-access-form-grid input:focus-visible, .developer-access-form-grid select:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.developer-access-permissions { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; border: 0; }
+.developer-access-permissions legend { width: 100%; margin-bottom: 1px; color: #dfe2dc; font-size: 11px; font-weight: 650; }
+.developer-access-permission { display: flex; min-width: min(230px, 100%); align-items: flex-start; gap: 9px; padding: 10px 11px; border: 1px solid #252825; border-radius: 8px; background: #080a08; cursor: pointer; }
+.developer-access-permission input { margin: 2px 0 0; accent-color: var(--primary); }
+.developer-access-permission span, .developer-access-permission strong, .developer-access-permission small { display: block; }
+.developer-access-permission strong { color: #eceeeb; font-size: 11px; }
+.developer-access-permission small { margin-top: 3px; color: #8f968c; font-size: 10px; line-height: 1.4; }
+.developer-access-create-form > .primary-button { justify-self: start; min-height: 38px; padding: 0 15px; }
+.developer-access-empty { display: grid; min-height: 148px; place-content: center; justify-items: center; gap: 8px; color: #949a91; text-align: center; }
+.developer-access-empty svg { color: var(--primary); }
+.developer-access-empty p { margin: 0; color: #e6e8e5; font-size: 13px; font-weight: 650; }
+.developer-access-empty span { font-size: 11px; }
+.developer-access-card .developer-keys-table-scroll { border: 0; border-radius: 0; background: transparent; }
+.developer-access-card .developer-keys-table { min-width: 760px; font-size: 12px; }
+.developer-access-card .developer-keys-table thead { background: transparent; }
+.developer-access-card .developer-keys-table th, .developer-access-card .developer-keys-table td { padding: 12px 16px; border-bottom-color: #202320; }
+.developer-access-card .developer-keys-table thead th { color: #b7bcb4; font-size: 11px; font-weight: 550; letter-spacing: 0; text-transform: none; }
+.developer-access-card .developer-keys-table tbody tr:hover { background: rgb(255 255 255 / 2%); }
+.developer-access-card .developer-keys-table tbody tr:last-child > * { border-bottom: 0; }
+.developer-key-name-row { display: flex; align-items: center; gap: 10px; color: #eff1ee; }
+.developer-key-name-row svg { flex: 0 0 auto; color: #91978e; stroke-width: 1.7; }
+.developer-access-card .developer-keys-status { margin-left: 25px; border: 0; padding: 0; font-size: 10px; font-weight: 450; }
+.developer-access-card .developer-keys-status.is-active { color: #a0a69d; }
+.developer-access-card .developer-keys-status.is-expired, .developer-access-card .developer-keys-status.is-revoked { color: #82877f; }
+.developer-access-card .developer-keys-prefix { max-width: 260px; overflow: hidden; border: 0; border-radius: 6px; padding: 7px 9px; background: #171917; color: #e6e9e4; font-size: 12px; text-overflow: ellipsis; }
+.developer-access-card .developer-keys-scopes { min-width: 0; }
+.developer-access-card .developer-keys-scopes span { border: 0; border-radius: 4px; padding: 4px 7px; background: #171917; color: #d2d6d0; font-size: 10px; }
+.developer-access-card .developer-keys-secondary { color: #8e948b; font-size: 10px; }
+.developer-access-card .developer-keys-actions { text-align: right; }
+.developer-access-card .developer-keys-actions .secondary-button { min-height: 32px; padding: 0 10px; font-size: 10px; }
+.developer-api-guide { margin-top: 18px; }
+.developer-access-card + .developer-api-guide { width: min(1120px, 100%); }
+@media (max-width: 680px) {
+  .developer-access-heading { align-items: flex-start; padding: 15px; }
+  .developer-access-heading h2 { font-size: 16px; }
+  .developer-access-heading p { max-width: 250px; font-size: 11px; }
+  .developer-access-create-form { padding: 16px 15px; }
+  .developer-access-form-grid { grid-template-columns: 1fr; }
+  .developer-access-card .developer-keys-table th, .developer-access-card .developer-keys-table td { padding: 11px 12px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .developer-access-create-button { transition: none; }
+}
