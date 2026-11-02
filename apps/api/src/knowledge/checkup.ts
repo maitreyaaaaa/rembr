@@ -28,7 +28,7 @@ export function createLibraryCheckupRepository(database: DatabaseHandle) {
         database.prepare(`SELECT count(*) AS count FROM saved_items
           WHERE owner_id=?
             AND NOT EXISTS (SELECT 1 FROM item_tags WHERE item_tags.owner_id=saved_items.owner_id AND item_tags.item_id=saved_items.id)
-            AND NOT EXISTS (SELECT 1 FROM collection_items WHERE collection_items.owner_id=saved_items.owner_id AND collection_items.item_id=saved_items.id)`)
+            `)
           .get(ownerId) as Promise<{ count: number }>,
         database.prepare(`SELECT count(*) AS count FROM saved_items
           WHERE saved_items.owner_id=? AND EXISTS (

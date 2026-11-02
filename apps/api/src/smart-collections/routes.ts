@@ -6,7 +6,7 @@ import { createProfileGate } from '../account/routes.js';
 import type { AssetStorage } from '../assets/storage.js';
 import { createSmartCollectionService, SmartCollectionError } from './service.js';
 
-const updateSchema = z.object({ name: z.string().trim().min(1).max(80).optional(), pinned: z.boolean().optional(), hidden: z.boolean().optional() }).strict();
+const updateSchema = z.object({ name: z.string().trim().min(1).max(80).optional(), pinned: z.boolean().optional(), hidden: z.boolean().optional(), color: z.string().regex(/^#[\da-fA-F]{6}(?:[\da-fA-F]{2})?$/).nullable().optional() }).strict();
 const overrideSchema = z.object({ action: z.enum(['include','exclude','reset']) }).strict();
 function param(req: express.Request, key: string): string { const value = req.params[key]; return Array.isArray(value) ? value[0] ?? '' : value ?? ''; }
 function fail(res: express.Response, status: number, code: string, message: string, requestId?: string) {
@@ -42,7 +42,7 @@ export function createSmartCollectionRouter(database: DatabaseHandle, storage: A
   });
   router.patch('/smart-collections/:collectionId', signedIn, profile, async (req, res) => {
     const parsed = updateSchema.safeParse(req.body);
-    if (!parsed.success || Object.keys(parsed.data ?? {}).length === 0) return fail(res, 400, 'invalid_smart_collection', 'Provide a valid name, pin, or visibility change.', req.requestId);
+    if (!parsed.success || Object.keys(parsed.data ?? {}).length === 0) return fail(res, 400, 'invalid_smart_collection', 'Provide a valid name, pin, visibility, or folder color change.', req.requestId);
     try { return res.json({ collection: await smartCollections.update(req.user!.id, param(req,'collectionId'), parsed.data) }); }
     catch (cause) { if (handle(res,cause,req.requestId)) return; throw cause; }
   });

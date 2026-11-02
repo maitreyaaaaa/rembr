@@ -190,12 +190,12 @@ export function createSemanticSearchRouter(input: {
       q: z.string().trim().min(1).max(120),
       type: z.enum(['page','note']).optional(),
       status: z.enum(['queued','processing','retry_wait','cancel_requested','cancelled','paused','partial','ready','failed']).optional(),
-      tagId: z.string().optional(), collectionId: z.string().optional(),
+      tagId: z.string().optional(),
     }).safeParse(req.query);
     if (!parsed.success) return fail(res, 400, 'invalid_semantic_query', 'Enter a valid search query.', req.requestId);
     const ownerId = req.user!.id;
     const lexicalQuery = { search: parsed.data.q, type: parsed.data.type, status: parsed.data.status,
-      tagId: parsed.data.tagId, collectionId: parsed.data.collectionId, sort: 'relevance' as const, matchMode: 'terms' as const, limit: 25 };
+      tagId: parsed.data.tagId, sort: 'relevance' as const, matchMode: 'terms' as const, limit: 25 };
     const fallback = async (reason: string) => ({ ...(await library.list(ownerId, lexicalQuery)), mode: 'keyword_fallback', fallbackReason: reason });
     const current = await preference(ownerId);
     if (!current.enabled) return res.json(await fallback('consent_required'));
@@ -215,8 +215,7 @@ export function createSemanticSearchRouter(input: {
       const filtered = candidates.filter((item) =>
         (!parsed.data.type || item.kind === parsed.data.type)
         && (!parsed.data.status || item.status === parsed.data.status)
-        && (!parsed.data.tagId || (item.tags as Array<{ id: string }>).some((tag) => tag.id === parsed.data.tagId))
-        && (!parsed.data.collectionId || (item.collections as Array<{ id: string }>).some((collection) => collection.id === parsed.data.collectionId)));
+        && (!parsed.data.tagId || (item.tags as Array<{ id: string }>).some((tag) => tag.id === parsed.data.tagId)));
       const items = filtered.slice(0, 25);
       const searchEventId = await recordSearchEvent(database, ownerId, parsed.data.q, items.map((item) => item.id));
       return res.json({ items, nextCursor: null, hasMore: false, searchEventId, mode: 'semantic_hybrid', fallbackReason: items.length ? null : 'no_matching_results' });

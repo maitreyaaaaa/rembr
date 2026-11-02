@@ -76,7 +76,7 @@ export function ItemDetailPage() {
     }
   }
 
-  if (loading) return <div className="fixed inset-0 z-50 flex justify-end bg-black/70 backdrop-blur-sm" role="status" aria-label="Loading saved item">
+  if (loading) return <div className="fixed inset-0 z-50 flex justify-end bg-black/70 backdrop-blur-md" role="status" aria-label="Loading saved item">
     <section className="h-full w-full max-w-2xl space-y-8 overflow-hidden border-l border-white/10 bg-black p-6 sm:p-8" aria-busy="true">
       <div className="flex justify-end"><div className="h-10 w-10 animate-pulse rounded-lg bg-white/10" /></div>
       <div className="space-y-4"><div className="h-3 w-36 animate-pulse rounded bg-white/10" /><div className="h-10 w-4/5 animate-pulse rounded bg-white/10" /><div className="h-4 w-3/5 animate-pulse rounded bg-white/10" /><div className="flex gap-2"><div className="h-10 w-32 animate-pulse rounded-full bg-white/10" /><div className="h-10 w-28 animate-pulse rounded-full bg-white/10" /></div></div>

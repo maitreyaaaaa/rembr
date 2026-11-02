@@ -3,7 +3,7 @@ import type { DatabaseHandle } from '../db/database.js';
 import { tokenizeSearchTerms } from './search-terms.js';
 
 export interface ItemListQuery {
-  search: string; type?: 'page' | 'note'; status?: string; tagId?: string; collectionId?: string;
+  search: string; type?: 'page' | 'note'; status?: string; tagId?: string;
   sort: 'relevance' | 'created_desc' | 'created_asc' | 'title_asc' | 'title_desc'; matchMode?: 'terms' | 'phrase'; limit: number;
 }
 export interface ItemCursorKey { key: string; id: string }
@@ -91,22 +91,18 @@ function toItem(row: Row) {
 
 export function createLibraryRepository(database: DatabaseHandle) {
   async function related(ownerId: string, itemIds: string[]) {
-    if (!itemIds.length) return { tags: new Map<string, unknown[]>(), collections: new Map<string, unknown[]>() };
+    if (!itemIds.length) return { tags: new Map<string, unknown[]>() };
     const marks = itemIds.map(() => '?').join(',');
     const tags = await database.prepare(`SELECT item_tags.item_id AS "itemId", tags.id, tags.display_name AS name
       FROM item_tags JOIN tags ON tags.owner_id=item_tags.owner_id AND tags.id=item_tags.tag_id
       WHERE item_tags.owner_id=? AND item_tags.item_id IN (${marks}) ORDER BY tags.normalized_name`)
-      .all(ownerId, ...itemIds) as Array<{ itemId: string; id: string; name: string }>;
-    const collections = await database.prepare(`SELECT collection_items.item_id AS "itemId", collections.id, collections.name
-      FROM collection_items JOIN collections ON collections.owner_id=collection_items.owner_id AND collections.id=collection_items.collection_id
-      WHERE collection_items.owner_id=? AND collection_items.item_id IN (${marks}) ORDER BY collections.normalized_name`)
       .all(ownerId, ...itemIds) as Array<{ itemId: string; id: string; name: string }>;
     const map = <T extends { itemId: string; id: string; name: string }>(rows: T[]) => {
       const result = new Map<string, unknown[]>();
       for (const row of rows) result.set(row.itemId, [...(result.get(row.itemId) ?? []), { id: row.id, name: row.name }]);
       return result;
     };
-    return { tags: map(tags), collections: map(collections) };
+    return { tags: map(tags) };
   }
 
   async function decorate(ownerId: string, rows: Row[], includeDetail = false) {
@@ -131,7 +127,7 @@ export function createLibraryRepository(database: DatabaseHandle) {
       }
     }
     return Promise.all(rows.map(async (row) => {
-      const dto = { ...toItem(row), tags: relationships.tags.get(String(row.id)) ?? [], collections: relationships.collections.get(String(row.id)) ?? [] };
+      const dto = { ...toItem(row), tags: relationships.tags.get(String(row.id)) ?? [] };
       if (!includeDetail) return { ...dto, cover: covers.get(String(row.id)) ?? null };
       const id = String(row.id);
       if (row.item_kind !== 'note') {
@@ -203,7 +199,6 @@ export function createLibraryRepository(database: DatabaseHandle) {
         }
       }
       if (query.tagId) { clauses.push('EXISTS (SELECT 1 FROM item_tags WHERE owner_id=saved_items.owner_id AND item_id=saved_items.id AND tag_id=?)'); params.push(query.tagId); }
-      if (query.collectionId) { clauses.push('EXISTS (SELECT 1 FROM collection_items WHERE owner_id=saved_items.owner_id AND item_id=saved_items.id AND collection_id=?)'); params.push(query.collectionId); }
       const orderings: Record<string, string> = {
         relevance: 'search_score DESC, created_at DESC, id DESC',
         created_desc: 'created_at DESC, id DESC', created_asc: 'created_at ASC, id ASC',

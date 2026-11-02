@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, BookmarkPlus, Check, CircleHelp, Compass, Library, Network, Settings2, Sparkles } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BookmarkPlus, Check, CircleHelp, Compass, Library, Network, Settings2 } from 'lucide-react';
 
 export interface RembrWorkspaceTourProps {
   /** Defaults to open for direct use; pass a value to control visibility. */
@@ -35,20 +35,12 @@ const steps: TourStep[] = [
     action: 'Open Quick Add',
   },
   {
-    title: 'Bring an existing collection of saves.',
+    title: 'Bring in saves from other services.',
     description: 'The imports area shows import records and their progress, so you can review what was brought into your library.',
     path: '/app/imports',
     location: 'Imports',
     icon: ArrowRight,
     action: 'Open imports',
-  },
-  {
-    title: 'Give related saves a place together.',
-    description: 'Create collections for your own themes and use tags to add another way to organize and find saved items.',
-    path: '/app/collections',
-    location: 'Collections',
-    icon: Sparkles,
-    action: 'Open collections',
   },
   {
     title: 'Revisit what you saved before.',

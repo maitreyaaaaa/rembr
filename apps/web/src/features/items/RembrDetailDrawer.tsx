@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import { gsap } from 'gsap';
-import { Link } from 'react-router-dom';
 import {
   AlertCircle,
   ArrowUpRight,
@@ -12,7 +11,6 @@ import {
   CircleHelp,
   Clock3,
   FileText,
-  Folder,
   Image as ImageIcon,
   LoaderCircle,
   RotateCcw,
@@ -33,11 +31,6 @@ export type RembrDetailStatus =
   | 'failed';
 
 export interface RembrDetailTag {
-  id: string;
-  name: string;
-}
-
-export interface RembrDetailCollection {
   id: string;
   name: string;
 }
@@ -74,7 +67,6 @@ export interface RembrDetailItem {
   text?: string;
   fetchedAt?: string;
   tags: RembrDetailTag[];
-  collections: RembrDetailCollection[];
   note?: {
     body: string;
     links: string[];
@@ -231,7 +223,7 @@ export function RembrDetailDrawer({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex bg-black/70 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex bg-black/70 backdrop-blur-md"
       onClick={onClose}
       data-testid="rembr-detail-drawer-backdrop"
     >
@@ -344,7 +336,7 @@ export function RembrDetailDrawer({
             <ul className="space-y-2">{item.note.links.map((link) => <li key={link}><a href={link} target="_blank" rel="noreferrer" className="break-all text-sm text-muted-foreground underline decoration-white/20 underline-offset-4 hover:text-primary">{link}</a></li>)}</ul>
           </section> : null}
 
-          {(item.tags.length > 0 || onToggleTag || item.collections.length > 0) && <section>
+          {(item.tags.length > 0 || onToggleTag) && <section>
             {(item.tags.length > 0 || onToggleTag) && <div className="mb-4">
               <SectionHeading icon={<Tag className="h-3.5 w-3.5" />} label="Tags" />
               <div className="flex flex-wrap gap-2">{item.tags.slice(0, MAX_ITEM_TAGS).map((tag) => onToggleTag
@@ -359,7 +351,6 @@ export function RembrDetailDrawer({
               </div>}
               {item.tags.length >= MAX_ITEM_TAGS && <p className="mt-2 text-xs text-muted-foreground">Five tags maximum. Remove one to add another.</p>}
             </div>}
-            {item.collections.length > 0 && <div><SectionHeading icon={<Folder className="h-3.5 w-3.5" />} label="Collections" /><div className="flex flex-wrap gap-2">{item.collections.map((collection) => <Link key={collection.id} to={`/app/collections/${encodeURIComponent(collection.id)}`} className="rounded-full border border-primary/25 bg-primary/5 px-3 py-1.5 text-xs text-primary">{collection.name}</Link>)}</div><Link to="/app/collections" className="mt-3 inline-block text-xs text-muted-foreground underline underline-offset-4 hover:text-primary">Manage collections</Link></div>}
           </section>}
 
           <footer className="flex flex-wrap items-center gap-x-2 gap-y-1 border-t border-white/10 pt-5 text-xs text-muted-foreground">

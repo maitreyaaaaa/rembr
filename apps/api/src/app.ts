@@ -29,6 +29,7 @@ import { createOpenRouterEmbeddingProvider } from './library/openrouter-embeddin
 import { createSemanticSearchRouter } from './library/semantic-routes.js';
 import type { EmbeddingProvider } from './library/semantic-embeddings.js';
 import { countPasswordCodePoints, hashNewPassword, validateNewPassword, verifyPassword } from './auth/passwords.js';
+import { createIntegrationRouters } from './integrations/api-v1.js';
 
 const emailSchema = z.string().trim().email().max(254).transform((email) => email.toLowerCase());
 const passwordSchema = z.string().refine((password) => countPasswordCodePoints(password) <= 128);
@@ -46,6 +47,7 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
   const importStorage = options.importStorage ?? new LocalImportStorage(options.importDirectory ?? config.importDirectory);
   const mediaStorage = options.mediaStorage ?? new LocalMediaStorage(options.mediaDirectory ?? config.mediaDirectory);
   const library = createLibraryService(database, assetStorage, mediaStorage);
+  const integrations = createIntegrationRouters(database, assetStorage, mediaStorage, options.validateUrl);
   const semanticEmbeddingProvider = options.semanticEmbeddingProvider
     ?? (config.openRouterApiKey ? createOpenRouterEmbeddingProvider(config.openRouterApiKey) : undefined);
   const validateUrl = options.validateUrl ?? validatePublicUrl;
@@ -63,7 +65,7 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Access-Control-Allow-Credentials', 'true');
       res.setHeader('Vary', 'Origin');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     }
     if (req.method === 'OPTIONS') {
@@ -74,6 +76,8 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
   });
   app.use(express.json({ limit: '16kb', strict: true }));
   app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
+  app.use('/api', integrations.management);
+  app.use('/api/v1', integrations.publicApi);
 
   const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false });
   app.post('/api/auth/register', authLimiter, async (req, res, next) => {

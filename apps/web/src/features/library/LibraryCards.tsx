@@ -16,7 +16,6 @@ interface LibraryCardItem {
   updatedAt: string;
   status: 'queued' | 'processing' | 'retry_wait' | 'cancel_requested' | 'cancelled' | 'paused' | 'partial' | 'ready' | 'failed';
   tags: Array<{ id: string; name: string }>;
-  collections: Array<{ id: string; name: string }>;
   note?: { body: string; links: Array<string>; assets: Array<{ id: string; url: string; mime: string; byteSize: number }> };
   media?: Array<{ id: string; url: string | null; mime: string | null; byteSize: number; status: 'ready' | 'failed'; errorCode: string | null }>;
   cover?: { url: string; mime: string; byteSize: number } | null;
@@ -76,7 +75,7 @@ function itemData(item: LibraryCardItem) {
     ?? null;
   const title = item.titleOverride || item.title || 'Untitled save';
   const preview = item.descriptionOverride || item.description || item.note?.body || item.textPreview || 'No preview available.';
-  const chip = item.collections[0]?.name || item.tags[0]?.name || '';
+  const chip = item.tags[0]?.name || '';
   const statusLabel = ({ ready: 'Ready', queued: 'Queued', processing: 'Processing', retry_wait: 'Retry scheduled', failed: 'Failed', partial: 'Partially ready', paused: 'Paused', cancelled: 'Canceled', cancel_requested: 'Canceling' } as Record<string, string>)[item.status] ?? 'Saved';
   const StatusIcon = item.status === 'ready' ? CheckCircle2 : item.status === 'failed' ? XCircle : item.status === 'processing' ? LoaderCircle : item.status === 'queued' ? Clock3 : item.status === 'retry_wait' ? RotateCcw : AlertCircle;
   return { note, thumbnail, title, preview, chip, statusLabel, StatusIcon, source: note ? 'Personal note' : host(item.url) };

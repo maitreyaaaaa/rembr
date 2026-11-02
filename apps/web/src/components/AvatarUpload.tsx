@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from 'react';
+import { MagneticDropZone } from './MagneticDropZone.js';
 
 const stageSize = 248;
 const cropSize = 184;
@@ -98,14 +99,6 @@ export function AvatarUpload({
     const candidate = event.target.files?.[0];
     if (candidate) beginCrop(candidate);
     event.target.value = '';
-  }
-
-  function handleDrop(event: DragEvent<HTMLDivElement>) {
-    event.preventDefault();
-    if (!busy && !cropping) {
-      const candidate = event.dataTransfer.files[0];
-      if (candidate) beginCrop(candidate);
-    }
   }
 
   function clampOffset(next: Point, nextZoom = zoom): Point {
@@ -223,9 +216,9 @@ export function AvatarUpload({
   const circumference = 2 * Math.PI * 43;
   const shownError = error || uploadError;
 
-  return <div className="avatar-upload" aria-busy={busy || savingCrop} onDragOver={(event) => event.preventDefault()} onDrop={handleDrop}>
+  return <div className="avatar-upload" aria-busy={busy || savingCrop}>
     <input ref={inputRef} className="visually-hidden" type="file" accept={acceptedTypes.join(',')} onChange={handleFile} disabled={busy || cropping} tabIndex={-1} aria-hidden="true" />
-    <div className="avatar-upload-heading"><h2>Profile</h2><p>Click or drop a photo on the avatar.</p></div>
+    <div className="avatar-upload-heading"><h2>Profile</h2><p>Drop a photo below or choose one to update your avatar.</p></div>
     <div ref={contentRef} className="avatar-upload-content" onTransitionEnd={(event) => {
       if (event.target === event.currentTarget && event.propertyName === 'height') {
         event.currentTarget.style.height = 'auto';
@@ -281,7 +274,7 @@ export function AvatarUpload({
             <button type="button" className="avatar-light-button" onClick={onRetryUpload}>Try again</button>
             <button type="button" className="avatar-text-button" onClick={onDiscardUpload}>Discard</button>
           </> : <>
-            <button type="button" className="avatar-outline-button" disabled={cropping} onClick={() => inputRef.current?.click()}>{displaySource ? 'Replace photo' : 'Upload photo'}</button>
+            <MagneticDropZone compact accept={acceptedTypes.join(',')} maxSize={maxFileSize} label="Drop a profile photo here" hint="or browse · PNG, JPG, or WebP · up to 250 KB" onFilesChange={(files) => { const candidate = files[0]; if (candidate) beginCrop(candidate); }} disabled={busy || cropping} />
             {displaySource && <button type="button" className="avatar-text-button" disabled={cropping} onClick={() => { setRemoved(true); onChange(null, true); setError(''); }}>Remove</button>}
           </>}
         </div>

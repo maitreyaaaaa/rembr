@@ -2,7 +2,6 @@ export type Status = 'queued' | 'processing' | 'retry_wait' | 'cancel_requested'
 export interface User { id: string; email: string }
 export interface Profile { userId: string; username: string; avatarUrl: string | null; avatarAssetId?: string | null; avatarAssetUrl?: string | null }
 export interface Tag { id: string; name: string }
-export interface Collection { id: string; name: string; description?: string }
 export interface Asset { id: string; url: string; mime: string; byteSize: number }
 export interface MediaAsset { id: string; url: string | null; mime: string | null; byteSize: number; status: 'ready' | 'failed'; errorCode: string | null }
 export interface Note { body: string; links: string[]; assets: Asset[] }
@@ -10,7 +9,7 @@ export interface SavedItem {
   id: string; url: string; title: string; description: string; titleOverride?: string | null;
   descriptionOverride?: string | null; kind: 'page' | 'note'; status: Status; errorCode: string | null;
   createdAt: string; updatedAt: string; textPreview: string; text?: string; fetchedAt?: string;
-  tags: Tag[]; collections: Collection[]; note?: Note; media?: MediaAsset[];
+  tags: Tag[]; note?: Note; media?: MediaAsset[];
   cover?: { url: string; mime: string; byteSize: number } | null;
 }
 export interface Onboarding { contentTypes: string[]; referralSource: string; completedAt: string | null; skippedAt: string | null }

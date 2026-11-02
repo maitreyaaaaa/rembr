@@ -159,20 +159,11 @@ test('item list filters, keyset pagination, metadata overrides and organization 
     assert.equal((await fetch(membership, { method: 'PUT', headers: { Cookie: first.cookie } })).status, 204);
     assert.equal((await fetch(membership, { method: 'PUT', headers: { Cookie: first.cookie } })).status, 204);
     assert.equal((await fetch(membership, { method: 'PUT', headers: { Cookie: second.cookie } })).status, 404);
-    const collectionResponse = await fetch(`${baseUrl}/api/collections`, { method: 'POST', headers: { Cookie: first.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Reading' }) });
-    const collection = (await collectionResponse.json() as { collection: { id: string } }).collection;
-    assert.equal((await fetch(`${baseUrl}/api/collections/${collection.id}`, { headers: { Cookie: second.cookie } })).status, 404);
-    const attach = `${baseUrl}/api/collections/${collection.id}/items/${firstItem.id}`;
-    assert.equal((await fetch(attach, { method: 'PUT', headers: { Cookie: first.cookie } })).status, 204);
-    assert.equal((await fetch(attach, { method: 'PUT', headers: { Cookie: first.cookie } })).status, 204);
+    assert.equal((await fetch(`${baseUrl}/api/collections`, { method: 'POST', headers: { Cookie: first.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Reading' }) })).status, 404);
     const privateJob = await database.prepare('SELECT id FROM processing_jobs WHERE item_id=?').get(firstItem.id) as { id: string };
     assert.equal((await fetch(`${baseUrl}/api/jobs/${privateJob.id}`, { headers: { Cookie: second.cookie } })).status, 404);
-    const filtered = await fetch(`${baseUrl}/api/items?collectionId=${collection.id}`, { headers: { Cookie: first.cookie } });
-    assert.equal((await filtered.json() as { items: Array<{ id: string }> }).items[0]?.id, firstItem.id);
-    assert.equal((await fetch(`${baseUrl}/api/collections/${collection.id}`, { method: 'PATCH', headers: { Cookie: first.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Read later', description: 'Curated' }) })).status, 200);
-    assert.equal((await fetch(attach, { method: 'DELETE', headers: { Cookie: first.cookie } })).status, 204);
+    assert.equal((await fetch(`${baseUrl}/api/collections/legacy-id`, { headers: { Cookie: first.cookie } })).status, 404);
     assert.equal((await fetch(`${baseUrl}/api/tags/${tag.id}`, { method: 'DELETE', headers: { Cookie: first.cookie } })).status, 204);
-    assert.equal((await fetch(`${baseUrl}/api/collections/${collection.id}`, { method: 'DELETE', headers: { Cookie: first.cookie } })).status, 204);
   });
 });
 
@@ -527,13 +518,10 @@ test('Phase 4 synthetic retrieval fixture reports graded ranking metrics through
     const tagId = (await tagCreated.json() as { tag: { id: string } }).tag.id;
     assert.equal((await fetch(`${baseUrl}/api/items/${ids.F3}/tags/${tagId}`, { method: 'PUT', headers: { Cookie: owner.cookie, Origin: origin } })).status, 204);
 
-    const collectionCreated = await fetch(`${baseUrl}/api/collections`, {
+    assert.equal((await fetch(`${baseUrl}/api/collections`, {
       method: 'POST', headers: { Cookie: owner.cookie, Origin: origin, 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: 'Retrieval fixture' }),
-    });
-    assert.equal(collectionCreated.status, 201);
-    const collectionId = (await collectionCreated.json() as { collection: { id: string } }).collection.id;
-    assert.equal((await fetch(`${baseUrl}/api/collections/${collectionId}/items/${ids.F6}`, { method: 'PUT', headers: { Cookie: owner.cookie, Origin: origin } })).status, 204);
+    })).status, 404);
 
     const foreignPage = await createPage(baseUrl, other.cookie, 'https://fixture.test/foreign');
     const { item: foreignItem } = await foreignPage.json() as { item: { id: string } };
@@ -571,9 +559,6 @@ test('Phase 4 synthetic retrieval fixture reports graded ranking metrics through
     assert.deepEqual((await typeFiltered.json() as { items: Array<{ id: string }> }).items.map(({ id }) => id), [ids.F5]);
     const tagFiltered = await fetch(`${baseUrl}/api/items?search=design%20system&tagId=${encodeURIComponent(tagId)}`, { headers: { Cookie: owner.cookie } });
     assert.deepEqual((await tagFiltered.json() as { items: Array<{ id: string }> }).items.map(({ id }) => id), [ids.F3]);
-    const collectionFiltered = await fetch(`${baseUrl}/api/items?search=design%20system&collectionId=${encodeURIComponent(collectionId)}`, { headers: { Cookie: owner.cookie } });
-    assert.deepEqual((await collectionFiltered.json() as { items: Array<{ id: string }> }).items.map(({ id }) => id), [ids.F6]);
-
     const textOnly = await fetch(`${baseUrl}/api/items?search=amber%20raincoat`, { headers: { Cookie: owner.cookie } });
     assert.deepEqual((await textOnly.json() as { items: Array<{ id: string }> }).items.map(({ id }) => id), [textOnlyItem.id]);
     const unicode = await fetch(`${baseUrl}/api/items?search=${encodeURIComponent('बगीचा योजना')}`, { headers: { Cookie: owner.cookie } });
@@ -599,7 +584,7 @@ test('Phase 4 synthetic retrieval fixture reports graded ranking metrics through
 });
 
 test('Smart Collections support owner-scoped renames and manual membership corrections', async () => {
-  await withApi(async (baseUrl) => {
+  await withApi(async (baseUrl, database) => {
     const owner = await register(baseUrl, 'smart-owner@example.test');
     const other = await register(baseUrl, 'smart-other@example.test');
     await profile(baseUrl, owner.cookie, 'smart_owner');
@@ -612,14 +597,29 @@ test('Smart Collections support owner-scoped renames and manual membership corre
       assert.equal((await fetch(`${baseUrl}/api/items/${item.id}`, { method: 'PATCH', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ titleOverride: `Fixture ${index}`, descriptionOverride: description }) })).status, 200);
     }
 
+    const ownerId = (await database.prepare('SELECT id FROM users WHERE email=?').get('smart-owner@example.test') as { id: string }).id;
+    await database.prepare(`UPDATE saved_items SET source_platform='instagram',source_metadata_json=? WHERE owner_id=? AND id=?`)
+      .run(JSON.stringify({ collections: ['Design references'] }), ownerId, ids[2]);
+
     const list = await fetch(`${baseUrl}/api/smart-collections`, { headers: { Cookie: owner.cookie } });
     assert.equal(list.status, 200);
     const collections = (await list.json() as { collections: Array<{ id: string; slug: string; name: string }> }).collections;
+    const importedGroup = collections.find(({ slug }) => slug === 'imported-instagram-design-references');
+    assert.ok(importedGroup, 'a named collection from imported metadata should become a Smart Collection, even with one save');
+    const importedItems = await fetch(`${baseUrl}/api/smart-collections/${importedGroup.id}/items?limit=100`, { headers: { Cookie: owner.cookie } });
+    assert.ok((await importedItems.json() as { items: Array<{ id: string }> }).items.some(({ id }) => id === ids[2]));
     const uiGroup = collections.find(({ slug }) => slug === 'ui-inspiration');
     assert.ok(uiGroup);
     const rename = await fetch(`${baseUrl}/api/smart-collections/${uiGroup.id}`, { method: 'PATCH', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'Interface references' }) });
     assert.equal(rename.status, 200);
     assert.equal((await rename.json() as { collection: { name: string } }).collection.name, 'Interface references');
+    const color = await fetch(`${baseUrl}/api/smart-collections/${uiGroup.id}`, { method: 'PATCH', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ color: '#FF6A00' }) });
+    assert.equal(color.status, 200);
+    assert.equal((await color.json() as { collection: { color: string } }).collection.color, '#FF6A00');
+    const invalidColor = await fetch(`${baseUrl}/api/smart-collections/${uiGroup.id}`, { method: 'PATCH', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ color: 'url(javascript:alert(1))' }) });
+    assert.equal(invalidColor.status, 400);
+    const refreshed = await fetch(`${baseUrl}/api/smart-collections`, { headers: { Cookie: owner.cookie } });
+    assert.equal((await refreshed.json() as { collections: Array<{ id: string; color: string | null }> }).collections.find(({ id }) => id === uiGroup.id)?.color, '#FF6A00');
 
     const terms = await fetch(`${baseUrl}/api/smart-collections/${uiGroup.id}/items?search=${encodeURIComponent('dashboard interface')}`, { headers: { Cookie: owner.cookie } });
     assert.equal(terms.status, 200);
@@ -834,10 +834,13 @@ test('Postgres schema starts with the complete empty Rembr model', async () => {
   try {
     const result = await database.prepare(`SELECT count(*) AS count FROM information_schema.tables
       WHERE table_schema='public' AND table_type='BASE TABLE'`).get() as { count: string };
-    assert.equal(Number(result.count), 44);
+    assert.equal(Number(result.count), 45);
     const rls = await database.prepare(`SELECT count(*) AS count FROM pg_class c
       JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='r' AND c.relrowsecurity`).get() as { count: string };
-    assert.equal(Number(rls.count), 44);
+    assert.equal(Number(rls.count), 45);
+    const apiKeyRls = await database.prepare(`SELECT c.relrowsecurity AS enabled FROM pg_class c
+      JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname='personal_api_keys'`).get() as { enabled: boolean };
+    assert.equal(apiKeyRls.enabled, true);
     const mediaAnalysisTables = await database.prepare(`SELECT count(*) AS count FROM information_schema.tables
       WHERE table_schema='public' AND table_name IN ('ai_analysis_preferences','ai_worker_status','ai_analysis_jobs','ai_analysis_results','ai_import_usage','ai_monthly_usage','ai_usage_reservations')`).get() as { count: string };
     assert.equal(Number(mediaAnalysisTables.count), 7);

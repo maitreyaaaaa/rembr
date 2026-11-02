@@ -19,10 +19,10 @@ const CATEGORY_RULES = [
 ] as const;
 
 type SourceType = 'rule' | 'capture' | 'topic' | 'entity' | 'collection' | 'platform';
-type SmartItem = { id: string; title: string; description: string; url: string; text: string; note: string; analysisText: string; status: string; kind: string; platform: string; createdAt: string; tags: string[]; collections: string[]; analysisTags: string[]; keywords: string[]; brands: string[]; tools: string[]; people: string[]; repositories: string[] };
+type SmartItem = { id: string; title: string; description: string; url: string; text: string; note: string; analysisText: string; status: string; kind: string; platform: string; createdAt: string; tags: string[]; analysisTags: string[]; keywords: string[]; brands: string[]; tools: string[]; people: string[]; repositories: string[]; sourceCollections: Array<{ platform: string; name: string }> };
 type CandidateItem = { item: SmartItem; confidence: number; reason: string; overrideAction?: 'include' | 'exclude' };
 type Candidate = { slug: string; name: string; description: string; sourceType: SourceType; folderGroup: string; matchSignals: Set<string>; items: Map<string, CandidateItem> };
-type CollectionRow = { id: string; owner_id: string; slug: string; name: string; description: string; source_type: SourceType; pinned: boolean | number; hidden: boolean | number; generation_metadata: string; created_at: string; updated_at: string };
+type CollectionRow = { id: string; owner_id: string; slug: string; name: string; description: string; source_type: SourceType; pinned: boolean | number; hidden: boolean | number; folder_color: string | null; generation_metadata: string; created_at: string; updated_at: string };
 type OverrideRow = { collection_id: string; item_id: string; action: 'include' | 'exclude'; reason: string };
 type DbItemRow = Record<string, unknown>;
 
@@ -36,21 +36,24 @@ function slugify(value: string): string { return value.normalize('NFKD').replace
 function strings(value: unknown): string[] { return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []; }
 function safeMetadata(value: string): Record<string, unknown> { try { const parsed: unknown = JSON.parse(value); return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}; } catch { return {}; } }
 
-function toSmartItem(row: DbItemRow, tags: string[], collections: string[]): SmartItem {
+function toSmartItem(row: DbItemRow, tags: string[]): SmartItem {
+  const metadata = safeMetadata(String(row.source_metadata_json ?? ''));
+  const platform = String(row.source_platform ?? '');
   return {
     id: String(row.id), title: String(row.title ?? 'Untitled save'), description: String(row.description ?? ''), url: String(row.url ?? ''),
     text: String(row.text_content ?? ''), note: String(row.note_body ?? ''), analysisText: String(row.analysis_text ?? ''), status: String(row.effective_status ?? row.status ?? ''),
-    kind: String(row.item_kind ?? 'page'), platform: String(row.source_platform ?? ''), createdAt: String(row.created_at),
-    tags, collections, analysisTags: readStrings(row.analysis_tags_json), keywords: readStrings(row.keywords_json),
+    kind: String(row.item_kind ?? 'page'), platform, createdAt: String(row.created_at),
+    tags, analysisTags: readStrings(row.analysis_tags_json), keywords: readStrings(row.keywords_json),
     brands: readStrings(row.brands_json), tools: readStrings(row.tools_json),
     people: readStrings(row.people_json), repositories: readStrings(row.repositories_json),
+    sourceCollections: strings(metadata.collections).map((name) => ({ platform, name })),
   };
 }
 
 function searchText(item: SmartItem): string {
   let host = '';
   try { host = new URL(item.url).hostname; } catch { /* Invalid stored URLs do not contribute domain text. */ }
-  return [item.title, item.description, item.url, host, item.text, item.note, item.analysisText, item.platform, ...item.tags, ...item.collections, ...item.analysisTags, ...item.keywords, ...item.brands, ...item.tools, ...item.people, ...item.repositories].join(' ').toLowerCase();
+  return [item.title, item.description, item.url, host, item.text, item.note, item.analysisText, item.platform, ...item.tags, ...item.analysisTags, ...item.keywords, ...item.brands, ...item.tools, ...item.people, ...item.repositories].join(' ').toLowerCase();
 }
 function matchesSearch(item: SmartItem, query: string): boolean {
   const terms = tokenizeSearchTerms(query);
@@ -76,6 +79,18 @@ function candidatesFrom(items: SmartItem[]): Candidate[] {
   for (const item of items) {
     if (['failed', 'paused', 'cancelled'].includes(item.status)) continue;
     const text = searchText(item);
+    for (const { platform, name } of item.sourceCollections) {
+      const normalizedName = name.trim().replace(/\s+/g, ' ').slice(0, 80);
+      if (!normalizedName || /^(saved posts|saved items|all saves)$/i.test(normalizedName)) continue;
+      const platformLabel = platform ? `${platform[0]!.toUpperCase()}${platform.slice(1)}` : 'Imported';
+      const slug = slugify(`${platform}-${normalizedName}`);
+      if (slug) add(item, {
+        slug: `imported-${slug}`, name: normalizedName,
+        description: `Saves from your ${platformLabel} collection “${normalizedName}”.`,
+        sourceType: 'platform', group: `${platformLabel} collections`, signals: [platformLabel, normalizedName],
+        confidence: 1, reason: `Imported from your ${platformLabel} collection “${normalizedName}”.`,
+      });
+    }
     for (const rule of CATEGORY_RULES) {
       const matches = matchingRuleTerms(text, rule.terms);
       if (matches.length) add(item, { slug: rule.slug, name: rule.name, description: rule.description, sourceType: 'rule', group: rule.group, signals: matches.slice(0, 4), confidence: Math.min(0.95, 0.58 + matches.length * 0.08), reason: `Matched ${matches.slice(0, 3).join(', ')}.` });
@@ -98,11 +113,6 @@ function candidatesFrom(items: SmartItem[]): Candidate[] {
           reason: `Existing media analysis labeled ${label} as a ${kind}.`,
         });
       }
-    }
-    for (const label of unique(item.collections, 5)) {
-      if (/^(unsorted|notes)$/i.test(label)) continue;
-      const slug = slugify(label);
-      if (slug) add(item, { slug: `saved-${slug}`, name: label, description: `Saves grouped in ${label}.`, sourceType: 'collection', group: 'Saved folders', signals: [label], confidence: 0.62, reason: `Belongs to ${label}.` });
     }
     if (item.platform && !/^iscraper/i.test(item.platform)) {
       const slug = slugify(item.platform);
@@ -133,7 +143,7 @@ export function createSmartCollectionService(database: DatabaseHandle) {
         COALESCE(saved_items.title_override,saved_items.title) AS title,
         COALESCE(saved_items.description_override,saved_items.description,'') AS description,
         saved_items.original_url AS url, saved_items.status, saved_items.item_kind, saved_items.source_platform,
-        saved_items.created_at, LEFT(COALESCE(extracted_artifacts.text_content,''),2000) AS text_content,
+        saved_items.created_at, saved_items.source_metadata_json, LEFT(COALESCE(extracted_artifacts.text_content,''),2000) AS text_content,
         LEFT(COALESCE(notes.body,''),2000) AS note_body,
         (SELECT LEFT(COALESCE(analysis.summary,'') || ' ' || COALESCE(analysis.visual_description,'') || ' '
             || COALESCE(analysis.ocr_text,'') || ' ' || COALESCE(analysis.transcript,''),2000)
@@ -164,25 +174,32 @@ export function createSmartCollectionService(database: DatabaseHandle) {
     if (!rows.length) return { items: [], truncated: false };
     const ids = rows.map((row) => String(row.id));
     const marks = ids.map(() => '?').join(',');
-    const [tagRows, collectionRows] = await Promise.all([
-      database.prepare(`SELECT item_tags.item_id, tags.display_name AS name FROM item_tags
+    const tagRows = await database.prepare(`SELECT item_tags.item_id, tags.display_name AS name FROM item_tags
         JOIN tags ON tags.owner_id=item_tags.owner_id AND tags.id=item_tags.tag_id
-        WHERE item_tags.owner_id=? AND item_tags.item_id IN (${marks})`).all(ownerId, ...ids) as Promise<Array<{ item_id: string; name: string }>>,
-      database.prepare(`SELECT collection_items.item_id, collections.name FROM collection_items
-        JOIN collections ON collections.owner_id=collection_items.owner_id AND collections.id=collection_items.collection_id
-        WHERE collection_items.owner_id=? AND collection_items.item_id IN (${marks})`).all(ownerId, ...ids) as Promise<Array<{ item_id: string; name: string }>>,
-    ]);
+        WHERE item_tags.owner_id=? AND item_tags.item_id IN (${marks})`).all(ownerId, ...ids) as Array<{ item_id: string; name: string }>;
     const tagMap = new Map<string, string[]>();
-    const collectionMap = new Map<string, string[]>();
     for (const row of tagRows) tagMap.set(row.item_id, [...(tagMap.get(row.item_id) ?? []), row.name]);
-    for (const row of collectionRows) collectionMap.set(row.item_id, [...(collectionMap.get(row.item_id) ?? []), row.name]);
-    return { items: rows.map((row) => toSmartItem(row, tagMap.get(String(row.id)) ?? [], collectionMap.get(String(row.id)) ?? [])), truncated: rows.length >= ITEM_SCAN_LIMIT };
+    const importedRows = await database.prepare(`SELECT item_id,source_platform,source_metadata_json FROM import_entries
+      WHERE owner_id=? AND item_id IN (${marks}) AND status<>'failed'`).all(ownerId, ...ids) as Array<{ item_id: string; source_platform: string; source_metadata_json: string }>;
+    const importedCollections = new Map<string, Array<{ platform: string; name: string }>>();
+    for (const imported of importedRows) {
+      const metadata = safeMetadata(imported.source_metadata_json);
+      const collections = strings(metadata.collections).map((name) => ({ platform: imported.source_platform, name }));
+      importedCollections.set(imported.item_id, [...(importedCollections.get(imported.item_id) ?? []), ...collections]);
+    }
+    return { items: rows.map((row) => {
+      const item = toSmartItem(row, tagMap.get(String(row.id)) ?? []);
+      item.sourceCollections = [...item.sourceCollections, ...(importedCollections.get(item.id) ?? [])];
+      return item;
+    }), truncated: rows.length >= ITEM_SCAN_LIMIT };
   }
 
   async function generate(ownerId: string) {
     const loaded = await loadItems(ownerId);
     const allCandidates = candidatesFrom(loaded.items);
-    const candidates = allCandidates.filter((candidate) => candidate.items.size >= MIN_MATCHES).slice(0, MAX_COLLECTIONS);
+    const candidates = allCandidates.filter((candidate) => candidate.items.size >= (candidate.folderGroup.endsWith(' collections') ? 1 : MIN_MATCHES))
+      .sort((left, right) => Number(right.folderGroup.endsWith(' collections')) - Number(left.folderGroup.endsWith(' collections')) || right.items.size - left.items.size || left.name.localeCompare(right.name))
+      .slice(0, MAX_COLLECTIONS);
     const candidateBySlug = new Map(allCandidates.map((candidate) => [candidate.slug, candidate]));
     const now = new Date().toISOString();
     for (const candidate of candidates) {
@@ -194,8 +211,8 @@ export function createSmartCollectionService(database: DatabaseHandle) {
     }
     const slugs = candidates.map((candidate) => candidate.slug);
     const generatedCollections = slugs.length ? `slug IN (${slugs.map(() => '?').join(',')}) OR ` : '';
-    const records = await database.prepare(`SELECT id,owner_id,slug,name,description,source_type,pinned,hidden,generation_metadata,created_at,updated_at
-      FROM smart_collections WHERE owner_id=? AND (${generatedCollections}id IN (
+    const records = await database.prepare(`SELECT id,owner_id,slug,name,description,source_type,pinned,hidden,folder_color,generation_metadata,created_at,updated_at
+      FROM smart_collections WHERE owner_id=? AND source_type<>'collection' AND (${generatedCollections}id IN (
         SELECT collection_id FROM smart_collection_item_overrides WHERE owner_id=?))`)
       .all(ownerId, ...slugs, ownerId) as CollectionRow[];
     const overrides = records.length ? await database.prepare(`SELECT collection_id,item_id,action,reason FROM smart_collection_item_overrides
@@ -232,7 +249,7 @@ export function createSmartCollectionService(database: DatabaseHandle) {
       const excludedMatches = [...excluded.values()].sort((left, right) => right.item.createdAt.localeCompare(left.item.createdAt));
       return {
         id: record.id, slug: record.slug, name: record.name, description: record.description,
-        sourceType: record.source_type, pinned: Boolean(record.pinned), hidden: Boolean(record.hidden),
+        sourceType: record.source_type, pinned: Boolean(record.pinned), hidden: Boolean(record.hidden), color: record.folder_color,
         folderGroup: typeof metadata.folderGroup === 'string' ? metadata.folderGroup : 'Smart folders',
         matchSignals: unique([...strings(metadata.matchSignals), ...matches.slice(0, 6).map((entry) => entry.reason)], 8),
         itemCount: matches.length, previewItems: matches.slice(0, 3).map(({ item }) => item),
@@ -268,11 +285,12 @@ export function createSmartCollectionService(database: DatabaseHandle) {
         excludedHasMore: excludedItems.length > limit, nextCursor, hasMore: nextCursor !== null, truncated,
       };
     },
-    async update(ownerId: string, collectionId: string, input: { name?: string; pinned?: boolean; hidden?: boolean }) {
+    async update(ownerId: string, collectionId: string, input: { name?: string; pinned?: boolean; hidden?: boolean; color?: string | null }) {
       const fields: string[] = []; const values: unknown[] = [];
       if (input.name !== undefined) { fields.push('name=?'); values.push(input.name.trim()); }
       if (input.pinned !== undefined) { fields.push('pinned=?'); values.push(input.pinned); }
       if (input.hidden !== undefined) { fields.push('hidden=?'); values.push(input.hidden); }
+      if (input.color !== undefined) { fields.push('folder_color=?'); values.push(input.color); }
       if (!fields.length) throw new SmartCollectionError('not_found', 'No smart collection changes were provided.');
       fields.push('updated_at=?'); values.push(new Date().toISOString(), ownerId, collectionId);
       const result = await database.prepare(`UPDATE smart_collections SET ${fields.join(',')} WHERE owner_id=? AND id=?`).run(...values);

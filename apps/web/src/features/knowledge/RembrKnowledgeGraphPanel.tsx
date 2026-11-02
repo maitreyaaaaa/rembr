@@ -54,15 +54,13 @@ export interface RembrKnowledgeGraphPanelProps {
   obsidianExported: boolean;
 }
 
-type GraphTab = 'details' | 'explore' | 'export';
+type GraphTab = 'details' | 'export';
 type Point = { x: number; y: number };
 type DragState = { x: number; y: number; pan: Point; moved: boolean };
 
 const graphTypeColors: Record<string, string> = {
   item: '#f4f4ef',
   topic: '#a5ff18',
-  tag: '#22d3ee',
-  collection: '#c084fc',
   domain: '#fb923c',
   brand: '#60a5fa',
   tool: '#94a3b8',
@@ -78,16 +76,52 @@ function titleCase(value: string): string {
   return value.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-function graphLayout(nodes: RembrGraphNode[]): Map<string, Point> {
-  const concepts = nodes.filter((node) => node.type !== 'item');
-  const items = nodes.filter((node) => node.type === 'item');
+function graphLayout(nodes: RembrGraphNode[], links: RembrGraphLink[]): Map<string, Point> {
   const points = new Map<string, Point>();
-  const placeColumn = (column: RembrGraphNode[], x: number) => {
-    const spacing = 548 / Math.max(column.length, 1);
-    column.forEach((node, index) => points.set(node.id, { x, y: 36 + spacing * (index + 0.5) }));
-  };
-  placeColumn(concepts, 255);
-  placeColumn(items, 745);
+  const nodeIndex = new Map(nodes.map((node, index) => [node.id, index]));
+  const velocity = nodes.map(() => ({ x: 0, y: 0 }));
+  nodes.forEach((node, index) => {
+    // A stable spiral gives the force layout a repeatable starting point.
+    const angle = index * 2.399963;
+    const radius = 36 + Math.sqrt(index + 1) * 21;
+    points.set(node.id, { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius * 0.62 });
+  });
+  const edges = links.flatMap((link) => {
+    const source = nodeIndex.get(link.source); const target = nodeIndex.get(link.target);
+    return source === undefined || target === undefined ? [] : [[source, target] as const];
+  });
+
+  // Lightweight deterministic force layout: linked saves cluster around shared
+  // AI topics and entities while unrelated nodes repel into a readable field.
+  for (let iteration = 0; iteration < 44; iteration += 1) {
+    const cooling = 1 - iteration / 48;
+    for (let left = 0; left < nodes.length; left += 1) {
+      const a = points.get(nodes[left]!.id)!;
+      for (let right = left + 1; right < nodes.length; right += 1) {
+        const b = points.get(nodes[right]!.id)!;
+        const dx = a.x - b.x; const dy = a.y - b.y;
+        const distanceSquared = Math.max(dx * dx + dy * dy, 36);
+        const push = Math.min(1.2, 250 / distanceSquared) * cooling;
+        velocity[left]!.x += (dx / Math.sqrt(distanceSquared)) * push;
+        velocity[left]!.y += (dy / Math.sqrt(distanceSquared)) * push;
+        velocity[right]!.x -= (dx / Math.sqrt(distanceSquared)) * push;
+        velocity[right]!.y -= (dy / Math.sqrt(distanceSquared)) * push;
+      }
+    }
+    for (const [source, target] of edges) {
+      const a = points.get(nodes[source]!.id)!; const b = points.get(nodes[target]!.id)!;
+      const dx = b.x - a.x; const dy = b.y - a.y;
+      velocity[source]!.x += dx * 0.0022; velocity[source]!.y += dy * 0.0022;
+      velocity[target]!.x -= dx * 0.0022; velocity[target]!.y -= dy * 0.0022;
+    }
+    nodes.forEach((node, index) => {
+      const point = points.get(node.id)!; const speed = velocity[index]!;
+      speed.x += -point.x * 0.0008; speed.y += -point.y * 0.0008;
+      point.x = Math.max(-445, Math.min(445, point.x + Math.max(-5, Math.min(5, speed.x))));
+      point.y = Math.max(-265, Math.min(265, point.y + Math.max(-5, Math.min(5, speed.y))));
+      speed.x *= 0.58; speed.y *= 0.58;
+    });
+  }
   return points;
 }
 
@@ -130,7 +164,7 @@ export function RembrKnowledgeGraphPanel({
     return { nodes, links: graph.links.filter((link) => nodeIds.has(link.source) && nodeIds.has(link.target)) };
   }, [filteredGroups, graph, query]);
 
-  const positions = useMemo(() => graphLayout(visibleGraph.nodes), [visibleGraph.nodes]);
+  const positions = useMemo(() => graphLayout(visibleGraph.nodes, visibleGraph.links), [visibleGraph.nodes, visibleGraph.links]);
   const selectedNode = graph?.nodes.find((node) => node.id === selectedNodeId) ?? null;
   const selectedItem = selectedNode?.type === 'item'
     ? graph?.groups.flatMap((group) => group.items).find((item) => item.id === selectedNode.itemId)
@@ -191,7 +225,7 @@ export function RembrKnowledgeGraphPanel({
         <div className="max-w-3xl">
           <p className="font-mono text-xs uppercase tracking-[0.3em] text-primary">Knowledge graph</p>
           <h1 className="mt-3 font-display text-4xl font-bold tracking-tight md:text-6xl">Your saved library, connected.</h1>
-          <p className="mt-4 max-w-2xl text-sm leading-6 text-muted-foreground">Explore how your saved pages and notes connect through topics, tags, collections, domains, and typed entities.</p>
+          <p className="mt-4 max-w-2xl text-sm leading-6 text-muted-foreground">See how saved pages and notes connect through analyzed topics, source domains, and entities found in their content.</p>
         </div>
         <label className="grid w-full gap-2 text-xs font-semibold text-muted-foreground sm:max-w-sm">
           <span className="inline-flex items-center gap-2"><Search className="h-3.5 w-3.5" /> Filter concepts and linked saves</span>
@@ -228,7 +262,7 @@ export function RembrKnowledgeGraphPanel({
 
           {loading ? <div className="h-full p-5"><div aria-hidden="true" className="is-loading-surface h-full rounded-xl" /></div>
             : !graph?.nodes.length ? <div className="grid h-full place-items-center px-8 text-center">
-              <div><div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl border border-primary/20 bg-primary/5 text-primary"><span aria-hidden="true">✳</span></div><h2 className="mt-4 font-display text-xl font-bold">Your graph is ready to grow</h2><p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">Save pages, add tags or collections, or enrich eligible saves to create connections.</p></div>
+              <div><div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl border border-primary/20 bg-primary/5 text-primary"><span aria-hidden="true">✳</span></div><h2 className="mt-4 font-display text-xl font-bold">Your graph is ready to grow</h2><p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">Save pages and notes. Connections appear as Rembr analyzes topics and entities in their content.</p></div>
             </div>
               : !visibleGraph.nodes.length ? <div className="grid h-full place-items-center px-8 text-center"><div><h2 className="font-display text-xl font-bold">No connections match this filter</h2><p className="mt-2 text-sm text-muted-foreground">Try a broader phrase or clear the search.</p><button type="button" onClick={() => onFilterChange('')} className="mt-4 rounded-full border border-white/10 px-4 py-2 text-xs font-semibold text-foreground transition hover:border-primary">Clear filter</button></div></div>
                 : <svg viewBox="0 0 1000 620" role="img" aria-label="Knowledge graph nodes and relationships" className="h-full w-full touch-none select-none cursor-grab active:cursor-grabbing" onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={() => { dragRef.current = null; }}>
@@ -247,7 +281,7 @@ export function RembrKnowledgeGraphPanel({
                       const neighbor = selectedConnections.some((connection) => connection.id === node.id);
                       const dimmed = Boolean(selectedNodeId && !selected && !neighbor);
                       const radius = isItem ? 8 : Math.min(17, 5 + Math.sqrt(node.itemCount ?? 1) * 3);
-                      const showLabel = selected || neighbor || isItem || (node.itemCount ?? 0) >= 3;
+                      const showLabel = selected || neighbor || (!isItem && (node.itemCount ?? 0) >= 3);
                       return <g key={node.id} data-graph-node data-node-id={node.id} transform={`translate(${point.x} ${point.y})`} role="button" tabIndex={0} aria-label={`${titleCase(node.type)}: ${node.label}`} aria-pressed={selected} opacity={dimmed ? 0.22 : 1} className="cursor-pointer outline-none" onClick={() => selectNode(node.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectNode(node.id); } }}>
                         <title>{node.label}</title><circle r={radius + (selected ? 9 : 5)} fill={nodeColor(node.type)} opacity="0.16" /><circle r={radius} fill={nodeColor(node.type)} stroke={selected ? '#ffffff' : 'rgba(0,0,0,0.55)'} strokeWidth={selected ? 2 : 1} />
                         {showLabel && <text y={radius + 16} textAnchor="middle" className="pointer-events-none select-none fill-white text-[10px] font-semibold">{node.label.slice(0, 24)}</text>}
@@ -258,8 +292,8 @@ export function RembrKnowledgeGraphPanel({
         </section>
 
         <aside className="rounded-2xl border border-white/10 bg-white/[0.025] p-4 sm:p-5" aria-label="Graph details and tools">
-          <div className="grid grid-cols-3 gap-1 rounded-xl border border-white/10 bg-black p-1" role="tablist" aria-label="Graph panel">
-            {(['details', 'explore', 'export'] as const).map((key) => <button key={key} type="button" role="tab" aria-selected={tab === key} onClick={() => setTab(key)} className={`rounded-lg px-2 py-2 text-xs font-semibold transition sm:px-3 ${tab === key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'}`}>{titleCase(key)}</button>)}
+          <div className="grid grid-cols-2 gap-1 rounded-xl border border-white/10 bg-black p-1" role="tablist" aria-label="Graph panel">
+            {(['details', 'export'] as const).map((key) => <button key={key} type="button" role="tab" aria-selected={tab === key} onClick={() => setTab(key)} className={`rounded-lg px-2 py-2 text-xs font-semibold transition sm:px-3 ${tab === key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'}`}>{titleCase(key)}</button>)}
           </div>
 
           {tab === 'details' && <div className="mt-5">
@@ -270,18 +304,6 @@ export function RembrKnowledgeGraphPanel({
               {selectedConnections.length ? <div className="max-h-72 space-y-2 overflow-y-auto pr-1">{selectedConnections.map((node) => <button key={node.id} type="button" onClick={() => selectNode(node.id)} className="flex min-h-10 w-full items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-left text-xs transition hover:border-primary"><span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: nodeColor(node.type) }} /><span className="min-w-0 flex-1 truncate">{node.label}</span><span className="text-[10px] uppercase text-muted-foreground">{titleCase(node.type)}</span></button>)}</div>
                 : <p className="text-sm leading-6 text-muted-foreground">{selectedNode ? 'No nearby nodes found.' : 'Select a node to see its connections.'}</p>}
             </div>
-          </div>}
-
-          {tab === 'explore' && <div className="mt-5 space-y-5">
-            <section><div className="font-mono text-[10px] uppercase tracking-[0.22em] text-primary">Top concepts</div><div className="mt-3 flex max-h-40 flex-wrap gap-2 overflow-y-auto pr-1">
-              {filteredGroups.slice(0, 24).map((group) => <button key={group.id} type="button" onClick={() => selectNode(group.id)} aria-pressed={selectedNodeId === group.id} className={`rounded-full border px-3 py-1.5 text-xs transition ${selectedNodeId === group.id ? 'border-primary bg-primary/10 text-primary' : 'border-white/10 text-muted-foreground hover:border-primary hover:text-foreground'}`}>{group.label}</button>)}
-              {!loading && filteredGroups.length === 0 && <span className="text-sm text-muted-foreground">{query ? 'No concepts match this filter.' : 'No concept nodes yet.'}</span>}
-            </div></section>
-            <section className="border-t border-white/10 pt-4"><div className="font-mono text-[10px] uppercase tracking-[0.22em] text-primary">Linked saves</div><div className="mt-3 max-h-80 space-y-2 overflow-y-auto pr-1">
-              {Array.from(new Map(filteredGroups.flatMap((group) => group.items).map((item) => [item.id, item])).values()).slice(0, 40).map((item) => <button key={item.id} type="button" onClick={() => onSelectItem(item.id)} className="block w-full rounded-xl border border-white/10 p-3 text-left transition hover:border-primary"><span className="block line-clamp-1 text-sm font-semibold">{item.title}</span><span className="mt-1 block text-xs text-muted-foreground">{titleCase(item.status)}</span></button>)}
-              {!loading && filteredGroups.length > 0 && !filteredGroups.some((group) => group.items.length) && <span className="text-sm text-muted-foreground">No linked saves are included in this graph sample.</span>}
-              {!loading && filteredGroups.length === 0 && !query && <span className="text-sm text-muted-foreground">No linked saves yet.</span>}
-            </div></section>
           </div>}
 
           {tab === 'export' && <div className="mt-5 space-y-4"><div><h2 className="font-display text-xl font-bold tracking-tight">Take your graph with you</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">Download the current graph data as JSON or export notes and links for Obsidian.</p></div>

@@ -1,6 +1,7 @@
-import { useRef, useState, type DragEvent, type FormEvent } from 'react';
+import { useState, type FormEvent } from 'react';
 import { ArrowRight, CheckCircle2, FileText, Link2, PackageOpen, Upload, X } from 'lucide-react';
 import { LoadingSpinner, ProgressBar } from '../../components/ui/LoadingStates.jsx';
+import { MagneticDropZone } from '../../components/MagneticDropZone.js';
 
 type AddMode = 'link' | 'archive';
 
@@ -48,18 +49,10 @@ export function RembrAddFlow({
   loading = false,
 }: RembrAddFlowProps) {
   const [mode, setMode] = useState<AddMode>('link');
-  const [dragging, setDragging] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
   const totalBytes = files.reduce((total, file) => total + file.size, 0);
 
   function receiveFiles(incoming: File[]) {
     onFilesChange([...files, ...incoming]);
-  }
-
-  function handleDrop(event: DragEvent<HTMLDivElement>) {
-    event.preventDefault();
-    setDragging(false);
-    receiveFiles(Array.from(event.dataTransfer.files));
   }
 
   return (
@@ -127,17 +120,9 @@ export function RembrAddFlow({
       ) : (
         <section id="rembr-add-archive" role="tabpanel" aria-labelledby="rembr-add-archive-tab" className="space-y-5">
           <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_17rem]">
-            <div onDragOver={(event) => { event.preventDefault(); setDragging(true); }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }} onDrop={handleDrop}
-              className={`rounded-2xl border-2 border-dashed p-5 text-center transition sm:p-8 md:p-12 ${dragging ? 'border-primary bg-primary/5' : 'border-white/15 bg-white/[0.015]'}`}>
-              <input ref={inputRef} type="file" multiple accept={archiveAccept} className="sr-only" aria-label="Choose supported export files" aria-describedby="rembr-import-support" disabled={busy || loading}
-                onChange={(event) => { receiveFiles(Array.from(event.currentTarget.files ?? [])); event.currentTarget.value = ''; }} />
-              <div className="mx-auto grid h-14 w-14 place-items-center rounded-2xl border border-primary/25 bg-primary/10 text-primary"><PackageOpen className="h-7 w-7" /></div>
-              <h2 className="mt-5 font-display text-xl font-bold">Drop an export archive here</h2>
-              <p className="mx-auto mt-2 max-w-xl text-sm leading-6 text-muted-foreground">Choose exported files or a ZIP containing supported bookmark data. Rembr detects the source from the export file names and contents.</p>
-              <button type="button" onClick={() => inputRef.current?.click()} disabled={busy || loading} className="mt-5 inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-primary px-6 py-3 text-sm font-semibold text-primary-foreground transition hover:scale-[1.02] disabled:opacity-60">
-                <Upload className="h-4 w-4" /> Choose files
-              </button>
-              <p id="rembr-import-support" className="mx-auto mt-4 max-w-2xl text-xs leading-5 text-muted-foreground">Instagram saved posts and collections; Pinterest pins and boards; X bookmarks. Supported files include HTML, HTM, JSON, CSV, JS, TXT, and ZIP archives. The files accepted within an archive depend on the detected source.</p>
+            <div className="space-y-4">
+              <MagneticDropZone accept={archiveAccept} maxSize={25 * 1024 * 1024} maxFiles={20} maxTotalSize={100 * 1024 * 1024} multiple selectedFiles={files} onFilesChange={receiveFiles} disabled={busy || loading} label="Drop your export files here" hint="or browse · HTML, JSON, CSV, JS, TXT, or ZIP · up to 25 MiB each" />
+              <p id="rembr-import-support" className="mx-auto mt-4 max-w-2xl text-xs leading-5 text-muted-foreground">Instagram saved posts and saved folders; Pinterest pins and boards; X bookmarks. Supported files include HTML, HTM, JSON, CSV, JS, TXT, and ZIP archives. The files accepted within an archive depend on the detected source.</p>
 
               {files.length > 0 ? (
                 <div className="mt-7 text-left">

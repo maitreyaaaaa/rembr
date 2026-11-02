@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
+import { MoreHorizontal } from 'lucide-react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { ColorPicker } from './arc/color-picker/color-picker.js';
+import type { ColorSwatch } from './arc/color-picker/color-picker.js';
 import { SavedItemLink } from './SavedItemLink.js';
 
 type Request = <T>(path: string, init?: RequestInit) => Promise<T>;
 interface SmartItem { id: string; title: string; description: string; url: string; createdAt: string; matchConfidence: number; matchReason: string; overrideAction?: 'include' | 'exclude' | null }
-interface SmartCollection { id: string; slug: string; name: string; description: string; sourceType: string; pinned: boolean; hidden: boolean; folderGroup: string; matchSignals: string[]; itemCount: number; previewItems: SmartItem[] }
+interface SmartCollection { id: string; slug: string; name: string; description: string; sourceType: string; pinned: boolean; hidden: boolean; color: string | null; folderGroup: string; matchSignals: string[]; itemCount: number; previewItems: SmartItem[] }
 interface SmartCollectionList { collections: SmartCollection[]; truncated: boolean; generatedAt: string }
 interface SmartCollectionItems { collection: { id: string; name: string; description: string; itemCount: number }; items: SmartItem[]; excludedItems: SmartItem[]; excludedHasMore: boolean; nextCursor: string | null; hasMore: boolean; truncated: boolean }
 interface LibraryMatch { id: string; title: string; description: string; url: string }
@@ -64,7 +67,7 @@ export function SmartCollectionsPage({ request }: { request: Request }) {
 
   useEffect(() => { if (collectionId) void loadItems(); else void load(); }, [collectionId, load, loadItems]);
 
-  async function updateCollection(collection: SmartCollection, update: { name?: string; pinned?: boolean; hidden?: boolean }) {
+  async function updateCollection(collection: SmartCollection, update: { name?: string; pinned?: boolean; hidden?: boolean; color?: string | null }) {
     setBusy(true); setError('');
     try {
       await request(`/api/smart-collections/${encodeURIComponent(collection.id)}`, { method: 'PATCH', body: JSON.stringify(update) });
@@ -164,12 +167,60 @@ export function SmartCollectionsPage({ request }: { request: Request }) {
   </>;
 
   return <>
-    <PageHeading title="Smart Collections" description="Groups that update from your saved pages, notes, folders, and existing analysis." actions={<button className="primary-button" type="button" disabled={loading || busy} onClick={() => void load(true)}>{loading ? 'Refreshing…' : 'Refresh groups'}</button>} />
+    <PageHeading title="Smart Collections" description="Groups that update from your saved pages, notes, topics, and existing analysis." actions={<button className="primary-button" type="button" disabled={loading || busy} onClick={() => void load(true)}>{loading ? 'Refreshing…' : 'Refresh groups'}</button>} />
     <section className="phase2-panel"><label className="phase2-check"><input type="checkbox" checked={includeHidden} onChange={(event) => toggleHidden(event.currentTarget.checked)} /><span>Show hidden groups</span></label><p className="phase2-helper">Generated on this service from existing library data. No provider key is required. Pin favorites or hide groups you do not use.</p>{data?.truncated && <p className="phase2-helper" role="status">The group suggestions use the latest {(2000).toLocaleString()} saved items.</p>}</section>
     {error && <div className="notice error phase2-retry-notice" role="alert"><span>{error}</span><button className="quiet-button" type="button" onClick={() => void load()}>Try again</button></div>}
-    {loading && !data ? <div className="phase2-state" role="status">Building smart groups…</div> : data?.collections.length ? <div className="smart-collection-groups">{Object.entries(data.collections.reduce<Record<string, SmartCollection[]>>((groups, collection) => { (groups[collection.folderGroup] ??= []).push(collection); return groups; }, {})).map(([group, collections]) => <section className="phase2-panel" key={group}><h2>{group}</h2><ul className="phase2-collection-grid">{collections.map((collection) => <li className="phase2-panel" key={collection.id}><p className="eyebrow">{collection.sourceType} · {collection.itemCount} saves</p>{renamingId === collection.id ? <form className="phase2-form" onSubmit={(event) => { event.preventDefault(); const name = renameValue.trim(); if (name && name !== collection.name) void updateCollection(collection, { name }); else setRenamingId(''); }}><label>Collection name<input autoFocus maxLength={80} required value={renameValue} onChange={(event) => setRenameValue(event.target.value)} /></label><div className="phase2-card-actions"><button className="quiet-button" type="submit" disabled={busy || !renameValue.trim()}>Save name</button><button className="quiet-button" type="button" disabled={busy} onClick={() => setRenamingId('')}>Cancel</button></div></form> : <><h3>{collection.name}</h3><p>{collection.description}</p><p className="phase2-helper">{collection.matchSignals.slice(0, 3).join(' · ')}</p></>}{collection.previewItems.length > 0 && <ul className="smart-collection-preview">{collection.previewItems.map((item) => <li key={item.id}><SavedItemLink itemId={item.id}>{item.title}</SavedItemLink></li>)}</ul>}<div className="phase2-card-actions"><Link className="primary-button" to={`/app/smart-collections/${encodeURIComponent(collection.id)}`}>Open group</Link><details className="phase2-card-menu"><summary aria-label={`Manage ${collection.name}`}>Manage</summary><div className="phase2-card-menu-items"><button className="quiet-button" type="button" disabled={busy} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setRenamingId(collection.id); setRenameValue(collection.name); }}>Rename</button><button className="quiet-button" type="button" disabled={busy} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); void updateCollection(collection, { pinned: !collection.pinned }); }}>{collection.pinned ? 'Unpin' : 'Pin'}</button><button className="quiet-button" type="button" disabled={busy} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); void updateCollection(collection, { hidden: !collection.hidden }); }}>{collection.hidden ? 'Show' : 'Hide'}</button></div></details></div></li>)}</ul></section>)}</div> : !loading && <div className="empty-state"><h2>Your smart groups will appear here.</h2><p>Save more pages, add notes or folders, and Rembr will group related items using rules that work without AI.</p></div>}
+    {loading && !data ? <div className="phase2-state" role="status">Building smart groups…</div> : data?.collections.length ? <div className="smart-collection-groups">{Object.entries(data.collections.reduce<Record<string, SmartCollection[]>>((groups, collection) => { (groups[collection.folderGroup] ??= []).push(collection); return groups; }, {})).map(([group, collections]) => <section className="phase2-panel" key={group}><h2>{group}</h2><ul className="phase2-collection-grid">{collections.map((collection) => <SmartCollectionCard key={collection.id} collection={collection} busy={busy} renaming={renamingId === collection.id} renameValue={renameValue} onRenameValueChange={setRenameValue} onRename={() => { setRenamingId(collection.id); setRenameValue(collection.name); }} onRenameCancel={() => setRenamingId('')} onRenameSave={(name) => updateCollection(collection, { name })} onPin={() => void updateCollection(collection, { pinned: !collection.pinned })} onColorSave={(color) => updateCollection(collection, { color })} onDelete={() => { if (window.confirm(`Delete “${collection.name}”? Its saved items will remain in your library. You can restore the folder with Show hidden groups.`)) void updateCollection(collection, { hidden: true }); }} onRestore={() => updateCollection(collection, { hidden: false })} />)}</ul></section>)}</div> : !loading && <div className="empty-state"><h2>Your smart groups will appear here.</h2><p>Save more pages, add notes or topics, and Rembr will group related items using rules that work without AI.</p></div>}
     {data && <p className="phase2-helper">Updated {new Date(data.generatedAt).toLocaleString()} · Groups update when opened or refreshed.</p>}
   </>;
+}
+
+const defaultFolderColor = '#adff00';
+const folderColorSwatches: ColorSwatch[] = [
+  { id: 'lime', color: '#ADFF00' }, { id: 'orange', color: '#FF6A00' },
+  { id: 'cyan', color: '#27E5C2' }, { id: 'blue', color: '#528BFF' },
+  { id: 'purple', color: '#A98AFF' }, { id: 'pink', color: '#FF78B7' },
+];
+
+function SmartCollectionCard({ collection, busy, renaming, renameValue, onRenameValueChange, onRename, onRenameCancel, onRenameSave, onPin, onColorSave, onDelete, onRestore }: {
+  collection: SmartCollection;
+  busy: boolean;
+  renaming: boolean;
+  renameValue: string;
+  onRenameValueChange: (value: string) => void;
+  onRename: () => void;
+  onRenameCancel: () => void;
+  onRenameSave: (name: string) => Promise<void>;
+  onPin: () => void;
+  onColorSave: (color: string | null) => Promise<void>;
+  onDelete: () => void;
+  onRestore: () => Promise<void>;
+}) {
+  const [colorOpen, setColorOpen] = useState(false);
+  const [colorDraft, setColorDraft] = useState(collection.color ?? defaultFolderColor);
+  const folderStyle = { '--smart-folder-color': collection.color ?? defaultFolderColor } as CSSProperties;
+
+  return <li className="phase2-panel smart-folder-card" style={folderStyle}>
+    <div className="smart-folder-toolbar">
+      <details className="phase2-card-menu smart-folder-menu">
+        <summary aria-label={`Folder options for ${collection.name}`}><MoreHorizontal size={19} aria-hidden="true" /></summary>
+        <div className="phase2-card-menu-items">
+          <button className="quiet-button" type="button" disabled={busy} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setColorDraft(collection.color ?? defaultFolderColor); setColorOpen((open) => !open); }}>Change color</button>
+          <button className="quiet-button" type="button" disabled={busy} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); onRename(); }}>Rename</button>
+          <button className="quiet-button" type="button" disabled={busy} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); onPin(); }}>{collection.pinned ? 'Unpin folder' : 'Pin folder'}</button>
+          {collection.hidden
+            ? <button className="quiet-button" type="button" disabled={busy} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); void onRestore(); }}>Restore folder</button>
+            : <button className="quiet-button" type="button" disabled={busy} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); onDelete(); }}>Delete folder</button>}
+        </div>
+      </details>
+    </div>
+    {colorOpen && <div className="smart-folder-color-editor"><ColorPicker label="Folder color" value={colorDraft} onValueChange={setColorDraft} background="#090b09" defaultSwatches={folderColorSwatches} className="smart-folder-color-picker" /><div className="smart-folder-color-actions"><button className="primary-button" type="button" disabled={busy} onClick={() => { void onColorSave(colorDraft).then(() => setColorOpen(false)); }}>Save color</button><button className="quiet-button" type="button" disabled={busy} onClick={() => { void onColorSave(null).then(() => setColorOpen(false)); }}>Reset</button></div></div>}
+    <Link className="smart-folder-link" to={`/app/smart-collections/${encodeURIComponent(collection.id)}`} aria-label={`Open ${collection.name}, ${collection.itemCount} saves`}><span className="smart-folder-scene" aria-hidden="true"><span className="smart-folder-pages"><span className="smart-folder-page smart-folder-page-one" /><span className="smart-folder-page smart-folder-page-two" /><span className="smart-folder-page smart-folder-page-three" /></span><span className="smart-folder-back" /><span className="smart-folder-flap" /></span></Link>
+    <p className="eyebrow">{collection.folderGroup.endsWith(' collections') ? collection.folderGroup.slice(0, -12) : collection.sourceType} · {collection.itemCount} saves</p>
+    {renaming ? <form className="phase2-form" onSubmit={(event) => { event.preventDefault(); const name = renameValue.trim(); if (name && name !== collection.name) void onRenameSave(name); else onRenameCancel(); }}><label>Folder name<input autoFocus maxLength={80} required value={renameValue} onChange={(event) => onRenameValueChange(event.target.value)} /></label><div className="phase2-card-actions"><button className="quiet-button" type="submit" disabled={busy || !renameValue.trim()}>Save name</button><button className="quiet-button" type="button" disabled={busy} onClick={onRenameCancel}>Cancel</button></div></form> : <><h3>{collection.name}</h3><p>{collection.description}</p><p className="phase2-helper">{collection.matchSignals.slice(0, 3).join(' · ')}</p></>}
+    {collection.previewItems.length > 0 && <ul className="smart-collection-preview">{collection.previewItems.map((item) => <li key={item.id}><SavedItemLink itemId={item.id}>{item.title}</SavedItemLink></li>)}</ul>}
+    <div className="phase2-card-actions"><Link className="primary-button" to={`/app/smart-collections/${encodeURIComponent(collection.id)}`}>Open folder</Link></div>
+  </li>;
 }
 
 function PageHeading({ title, description, actions }: { title: string; description: string; actions?: ReactNode }) {

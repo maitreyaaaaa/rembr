@@ -14,7 +14,8 @@ const tooltipId = 'rembr-global-button-tooltip';
 const buttonSelector = 'button:not(.quick-add-backdrop):not(.mobile-navigation-backdrop), [role="button"], a.primary-button, a.quiet-button, a.rg-button, .library-search-add, .iscraper-sidebar a, .iscraper-sidebar button';
 
 function resolveButton(target: EventTarget | null): HTMLElement | null {
-  return target instanceof Element ? target.closest<HTMLElement>(buttonSelector) : null;
+  if (!(target instanceof Element) || target.closest('.iscraper-sidebar')) return null;
+  return target.closest<HTMLElement>(buttonSelector);
 }
 
 function buttonLabel(button: HTMLElement): string {

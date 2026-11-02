@@ -17,7 +17,7 @@ async function insertRows(database: DatabaseHandle, table: string, columns: stri
   }
 }
 
-async function lookupIds(database: DatabaseHandle, table: 'tags' | 'collections', ownerId: string, names: string[]): Promise<Map<string, string>> {
+async function lookupIds(database: DatabaseHandle, table: 'tags', ownerId: string, names: string[]): Promise<Map<string, string>> {
   const ids = new Map<string, string>();
   for (let offset = 0; offset < names.length; offset += LOOKUP_BATCH_SIZE) {
     const batch = names.slice(offset, offset + LOOKUP_BATCH_SIZE);
@@ -328,9 +328,7 @@ export function createImportRepository(database: DatabaseHandle) {
         const jobRows: SqlRow[] = [];
         const aiJobRows: SqlRow[] = [];
         const tagNames = new Map<string, string>();
-        const collectionNames = new Map<string, string>();
         const tagLinks: Array<{ itemId: string; normalized: string }> = [];
-        const collectionLinks: Array<{ itemId: string; normalized: string }> = [];
         const itemIdsByUrl = new Map<string, string>();
 
         for (let offset = 0; offset < items.length; offset += LOOKUP_BATCH_SIZE) {
@@ -367,14 +365,6 @@ export function createImportRepository(database: DatabaseHandle) {
             if (!tagNames.has(normalized)) tagNames.set(normalized, name);
             tagLinks.push({ itemId, normalized });
           }
-          const collections = Array.isArray(entry.metadata.collections) ? entry.metadata.collections : entry.collection ? [entry.collection] : [];
-          for (const collectionName of collections.slice(0, 20)) {
-            const name = String(collectionName).trim().slice(0, 80); const normalized = name.toLowerCase();
-            if (normalized) {
-              if (!collectionNames.has(normalized)) collectionNames.set(normalized, name);
-              collectionLinks.push({ itemId, normalized });
-            }
-          }
           newCount += 1;
         }
 
@@ -391,13 +381,6 @@ export function createImportRepository(database: DatabaseHandle) {
           const tagIds = await lookupIds(database, 'tags', ownerId, [...tagNames.keys()]);
           const links = tagLinks.flatMap(({ itemId, normalized }) => tagIds.has(normalized) ? [[ownerId, itemId, tagIds.get(normalized)!, now]] : []);
           await insertRows(database, 'item_tags', ['owner_id','item_id','tag_id','created_at'], links, 'ON CONFLICT DO NOTHING');
-        }
-        if (collectionNames.size) {
-          const collectionRows = [...collectionNames].map(([normalized, name]) => [randomUUID(), ownerId, name, normalized, now, now]);
-          await insertRows(database, 'collections', ['id','owner_id','name','normalized_name','created_at','updated_at'], collectionRows, 'ON CONFLICT DO NOTHING');
-          const collectionIds = await lookupIds(database, 'collections', ownerId, [...collectionNames.keys()]);
-          const links = collectionLinks.flatMap(({ itemId, normalized }) => collectionIds.has(normalized) ? [[ownerId, collectionIds.get(normalized)!, itemId, now]] : []);
-          await insertRows(database, 'collection_items', ['owner_id','collection_id','item_id','created_at'], links, 'ON CONFLICT DO NOTHING');
         }
 
         const parsedCount = items.length;

@@ -2,7 +2,7 @@ import type { KnowledgeGraph, LibraryAnswer, LibraryCheckup, LibraryChatTurn, Sa
 import { api, prepareVisualSearchImage } from '../../app/api.js';
 import { messageOf } from '../../app/helpers.js';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { Plus } from 'lucide-react';
+import { ArrowUp, Plus } from 'lucide-react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { SavedItemLink } from '../../components/SavedItemLink.js';
 import { LibraryCardSkeletons, PortedLibraryGrid } from './LibraryCards.js';
@@ -12,7 +12,7 @@ import { RembrKnowledgeGraphPanel } from '../knowledge/RembrKnowledgeGraphPanel.
 export function LibraryPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
-  const askInputRef = useRef<HTMLInputElement>(null);
+  const composerInputRef = useRef<HTMLTextAreaElement>(null);
   const visualSearchInputRef = useRef<HTMLInputElement>(null);
   const [visualSearchPreference, setVisualSearchPreference] = useState<VisualSearchPreference | null>(null);
   const [visualPreferenceError, setVisualPreferenceError] = useState(false);
@@ -29,7 +29,7 @@ export function LibraryPage() {
   const [loadingMore, setLoadingMore] = useState(false); const [loadMoreError, setLoadMoreError] = useState(''); const loadingMoreRef = useRef(false); const itemListGenerationRef = useRef(0);
   const [askQuestion, setAskQuestion] = useState(''); const [libraryConversation, setLibraryConversation] = useState<LibraryChatTurn[]>([]); const [askBusy, setAskBusy] = useState(false); const [askError, setAskError] = useState('');
   const [loading, setLoading] = useState(true); const [error, setError] = useState('');
-  const search = searchParams.get('search') ?? ''; const searchMode = searchParams.get('mode') === 'web' ? 'web' : 'saved'; const sort = searchParams.get('sort') ?? (search ? 'relevance' : 'created_desc');
+  const search = searchParams.get('search') ?? ''; const searchMode = searchParams.get('mode') === 'web' ? 'web' : searchParams.get('mode') === 'ask' ? 'ask' : 'saved'; const sort = searchParams.get('sort') ?? (search ? 'relevance' : 'created_desc');
   const query = useMemo(() => new URLSearchParams({ search, sort, limit: '20' }).toString(), [search, sort]);
   const load = useCallback(async () => { const generation = ++itemListGenerationRef.current; setLoading(true); setLoadingMore(false); setError(''); setSearchEventIds({}); setSearchFeedback({}); setItems([]); setNextCursor(null); setHasMore(false); setLoadMoreError(''); loadingMoreRef.current = false; try { const body = await api<{ items: SavedItem[]; nextCursor: string | null; hasMore: boolean; searchEventId: string | null }>(`/api/items?${query}`); if (generation !== itemListGenerationRef.current) return; setItems(body.items); setNextCursor(body.nextCursor); setHasMore(body.hasMore); if (body.searchEventId) setSearchEventIds(Object.fromEntries(body.items.map((item) => [item.id, body.searchEventId!]))); } catch (cause) { if (generation === itemListGenerationRef.current) setError(messageOf(cause, 'Could not load your library.')); } finally { if (generation === itemListGenerationRef.current) setLoading(false); } }, [query]);
   const loadMore = useCallback(async () => {
@@ -121,22 +121,39 @@ export function LibraryPage() {
     } catch (cause) { setAskError(messageOf(cause, 'Could not search your library.')); }
     finally { setAskBusy(false); }
   }
-  function startNewLibraryChat() { setLibraryConversation([]); setAskQuestion(''); setAskError(''); askInputRef.current?.focus(); }
+  function startNewLibraryChat() { setLibraryConversation([]); setAskQuestion(''); setAskError(''); composerInputRef.current?.focus(); }
+  function selectSearchMode(mode: 'saved' | 'ask' | 'web') {
+    const next = new URLSearchParams(searchParams);
+    if (mode === 'saved') next.delete('mode'); else next.set('mode', mode);
+    next.delete('cursor');
+    setSearchParams(next);
+    setWebSearchResult(null); setWebSearchError('');
+    if (mode !== 'saved') { chooseVisualImage(undefined); setVisualResult(null); }
+    setAskError('');
+    if (mode === 'ask' && !askQuestion.trim()) setAskQuestion(search);
+  }
+  function submitComposer(event: FormEvent<HTMLFormElement>) {
+    if (searchMode === 'ask') void askLibrary(event);
+    else void searchTheWeb(event);
+  }
   return <div className="library-page"><div className="phase2-page-heading"><div><h1>Your library</h1><p>Search saved pages and notes.</p></div></div>
     <section className="library-search-composer" aria-label="Search your library or the web">
-      <form onSubmit={(event) => void searchTheWeb(event)}>
-        <label className="visually-hidden" htmlFor="library-search-composer-input">Search your saved posts, links, and notes</label>
-        <textarea id="library-search-composer-input" rows={2} maxLength={120} placeholder="Search your saved posts, links, and notes…" value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
+      <form onSubmit={submitComposer}>
+        <label className="visually-hidden" htmlFor="library-search-composer-input">{searchMode === 'ask' ? 'Ask a question about your saved library' : 'Search your saved posts, links, and notes'}</label>
+        <textarea ref={composerInputRef} id="library-search-composer-input" rows={1} maxLength={120} placeholder={searchMode === 'ask' ? 'Ask about anything in your library…' : searchMode === 'web' ? 'Search the web…' : 'Search your saved posts, links, and notes…'} value={searchMode === 'ask' ? askQuestion : search} onChange={(event) => { if (searchMode === 'ask') { setAskQuestion(event.target.value); setAskError(''); } else setSearch(event.target.value); }} onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
         <div className="library-search-composer-controls">
           <input ref={visualSearchInputRef} className="visually-hidden visual-search-input" id="visual-search-image" type="file" accept="image/png,image/jpeg,image/webp" aria-label="Choose an image to search your saved library" aria-describedby="visual-search-file-help" disabled={visualBusy} onChange={(event) => { const file = event.currentTarget.files?.[0]; chooseVisualImage(file); event.currentTarget.value = ''; if (file) { const next = new URLSearchParams(searchParams); next.delete('mode'); setSearchParams(next); } }} />
-          <label className="library-search-add" htmlFor="visual-search-image" title="Add an image to search your saved library" aria-label="Add an image to search your saved library"><Plus size={20} aria-hidden="true" /></label>
+          {searchMode !== 'ask' && <label className="library-search-add" htmlFor="visual-search-image" title="Add an image to search your saved library" aria-label="Add an image to search your saved library"><Plus size={20} aria-hidden="true" /></label>}
           <div className="library-search-mode" role="group" aria-label="Choose search mode">
-            <button type="button" className={searchMode === 'saved' ? 'active' : ''} aria-pressed={searchMode === 'saved'} onClick={() => { const next = new URLSearchParams(searchParams); next.delete('mode'); next.delete('cursor'); setSearchParams(next); setWebSearchResult(null); setWebSearchError(''); }}>Saved</button>
-            <button type="button" className={searchMode === 'web' ? 'active' : ''} aria-pressed={searchMode === 'web'} onClick={() => { const next = new URLSearchParams(searchParams); next.set('mode', 'web'); next.delete('cursor'); setSearchParams(next); setVisualResult(null); setWebSearchResult(null); setWebSearchError(''); }}>Web search</button>
+            <button type="button" className={searchMode === 'saved' ? 'active' : ''} aria-pressed={searchMode === 'saved'} onClick={() => selectSearchMode('saved')}>Saved</button>
+            <button type="button" className={searchMode === 'ask' ? 'active' : ''} aria-pressed={searchMode === 'ask'} onClick={() => selectSearchMode('ask')}>Ask library</button>
+            <button type="button" className={searchMode === 'web' ? 'active' : ''} aria-pressed={searchMode === 'web'} onClick={() => { selectSearchMode('web'); setVisualResult(null); }}>Web search</button>
           </div>
           {searchMode === 'web' && <button className="primary-button library-search-submit" type="submit" disabled={webSearchBusy || !search.trim()}>{webSearchBusy ? 'Searching…' : 'Search web'}</button>}
+          {searchMode === 'ask' && <button className="library-search-submit library-search-send" type="submit" aria-label="Ask your library" title="Ask your library" disabled={askBusy || !askQuestion.trim()}>{askBusy ? <span className="library-search-spinner" aria-hidden="true" /> : <ArrowUp size={19} aria-hidden="true" />}</button>}
           {searchMode === 'saved' && visualImage && <button className="primary-button library-search-submit" type="submit" disabled={visualBusy}>{visualBusy ? 'Searching…' : 'Find similar saves'}</button>}
           {searchMode === 'saved' && !visualImage && <span className="library-search-hint">Searches your library by keywords only</span>}
+          {searchMode === 'ask' && <span className="library-search-hint">Answers using your saved library</span>}
         </div>
       </form>
       {searchMode === 'web' && <p className="library-search-disclosure">Your query is sent to our search providers for public results and an AI summary. Your saved library content is not shared.</p>}
@@ -149,11 +166,15 @@ export function LibraryPage() {
       {visualBusy && <p className="phase2-state" role="status">Analyzing the selected image and searching your private library…</p>}
       {visualResult && <div className="visual-search-results" aria-live="polite"><p><strong>{visualResult.results.length} visual matches</strong></p>{visualResult.visualDescription && <p className="phase2-helper">Description used to find matches: {visualResult.visualDescription}</p>}{visualResult.results.length ? <ul className="phase2-manage-list">{visualResult.results.map((item) => <li key={item.id}><SavedItemLink itemId={item.id}>{item.title}</SavedItemLink><div className="phase2-card-actions"><button className="quiet-button" type="button" aria-label={`Mark ${item.title} helpful for this image search`} aria-pressed={visualFeedback[item.id] === 'helpful'} onClick={() => void rateVisualSearchResult(item, 'helpful')}>Helpful</button><button className="quiet-button" type="button" aria-label={`Mark ${item.title} not helpful for this image search`} aria-pressed={visualFeedback[item.id] === 'not_helpful'} onClick={() => void rateVisualSearchResult(item, 'not_helpful')}>Not helpful</button></div></li>)}</ul> : <p>No saved items matched the visual details. Try a different image or use text search.</p>}</div>}
     </section>
+    {searchMode === 'ask' && (libraryConversation.length > 0 || askBusy || askError) && <section className="library-answer-result library-answer-inline" aria-label="Library answers" aria-live="polite" aria-relevant="additions">
+      {libraryConversation.length > 0 && <><div className="library-answer-inline-heading"><span>Library answers</span><button className="phase2-text-button" type="button" onClick={startNewLibraryChat}>New conversation</button></div><ol role="log">{libraryConversation.map((turn, index) => <li key={`${index}-${turn.role}`}><p><strong>{turn.role === 'user' ? 'You' : turn.response?.mode === 'grounded-ai' ? 'Answer' : 'Saved evidence'}:</strong> {turn.content}</p>{turn.response?.claims?.map((claim, claimIndex) => <p className="field-note" key={claimIndex}>Sources: {claim.citationIds.map((id) => turn.response!.citations.find((citation) => citation.id === id)?.title).filter(Boolean).join(', ')}</p>)}{turn.response?.citations.map((citation) => <p className="field-note" key={citation.id}><SavedItemLink itemId={citation.id}>{citation.title}</SavedItemLink>: {citation.snippet}</p>)}</li>)}</ol></>}
+      {askError && <p className="notice error" role="alert">{askError}</p>}
+      {askBusy && <p className="phase2-state" role="status">Searching your private library…</p>}
+    </section>}
     {webSearchError && <div className="notice error" role="alert"><span>{webSearchError}</span><button className="quiet-button" type="button" onClick={() => void searchTheWeb({ preventDefault() {} } as FormEvent<HTMLFormElement>)}>Try again</button></div>}
     {webSearchBusy && <p className="phase2-state" role="status">Searching public sources…</p>}
     {webSearchResult && <section className="phase2-panel web-search-results" aria-labelledby="web-search-result-title"><h2 id="web-search-result-title">Web results for “{search}”</h2><p>{webSearchResult.summary}</p><h3>Sources</h3><ul>{webSearchResult.citations.map((citation) => <li key={citation.url}><a href={citation.url} target="_blank" rel="noreferrer">{citation.title}</a>{citation.snippet && <p>{citation.snippet}</p>}</li>)}</ul></section>}
     {searchMode === 'web' && search && <h2 className="library-saved-matches-heading">Saved keyword matches</h2>}
-      <section className="phase2-panel library-answer-panel" aria-labelledby="library-answer-title"><div className="phase2-heading-actions"><div><h2 id="library-answer-title">Ask your library</h2><p className="phase2-helper">A separate AI tool that answers from saved items. Your prompt and matching saved text may be sent to Meta AI when grounded answers are enabled. This does not affect Saved keyword search.</p></div>{libraryConversation.length > 0 && <button className="quiet-button" type="button" onClick={startNewLibraryChat}>New conversation</button>}</div>{libraryConversation.length > 0 && <ol className="library-answer-result" role="log" aria-label="Library conversation" aria-live="polite" aria-relevant="additions">{libraryConversation.map((turn, index) => <li key={`${index}-${turn.role}`}><p><strong>{turn.role === 'user' ? 'You' : turn.response?.mode === 'grounded-ai' ? 'Grounded answer' : 'Saved evidence preview'}:</strong> {turn.content}</p>{turn.response?.claims?.map((claim, claimIndex) => <p className="field-note" key={claimIndex}>Sources: {claim.citationIds.map((id) => turn.response!.citations.find((citation) => citation.id === id)?.title).filter(Boolean).join(', ')}</p>)}{turn.response?.citations.map((citation) => <p className="field-note" key={citation.id}><SavedItemLink itemId={citation.id}>{citation.title}</SavedItemLink>: {citation.snippet}</p>)}</li>)}</ol>}<form className="phase2-inline-form" onSubmit={(event) => void askLibrary(event)}><label className="visually-hidden" htmlFor="library-question">{libraryConversation.length ? 'Ask a follow-up question about your saved library' : 'Question about your saved library'}</label><input ref={askInputRef} id="library-question" type="search" maxLength={120} required value={askQuestion} onChange={(event) => setAskQuestion(event.target.value)} placeholder={libraryConversation.length ? 'Ask a follow-up question' : 'Ask about your saved items, e.g. design systems'} /><button className="primary-button" type="submit" disabled={askBusy || !askQuestion.trim()}>{askBusy ? 'Searching…' : libraryConversation.length ? 'Send follow-up' : 'Ask / find evidence'}</button></form>{askError && <p className="notice error" role="alert">{askError}</p>}{askBusy && <p className="phase2-state" role="status">Searching your private library…</p>}</section>
     {error && <div className="notice error phase2-retry-notice" role="alert"><span>{error}</span><button className="quiet-button" type="button" onClick={() => void load()}>Try again</button></div>}
     {loading ? <LibraryCardSkeletons count={Math.min(20, Math.max(4, Math.ceil((window.innerWidth - 100) / 320) * 2))} /> : items.length === 0 ? <div className="empty-state"><span>✳</span><h2>{searchMode === 'web' && search ? 'No saved items match these keywords.' : 'Your library is ready for its first save.'}</h2><p>{searchMode === 'web' && search ? 'Live public sources appear above when your web search is complete.' : 'Save a page or write a note to start building your library.'}</p><div className="phase2-heading-actions"><Link className="quiet-button" to="/app/notes/new" state={{ returnTo: `${location.pathname}${location.search}` }}>Write a note</Link><Link className="primary-button" to="/app/add">Save a page</Link></div></div> : <PortedLibraryGrid items={items} searchActive={Boolean(search)} sort={sort} onSortChange={updateSort} feedback={searchFeedback} onFeedback={rateSearchResult} onRemove={remove} hasMore={hasMore} loadingMore={loadingMore} loadMoreError={loadMoreError} onLoadMore={loadMore} />}
     {!loading && <span className="visually-hidden" aria-live="polite">{items.length} saved items loaded</span>}

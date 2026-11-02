@@ -2,7 +2,7 @@ import type { ApiError, Profile, SavedItem, Session } from './app/contracts.js';
 import { api, apiWithProgress } from './app/api.js';
 import { messageOf, sameAppPath } from './app/helpers.js';
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { Archive, ArrowLeft, Brain, ChevronDown, Database, FileText, Folder, Link2, LogOut, MoreHorizontal, Network, PanelLeftClose, PanelLeftOpen, Plus, ScanSearch, Settings, Tag as TagIcon, Upload, X } from 'lucide-react';
+import { FileText, Link2, Plus, Upload, X } from 'lucide-react';
 import { BrowserRouter, Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AvatarUpload } from './components/AvatarUpload.js';
 import { RembrAuthFrame } from './features/auth/RembrAuthFrame.js';
@@ -12,8 +12,8 @@ import { GlobalButtonTooltips } from './components/ui/GlobalButtonTooltips.js';
 import { LibraryPage, KnowledgeGraphPage, LibraryCheckupPage } from './features/library/pages.js';
 import { AddPage, ImportsPage, ImportDetailPage } from './features/imports/pages.js';
 import { ItemDetailPage, ItemEditPage, NoteEditorPage } from './features/items/pages.js';
-import { TagsPage, CollectionsPage, CollectionDetailPage } from './features/organization/pages.js';
 import { SettingsPage } from './features/settings/SettingsPage.js';
+import { DeveloperAccessPage } from './features/settings/DeveloperAccessPage.js';
 
 const MarketingSite = lazy(() => import('./MarketingSite.js').then(({ MarketingSite: page }) => ({ default: page })));
 const PortedLanding = lazy(() => import('./features/marketing/PortedLanding.js').then(({ PortedLanding: page }) => ({ default: page })));
@@ -53,15 +53,13 @@ function AppRoutes() {
       <Route path="imports/:importId" element={<ImportDetailPage />} />
       <Route path="notes/new" element={<NoteEditorPage />} />
       <Route path="notes/:itemId/edit" element={<NoteEditorPage />} />
-      <Route path="collections" element={<CollectionsPage />} />
-      <Route path="collections/:collectionId" element={<CollectionDetailPage />} />
       <Route path="smart-collections" element={<SmartCollectionsPage request={api} />} />
       <Route path="smart-collections/:collectionId" element={<SmartCollectionsPage request={api} />} />
-      <Route path="tags" element={<TagsPage />} />
       <Route path="graph" element={<KnowledgeGraphPage />} />
       <Route path="checkup" element={<LibraryCheckupPage />} />
       <Route path="settings/profile" element={<SettingsPage />} />
       <Route path="settings/preferences" element={<SettingsPage />} />
+      <Route path="settings/developer-access" element={<DeveloperAccessPage />} />
     </Route>
     <Route path="*" element={<NotFoundPage />} />
   </Routes></Suspense></BrowserRouter>;
@@ -123,7 +121,7 @@ function ProtectedShell() {
   const detailReturnTo = (location.state as { returnTo?: string } | null)?.returnTo;
   const detailReturnPath = detailReturnTo?.split(/[?#]/, 1)[0] ?? '';
   const detailBackground = /^\/app\/items\/[^/]+$/.test(location.pathname)
-    ? detailReturnPath === '/app' ? <LibraryPage /> : detailReturnPath === '/app/checkup' ? <LibraryCheckupPage /> : detailReturnPath === '/app/graph' ? <KnowledgeGraphPage /> : null
+    ? detailReturnPath === '/app/checkup' ? <LibraryCheckupPage /> : detailReturnPath === '/app/graph' ? <KnowledgeGraphPage /> : <LibraryPage />
     : null;
   const hasDetailBackground = Boolean(detailBackground);
 
@@ -239,6 +237,10 @@ function QuickAddDock() {
   </>;
 }
 
+function SidebarIcon({ name }: { name: string }) {
+  return <img className="rembr-sidebar-icon" src={`/iconsax/${name}.svg`} alt="" aria-hidden="true" draggable={false} />;
+}
+
 function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promise<void> }) {
   const [logoutBusy, setLogoutBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -247,17 +249,13 @@ function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promi
   const location = useLocation();
   const sidebarExpanded = expanded || hoverExpanded;
   const navItems = [
-    { path: '/app', label: 'Saved library', icon: <Brain />, exact: true },
-    { path: '/app/smart-collections', label: 'Smart collections', icon: <Folder /> },
-    { path: '/app/add', label: 'Add saves', icon: <Upload /> },
+    { path: '/app', label: 'Saved library', icon: <SidebarIcon name="book-saved" />, exact: true },
+    { path: '/app/smart-collections', label: 'Smart collections', icon: <SidebarIcon name="folder-2" /> },
+    { path: '/app/graph', label: 'Connections', icon: <SidebarIcon name="hierarchy-2" /> },
+    { path: '/app/add', label: 'Add saves', icon: <SidebarIcon name="document-upload" /> },
   ];
   const moreItems = [
-    { path: '/app/collections', label: 'Collections', icon: <Database /> },
-    { path: '/app/imports', label: 'Imports', icon: <Archive /> },
-    { path: '/app/tags', label: 'Tags', icon: <TagIcon /> },
-    { path: '/app/graph', label: 'Connections', icon: <Network /> },
-    { path: '/app/checkup', label: 'Review', icon: <ScanSearch /> },
-    { path: '/app/settings/profile', label: 'Settings', icon: <Settings /> },
+    { path: '/app/checkup', label: 'Review', icon: <SidebarIcon name="scan" /> },
   ];
   const activeMoreLink = moreItems.find(({ path }) => location.pathname.startsWith(path));
   const accountLabel = session.profile?.username ? `@${session.profile.username}` : session.user.email;
@@ -269,53 +267,57 @@ function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promi
     <aside className={`iscraper-sidebar hidden h-screen shrink-0 flex-col overflow-hidden border-r border-white/5 bg-black transition-[width] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] md:flex ${sidebarExpanded ? 'is-expanded w-60' : 'w-[76px]'}`}
       onMouseEnter={() => { if (!expanded) setHoverExpanded(true); }} onMouseLeave={() => setHoverExpanded(false)} aria-label="Workspace navigation">
       <div className={`flex border-b border-white/5 p-3 ${sidebarExpanded ? 'items-center gap-2' : 'flex-col items-center gap-2'}`}>
-        <Link to="/" title="Back to Rembr home" aria-label="Back to Rembr home" className={`flex min-h-11 items-center rounded-lg transition hover:bg-white/5 ${sidebarExpanded ? 'min-w-0 flex-1 gap-3 px-2' : 'h-11 w-11 justify-center'}`}>
-          <ArrowLeft className="h-4 w-4 shrink-0 text-muted-foreground" />{sidebarExpanded && <img className="rembr-official-logo app-nav-brand" src="/brand/rembr-wordmark.svg?v=20261101" alt="Rembr" />}
+        <Link to="/" aria-label="Back to Rembr home" className={`flex min-h-11 items-center rounded-lg transition hover:bg-white/5 ${sidebarExpanded ? 'min-w-0 flex-1 gap-3 px-2' : 'h-11 w-11 justify-center'}`}>
+          <SidebarIcon name="arrow-left-02" />{sidebarExpanded && <img className="rembr-official-logo app-nav-brand" src="/brand/rembr-wordmark.svg?v=20261101" alt="Rembr" />}
         </Link>
-        <button type="button" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? 'Collapse sidebar' : 'Expand sidebar'} aria-expanded={expanded} title={expanded ? 'Collapse sidebar' : 'Expand sidebar'} className="grid h-11 w-11 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-white/5 hover:text-primary">
-          {expanded ? <PanelLeftClose className="h-5 w-5" /> : <PanelLeftOpen className="h-5 w-5" />}
+        <button type="button" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? 'Collapse sidebar' : 'Expand sidebar'} aria-expanded={expanded} className="grid h-11 w-11 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-white/5 hover:text-primary">
+          <SidebarIcon name={expanded ? 'sidebar-left' : 'sidebar-right'} />
         </button>
       </div>
-      <Link to="/app/settings/profile" title={`Signed in as ${accountLabel}`} className={`flex items-center border-b border-white/5 text-xs text-muted-foreground transition hover:bg-white/5 hover:text-foreground ${sidebarExpanded ? 'gap-3 px-5 py-3' : 'justify-center px-3 py-3'}`}>
+      <Link to="/app/settings/profile" aria-label={`Signed in as ${accountLabel}`} className={`flex items-center border-b border-white/5 text-xs text-muted-foreground transition hover:bg-white/5 hover:text-foreground ${sidebarExpanded ? 'gap-3 px-5 py-3' : 'justify-center px-3 py-3'}`}>
         <span className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-full border border-white/10 bg-primary text-sm font-bold text-primary-foreground">{avatar ? <img src={avatar} alt="" className="h-full w-full object-cover" /> : userMark.toUpperCase()}</span>
         {sidebarExpanded && <span className="min-w-0"><span className="block">Signed in as</span><span className="block truncate font-semibold text-foreground">{accountLabel}</span></span>}
       </Link>
       <nav className={`flex-1 space-y-1 p-3 ${sidebarExpanded ? '' : 'flex flex-col items-center'}`} aria-label="Main navigation">
-        {navItems.map((item) => <Link key={item.path} to={item.path} title={item.label} aria-label={item.label} aria-current={isActive(item.path, item.exact) ? 'page' : undefined}
+        {navItems.map((item) => <Link key={item.path} to={item.path} aria-label={item.label} aria-current={isActive(item.path, item.exact) ? 'page' : undefined}
           className={`flex items-center rounded-lg text-sm transition ${isActive(item.path, item.exact) ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'} ${sidebarExpanded ? 'gap-3 px-3 py-2.5' : 'h-11 w-11 justify-center'}`}>
           {item.icon}{sidebarExpanded && <span className="truncate">{item.label}</span>}
         </Link>)}
         <div className={`relative ${sidebarExpanded ? '' : 'w-11'}`}>
-          <button type="button" onClick={() => setMoreOpen((open) => !open)} aria-expanded={moreOpen} aria-controls="rembr-more-navigation" title={activeMoreLink?.label ?? 'More'} aria-label={activeMoreLink?.label ? `More navigation, ${activeMoreLink.label} selected` : 'More navigation'}
+          <button type="button" onClick={() => setMoreOpen((open) => !open)} data-active={Boolean(activeMoreLink)} aria-expanded={moreOpen} aria-controls="rembr-more-navigation" aria-label={activeMoreLink?.label ? `More navigation, ${activeMoreLink.label} selected` : 'More navigation'}
             className={`flex w-full items-center rounded-lg text-sm transition ${activeMoreLink ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'} ${sidebarExpanded ? 'gap-3 px-3 py-2.5' : 'h-11 justify-center'}`}>
-            <MoreHorizontal className="h-4 w-4 shrink-0" />{sidebarExpanded && <><span className="flex-1 text-left">More</span><ChevronDown className={`h-4 w-4 transition-transform ${moreOpen ? 'rotate-180' : ''}`} /></>}
+            <SidebarIcon name="more" />{sidebarExpanded && <><span className="flex-1 text-left">More</span><SidebarIcon name={moreOpen ? 'arrow-up-01' : 'arrow-down-01'} /></>}
           </button>
           {moreOpen && <div id="rembr-more-navigation" className={`iscraper-more-menu ${sidebarExpanded ? 'is-expanded' : ''}`}>
             {moreItems.map((item) => <Link key={item.path} to={item.path} onClick={() => setMoreOpen(false)} aria-current={isActive(item.path) ? 'page' : undefined} className={isActive(item.path) ? 'is-active' : ''}>{item.icon}<span>{item.label}</span></Link>)}
-            <Link to="/how-to-use" onClick={() => setMoreOpen(false)}><FileText className="h-4 w-4" /><span>How to use</span></Link>
           </div>}
         </div>
       </nav>
-      <div className="flex flex-col items-center gap-2 border-t border-white/5 p-3">
-        <button type="button" className="danger-button grid h-11 w-11 place-items-center rounded-lg transition" aria-label="Sign out" title="Sign out" disabled={logoutBusy} onClick={handleLogout}><LogOut className="h-4 w-4" /></button>
+      <div className="flex flex-col gap-2 border-t border-white/5 p-3">
+        <Link to="/how-to-use" className={`flex h-11 items-center rounded-lg text-sm text-muted-foreground transition hover:bg-white/5 hover:text-foreground ${sidebarExpanded ? 'gap-3 px-3' : 'w-11 justify-center'}`} aria-label="How to use"><SidebarIcon name="book-open" />{sidebarExpanded && <span>How to use</span>}</Link>
+        <div className={`flex gap-2 ${sidebarExpanded ? 'flex-row' : 'flex-col items-center'}`}>
+          <Link to="/app/settings/profile" className={`flex h-11 shrink-0 items-center rounded-lg text-sm text-muted-foreground transition hover:bg-white/5 hover:text-foreground ${sidebarExpanded ? 'flex-1 gap-3 px-3' : 'w-11 justify-center'}`} aria-label="Settings"><SidebarIcon name="setting-2" />{sidebarExpanded && <span>Settings</span>}</Link>
+          <button type="button" className="danger-button grid h-11 w-11 shrink-0 place-items-center rounded-lg transition" aria-label="Sign out" disabled={logoutBusy} onClick={handleLogout}><SidebarIcon name="logout-01" /></button>
+        </div>
       </div>
     </aside>
     <header className="mobile-app-topbar sticky top-0 z-30 flex items-center justify-between gap-3 border-b border-white/10 bg-black/90 p-3 backdrop-blur md:hidden">
-      <Link to="/" aria-label="Rembr home" className="flex min-h-11 min-w-11 items-center gap-2"><ArrowLeft className="h-4 w-4" /><img className="rembr-official-logo app-nav-brand" src="/brand/rembr-wordmark.svg?v=20261101" alt="Rembr" /></Link>
+      <Link to="/" aria-label="Rembr home" className="flex min-h-11 min-w-11 items-center gap-2"><SidebarIcon name="arrow-left-02" /><img className="rembr-official-logo app-nav-brand" src="/brand/rembr-wordmark.svg?v=20261101" alt="Rembr" /></Link>
       <Link to="/app/settings/profile" className="grid h-11 w-11 place-items-center overflow-hidden rounded-full border border-white/10 bg-primary text-sm font-bold text-primary-foreground" aria-label="Open account settings">{avatar ? <img src={avatar} alt="" className="h-full w-full object-cover" /> : userMark.toUpperCase()}</Link>
     </header>
     {moreOpen && <button type="button" className="mobile-navigation-backdrop md:hidden" onClick={() => setMoreOpen(false)} aria-label="Close more navigation" />}
     <nav className="mobile-bottom-navigation md:hidden" aria-label="Main navigation" onKeyDown={(event) => { if (event.key === 'Escape') setMoreOpen(false); }}>
       <div id="rembr-mobile-more" className="mobile-more-panel" role="group" aria-label="More sections" hidden={!moreOpen}>
         {moreItems.map((item) => <Link key={item.path} to={item.path} onClick={() => setMoreOpen(false)} aria-current={isActive(item.path) ? 'page' : undefined} className={`mobile-more-item ${isActive(item.path) ? 'is-active' : ''}`}>{item.icon}<span>{item.label}</span></Link>)}
-        <Link to="/how-to-use" onClick={() => setMoreOpen(false)} className="mobile-more-item"><FileText className="h-4 w-4" /><span>How to use</span></Link>
+        <Link to="/app/smart-collections" onClick={() => setMoreOpen(false)} aria-current={isActive('/app/smart-collections') ? 'page' : undefined} className={`mobile-more-item ${isActive('/app/smart-collections') ? 'is-active' : ''}`}><SidebarIcon name="folder-2" /><span>Smart collections</span></Link>
+        <Link to="/how-to-use" onClick={() => setMoreOpen(false)} className="mobile-more-item"><SidebarIcon name="book-open" /><span>How to use</span></Link>
       </div>
       {[
-        { path: '/app', label: 'Library', icon: <Database />, exact: true },
-        { path: '/app/smart-collections', label: 'Smart', icon: <Brain /> },
-        { path: '/app/add', label: 'Add', icon: <Plus />, add: true },
+        { path: '/app', label: 'Library', icon: <SidebarIcon name="book-saved" />, exact: true },
+        { path: '/app/graph', label: 'Connections', icon: <SidebarIcon name="hierarchy-2" /> },
+        { path: '/app/add', label: 'Add', icon: <SidebarIcon name="document-upload" />, add: true },
       ].map((item) => <Link key={item.path} to={item.path} aria-current={isActive(item.path, item.exact) ? 'page' : undefined} className={`mobile-bottom-navigation-button ${isActive(item.path, item.exact) ? 'is-active' : ''} ${item.add ? 'is-add' : ''}`}>{item.icon}<span>{item.label}</span></Link>)}
-      <button type="button" onClick={() => setMoreOpen((open) => !open)} aria-expanded={moreOpen} aria-controls="rembr-mobile-more" className={`mobile-bottom-navigation-button ${activeMoreLink || moreOpen ? 'is-active' : ''}`}><MoreHorizontal className="h-5 w-5" /><span>More</span></button>
+      <button type="button" onClick={() => setMoreOpen((open) => !open)} aria-expanded={moreOpen} aria-controls="rembr-mobile-more" className={`mobile-bottom-navigation-button ${activeMoreLink || moreOpen ? 'is-active' : ''}`}><SidebarIcon name="more" /><span>More</span></button>
     </nav>
   </>;
 }

@@ -1,0 +1,44 @@
+.zone {
+  position: relative;
+  display: grid;
+  min-height: 170px;
+  width: 100%;
+  overflow: hidden;
+  place-items: center;
+  border: 1px dashed var(--line);
+  border-radius: 18px;
+  padding: 18px;
+  background: color-mix(in srgb, var(--surface-soft) 54%, transparent);
+  text-align: center;
+  transition: border-color 180ms ease, background-color 180ms ease, box-shadow 180ms ease;
+}
+.zone:hover, .zone.near { border-color: color-mix(in srgb, var(--primary) 75%, var(--line)); background: color-mix(in srgb, var(--primary) 6%, var(--surface)); }
+.zone.over { border-style: solid; border-color: var(--primary); background: color-mix(in srgb, var(--primary) 12%, var(--surface)); box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 14%, transparent); }
+.zone.disabled { cursor: not-allowed; opacity: .58; }
+.compact { min-height: 94px; padding: 10px; border-radius: 13px; }
+.compact .content { display: grid; grid-template-columns: 34px minmax(0, 1fr); justify-items: start; gap: 2px 9px; width: 100%; text-align: left; }
+.compact .fileIcon { grid-row: span 3; width: 34px; height: 34px; border-radius: 10px; }
+.compact .fileIcon svg { width: 18px; height: 18px; }
+.compact .content strong { font-size: 11px; }
+.compact .hint { font-size: 10px; }
+.compact .browse { min-height: 28px; grid-column: 2; margin-top: 4px; padding: 0 9px; font-size: 10px; }
+.compact .ready { right: 8px; bottom: 7px; }
+.input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; clip-path: inset(50%); }
+.content { position: relative; z-index: 1; display: flex; max-width: 100%; flex-direction: column; align-items: center; gap: 7px; pointer-events: none; }
+.fileIcon { display: grid; width: 42px; height: 42px; place-items: center; border: 1px solid color-mix(in srgb, var(--primary) 32%, var(--line)); border-radius: 13px; background: color-mix(in srgb, var(--primary) 11%, var(--surface)); color: var(--primary); }
+.content strong { color: var(--text); font-size: 13px; font-weight: 700; }
+.hint, .fileSummary { color: var(--muted); font-size: 11px; line-height: 1.45; }
+.browse { display: inline-flex; min-height: 34px; align-items: center; justify-content: center; gap: 7px; margin-top: 4px; border: 1px solid var(--line); border-radius: 999px; padding: 0 12px; background: var(--surface); color: var(--text); font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; pointer-events: auto; transition: transform 160ms ease, border-color 160ms ease, background-color 160ms ease; }
+.browse:hover:not(:disabled) { transform: translateY(-1px); border-color: var(--primary); background: color-mix(in srgb, var(--primary) 8%, var(--surface)); }
+.browse:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.browse:disabled { cursor: not-allowed; }
+.glow { position: absolute; top: 50%; left: 50%; width: 160px; height: 160px; margin: -80px 0 0 -80px; border-radius: 50%; background: color-mix(in srgb, var(--primary) 20%, transparent); filter: blur(42px); opacity: 0; transition: opacity 180ms ease; pointer-events: none; }
+.near .glow, .over .glow { opacity: .8; }
+.error { position: relative; z-index: 2; display: flex; align-items: center; gap: 7px; margin: 10px 0 0; border-radius: 8px; padding: 7px 9px; background: color-mix(in srgb, var(--danger) 10%, var(--surface)); color: var(--danger); font-size: 11px; }
+.error button { display: grid; width: 22px; height: 22px; flex: 0 0 22px; place-items: center; border: 0; border-radius: 50%; background: transparent; color: inherit; cursor: pointer; }
+.live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.ready { position: absolute; right: 12px; bottom: 10px; display: inline-flex; align-items: center; gap: 4px; color: var(--success); font-size: 10px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .zone, .browse, .glow { transition: none; }
+}

@@ -145,7 +145,7 @@ function HomePage() {
     </section>
 
     <section className="constellation-section">
-      <div className="constellation-copy" data-reveal><h2>Good ideas<br/>have <span>neighbors.</span></h2><p>Collections and connections bring related finds together.</p><a className="button button-yellow" href="/features">Meet your library <Arrow diagonal/></a></div>
+      <div className="constellation-copy" data-reveal><h2>Good ideas<br/>have <span>neighbors.</span></h2><p>Connections bring related finds together through the topics and entities in each source.</p><a className="button button-yellow" href="/features">Meet your library <Arrow diagonal/></a></div>
       <div className="constellation-art" data-parallax="constellation" aria-label="An abstract map connecting saved ideas" role="img">
         <svg viewBox="0 0 520 460" aria-hidden="true"><path className="constellation-line" d="M75 104C143 107 158 169 221 173S329 88 411 126M81 315c77-9 84-81 149-91s103 93 193 83M221 173c-9 49 5 89 9 131m-9-131c79 13 100 24 161 60"/><circle cx="75" cy="104" r="9"/><circle cx="411" cy="126" r="9"/><circle cx="81" cy="315" r="9"/><circle cx="423" cy="307" r="9"/><circle cx="221" cy="173" r="18"/><circle cx="230" cy="304" r="12"/><circle cx="382" cy="233" r="12"/></svg>
         <div className="constellation-note note-center"><span>ONE IDEA</span><b>Making room<br/>to think</b><small>3 saved things nearby</small></div>
@@ -176,7 +176,7 @@ function HomePage() {
       <div className="faq-intro" data-reveal><h2>Questions,<br/><span>answered.</span></h2></div>
       <div className="faq-list" data-reveal>
         <details><summary>Can I bring in posts I already saved?<span>＋</span></summary><p>Yes. Import saved-post exports from Instagram, Pinterest, and X. You can also save a public link from Facebook, LinkedIn, or another site.</p></details>
-        <details><summary>How do I find a saved page?<span>＋</span></summary><p>Search your library or browse your collections. Answers about your library link back to the saved sources they use.</p></details>
+        <details><summary>How do I find a saved page?<span>＋</span></summary><p>Search your library or follow connections between related saves. Answers about your library link back to the saved sources they use.</p></details>
         <details><summary>Does Rembr post on my behalf?<span>＋</span></summary><p>No. Rembr helps you keep and find saved posts and links. It does not publish to other services.</p></details>
         <details><summary>Can I export or delete my library?<span>＋</span></summary><p>Open Account &amp; settings in your library to see the controls available in this release. Contact us if you need help with your data.</p></details>
         <details><summary>Will every page save perfectly?<span>＋</span></summary><p>No. Some sites limit what Rembr can read. When a page is incomplete, its source link stays available.</p></details>
@@ -195,7 +195,7 @@ function FeaturesPage() {
   return <main id="top" className="subpage-main">
     <PageHero title={<>Your saved posts,<br/>all in one</>} accent="place." description="Bring posts in from Instagram, Pinterest, and X. Save links from anywhere else. Keep the source beside your notes."/>
     <section className="feature-story feature-story-yellow" data-reveal><div className="feature-story-number">01</div><div className="feature-story-copy"><h2>Bring in the posts you saved.</h2><p>Import Instagram, Pinterest, and X saved-post exports, or save a public page link directly.</p></div><div className="feature-story-art capture-art" aria-hidden="true"><span>POST</span><i>↘</i><b>KEPT</b></div></section>
-    <section className="feature-story feature-story-orange" data-reveal><div className="feature-story-number">02</div><div className="feature-story-copy"><h2>Keep related things together.</h2><p>Add notes, tags, or collections to shape your library.</p></div><div className="feature-story-art connect-art" aria-hidden="true"><span>IDEA</span><i/><i/><i/><b>THREAD</b></div></section>
+    <section className="feature-story feature-story-orange" data-reveal><div className="feature-story-number">02</div><div className="feature-story-copy"><h2>See the threads between saves.</h2><p>Rembr connects saved pages through analyzed topics and entities found in their content.</p></div><div className="feature-story-art connect-art" aria-hidden="true"><span>IDEA</span><i/><i/><i/><b>THREAD</b></div></section>
     <section className="feature-story feature-story-ink" data-reveal><div className="feature-story-number">03</div><div className="feature-story-copy"><h2>Find the page you need.</h2><p>Search what you saved. Ask questions and follow answers to their sources.</p></div><div className="feature-story-art return-art" aria-hidden="true"><span>⌕</span><b>FOUND<br/>AGAIN</b></div></section>
     <section className="feature-trust" data-reveal><h2>Your library, your way.</h2><p>Choose what to save, add your own context, and open the original source whenever you need it.</p><a className="underlined-link" href="/about">Why Rembr keeps the source <span aria-hidden="true">↗</span></a></section>
     <section className="feature-limit" data-reveal><p>Some sites limit what Rembr can save. External actions always need your approval.</p><a href="/contact">Ask us a question <Arrow diagonal/></a></section>

@@ -38,9 +38,9 @@ test('Obsidian export builder creates all item and concept notes with stable col
   const { graph, files } = buildObsidianExport([
     { id: 'item-1', title: '../Same Name', url: 'https://example.com/a', description: 'First save', status: 'ready', createdAt: '2026-01-01', note: 'Personal note', summary: 'Summary one', keywords: ['Systems'], analysisTags: [], brands: ['Acme'], tools: ['Figma'], people: ['Ada Lovelace'], repositories: ['rembr/core'] },
     { id: 'item-2', title: '../Same Name', url: 'https://example.com/b', description: '', status: 'ready', createdAt: '2026-01-02', note: '', summary: '', keywords: [], analysisTags: [], brands: [], tools: [], people: [], repositories: [] },
-  ], [{ itemId: 'item-1', id: 'tag-1', name: 'Research' }], [{ itemId: 'item-1', id: 'collection-1', name: 'Reading' }]);
+  ]);
   assert.equal(graph.stats.indexedItems, 2);
-  assert.equal(graph.stats.conceptNodes, 8); // domain, topic, tag, collection, and four typed entities
+  assert.equal(graph.stats.conceptNodes, 6); // domain, topic, and four AI-extracted entity types
   assert.deepEqual(graph.nodes.filter((node) => ['brand', 'tool', 'person', 'repository'].includes(node.type)).map((node) => [node.type, node.label]).sort(), [
     ['brand', 'Acme'], ['person', 'Ada Lovelace'], ['repository', 'rembr/core'], ['tool', 'Figma'],
   ]);
@@ -92,7 +92,7 @@ test('Obsidian graph ZIP contains the full owner library and excludes other acco
     const fileNames = Object.entries(archive.files).filter(([, file]) => !file.dir).map(([name]) => name);
     assert.ok(fileNames.includes('graph.json'));
     assert.equal(fileNames.filter((name) => name.startsWith('IScraper Items/')).length, 203);
-    assert.ok(fileNames.some((name) => name.startsWith('IScraper Graph/Export tag')));
+    assert.ok(!fileNames.some((name) => name.startsWith('IScraper Graph/Export tag')));
     const itemFiles = fileNames.filter((name) => name.startsWith('IScraper Items/'));
     assert.equal(new Set(itemFiles).size, 203);
     const notes = await Promise.all(itemFiles.map(async (name) => archive.file(name)!.async('string')));

@@ -19,9 +19,7 @@ export type ExportItem = {
   repositories: string[];
 };
 
-export type ExportRelation = { itemId: string; id: string; name: string };
-
-type ExportConcept = { id: string; type: 'tag' | 'collection' | 'topic' | 'domain' | 'brand' | 'tool' | 'person' | 'repository'; label: string; itemIds: string[] };
+type ExportConcept = { id: string; type: 'topic' | 'domain' | 'brand' | 'tool' | 'person' | 'repository'; label: string; itemIds: string[] };
 
 function safeFileName(value: string): string {
   return value.normalize('NFKC').replace(/[<>:"/\\|?*#^]/g, ' ').replace(/\p{Cc}/gu, ' ').replaceAll('[', ' ').replaceAll(']', ' ')
@@ -49,7 +47,7 @@ function listFromJson(value: string | null): string[] {
   } catch { return []; }
 }
 
-export function buildObsidianExport(items: ExportItem[], tags: ExportRelation[], collections: ExportRelation[]) {
+export function buildObsidianExport(items: ExportItem[]) {
   const itemIds = new Set(items.map((item) => item.id));
   const concepts = new Map<string, ExportConcept>();
   const conceptItems = new Map<string, Set<string>>();
@@ -74,8 +72,6 @@ export function buildObsidianExport(items: ExportItem[], tags: ExportRelation[],
     itemConcepts.set(itemId, linked);
   };
 
-  for (const relation of tags) addConcept(relation.itemId, 'tag', relation.name);
-  for (const relation of collections) addConcept(relation.itemId, 'collection', relation.name);
   for (const item of items) {
     try {
       const host = new URL(item.url).hostname.toLowerCase().replace(/^www\./, '');
@@ -177,19 +173,7 @@ export function createObsidianExportRepository(database: DatabaseHandle) {
         WHERE saved_items.owner_id=?
         ORDER BY saved_items.created_at, saved_items.id`).all(ownerId) as Array<Omit<ExportItem, 'keywords' | 'analysisTags' | 'brands' | 'tools' | 'people' | 'repositories'> & { keywords_json: string | null; tags_json: string | null; brands_json: string | null; tools_json: string | null; people_json: string | null; repositories_json: string | null }>;
       const items: ExportItem[] = rows.map((row) => ({ ...row, keywords: listFromJson(row.keywords_json), analysisTags: listFromJson(row.tags_json), brands: listFromJson(row.brands_json), tools: listFromJson(row.tools_json), people: listFromJson(row.people_json), repositories: listFromJson(row.repositories_json) }));
-      const tagRelations: ExportRelation[] = [];
-      const collectionRelations: ExportRelation[] = [];
-      for (let offset = 0; offset < items.length; offset += 500) {
-        const ids = items.slice(offset, offset + 500).map((item) => item.id);
-        const marks = ids.map(() => '?').join(',');
-        const [tagRows, collectionRows] = await Promise.all([
-          database.prepare(`SELECT item_tags.item_id AS "itemId", tags.id, tags.display_name AS name FROM item_tags JOIN tags ON tags.owner_id=item_tags.owner_id AND tags.id=item_tags.tag_id WHERE item_tags.owner_id=? AND item_tags.item_id IN (${marks})`).all(ownerId, ...ids) as Promise<ExportRelation[]>,
-          database.prepare(`SELECT collection_items.item_id AS "itemId", collections.id, collections.name FROM collection_items JOIN collections ON collections.owner_id=collection_items.owner_id AND collections.id=collection_items.collection_id WHERE collection_items.owner_id=? AND collection_items.item_id IN (${marks})`).all(ownerId, ...ids) as Promise<ExportRelation[]>,
-        ]);
-        tagRelations.push(...tagRows);
-        collectionRelations.push(...collectionRows);
-      }
-      return buildObsidianExport(items, tagRelations, collectionRelations);
+      return buildObsidianExport(items);
     },
     async zip(ownerId: string): Promise<Buffer> {
       const { files } = await this.build(ownerId);

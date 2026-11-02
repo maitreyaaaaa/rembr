@@ -249,11 +249,11 @@ test('large import acceptance batches writes and deduplicates repeated URLs acro
     assert.equal(Number((await database.prepare('SELECT count(*) AS count FROM processing_jobs WHERE import_id=?').get(manifest.id) as { count: number }).count), 500);
     assert.equal(Number((await database.prepare(`SELECT count(*) AS count FROM import_entries WHERE import_id=? AND status='duplicate'`).get(manifest.id) as { count: number }).count), 1);
     assert.equal(Number((await database.prepare('SELECT count(*) AS count FROM item_tags WHERE owner_id=?').get(account.id) as { count: number }).count), 500);
-    assert.equal(Number((await database.prepare('SELECT count(*) AS count FROM collection_items WHERE owner_id=?').get(account.id) as { count: number }).count), 500);
+    assert.equal(Number((await database.prepare('SELECT count(*) AS count FROM collection_items WHERE owner_id=?').get(account.id) as { count: number }).count), 0);
   });
 });
 
-test('import acceptance reuses matching owner collections and assigns source folders in the same pass', async () => {
+test('import acceptance does not create manual collections from source folders', async () => {
   await withApi(async (_baseUrl, database) => {
     await register(_baseUrl, 'collection-importer@example.test', 'collection_importer');
     const account = await database.prepare('SELECT id FROM users WHERE email=?').get('collection-importer@example.test') as { id: string };
@@ -273,8 +273,7 @@ test('import acceptance reuses matching owner collections and assigns source fol
     const result = await repository.accept(account.id, manifest.id, lease, files.map((file) => ({ id: String(file.id), key: String(file.storage_key), name: String(file.original_name) })), [item]);
     assert.equal(result.newCount, 1);
     const saved = await database.prepare('SELECT id FROM saved_items WHERE owner_id=? AND original_url=?').get(account.id, item.url) as { id: string };
-    const linked = await database.prepare('SELECT collection_id FROM collection_items WHERE owner_id=? AND item_id=?').get(account.id, saved.id) as { collection_id: string };
-    assert.equal(linked.collection_id, 'existing-reading-list');
+    assert.equal(Number((await database.prepare('SELECT count(*) AS count FROM collection_items WHERE owner_id=? AND item_id=?').get(account.id, saved.id) as { count: number }).count), 0);
     assert.equal(Number((await database.prepare('SELECT count(*) AS count FROM collections WHERE owner_id=?').get(account.id) as { count: number }).count), 1);
   });
 });
