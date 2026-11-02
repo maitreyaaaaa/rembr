@@ -24,6 +24,12 @@ services:
         sync: false
       - key: SUPABASE_SERVICE_ROLE_KEY
         sync: false
+      - key: WORKOS_API_KEY
+        sync: false
+      - key: WORKOS_AUTHKIT_DOMAIN
+        sync: false
+      - key: MCP_RESOURCE_URL
+        sync: false
       - key: META_API_KEY
         sync: false
       - key: OPENROUTER_API_KEY

@@ -42,6 +42,7 @@ function AppRoutes() {
     <Route path="/data-deletion" element={<LegalPage kind="data-deletion" />} />
     <Route path="/cookies" element={<LegalPage kind="cookies" />} />
     <Route path="/login" element={<AuthPage />} />
+    <Route path="/auth/workos/mcp" element={<WorkOSMcpCallback />} />
     <Route path="/app/setup/profile" element={<SetupRoute />} />
     <Route path="/app/setup/onboarding" element={<Navigate to="/app" replace />} />
     <Route path="/app" element={<ProtectedShell />}>
@@ -107,6 +108,44 @@ function AuthPage() {
       <form className="stack-form" onSubmit={(event) => void submit(event)}><label htmlFor="email">Email address</label><input id="email" autoComplete="email" type="email" required maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} />{mode === 'register' ? <PasswordStrengthField id="password" value={password} onValueChange={setPassword} disabled={busy} /> : <><label htmlFor="password">Password</label><div className="password-input-wrap"><input id="password" name="password" autoComplete="current-password" type={passwordRevealed ? 'text' : 'password'} required minLength={1} maxLength={128} value={password} onChange={(event) => setPassword(event.target.value)} /><button type="button" className="password-reveal" aria-label={passwordRevealed ? 'Hide password' : 'Show password'} aria-controls="password" aria-pressed={passwordRevealed} onClick={() => setPasswordRevealed((current) => !current)}>{passwordRevealed ? 'Hide' : 'Show'}</button></div></>}<label className="auth-remember"><input type="checkbox" checked={rememberMe} onChange={(event) => setRememberMe(event.currentTarget.checked)} /><span>Keep me signed in on this browser for 30 days</span></label>{error && <p className="notice error" role="alert">{error}</p>}<button className="primary-button" type="submit" disabled={busy}>{busy ? (mode === 'register' ? 'Creating account…' : 'Signing in…') : mode === 'register' ? 'Create your library' : 'Sign in to Rembr'}</button></form>
       <p className="privacy-note"><span>✳</span>Your library is private to your account. Rembr can save public pages.</p>
   </RembrAuthFrame>;
+}
+
+function WorkOSMcpCallback() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [error, setError] = useState('');
+  const returnTo = `/auth/workos/mcp${location.search}`;
+
+  useEffect(() => {
+    let active = true;
+    const externalAuthId = new URLSearchParams(location.search).get('external_auth_id');
+    if (!externalAuthId || externalAuthId.length > 255) {
+      setError('This MCP sign-in request is missing or invalid. Start again from your MCP app.');
+      return () => { active = false; };
+    }
+
+    void api<Session>('/api/auth/session').then(async () => {
+      const result = await api<{ redirectUri: string }>('/api/auth/workos-mcp/complete', {
+        method: 'POST', body: JSON.stringify({ externalAuthId }),
+      });
+      if (active) window.location.replace(result.redirectUri);
+    }).catch((cause) => {
+      const status = (cause as ApiError).status;
+      if (status === 401) {
+        navigate(`/login?returnTo=${encodeURIComponent(returnTo)}`, { replace: true });
+        return;
+      }
+      if (active) setError(messageOf(cause, 'Rembr could not finish MCP sign-in. Start again from your MCP app.'));
+    });
+    return () => { active = false; };
+  }, [location.search, navigate, returnTo]);
+
+  return <main className="phase2-centered"><section className="phase2-card" aria-live="polite">
+    <p className="rg-kicker">REM BR / MCP ACCESS</p>
+    <h1>{error ? 'Could not connect.' : 'Connecting your Rembr account…'}</h1>
+    <p>{error || 'You will return to the MCP app after confirming access with WorkOS.'}</p>
+    {error && <Link className="quiet-button" to="/app">Return to Rembr</Link>}
+  </section></main>;
 }
 
 function useSession() {
