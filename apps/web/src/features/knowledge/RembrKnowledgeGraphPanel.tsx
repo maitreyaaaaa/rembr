@@ -1,5 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
 import { Check, Download, ExternalLink, RotateCcw, Search, ZoomIn, ZoomOut } from 'lucide-react';
+import {
+  forceCenter,
+  forceCollide,
+  forceLink,
+  forceManyBody,
+  forceSimulation,
+  type SimulationLinkDatum,
+  type SimulationNodeDatum,
+} from 'd3-force';
 
 export interface RembrGraphItem {
   id: string;
@@ -57,9 +66,14 @@ export interface RembrKnowledgeGraphPanelProps {
 type GraphTab = 'details' | 'export';
 type Point = { x: number; y: number };
 type ActivePointer = Point & { pointerType: string };
+type LayoutNode = RembrGraphNode & SimulationNodeDatum;
+type LayoutLink = SimulationLinkDatum<LayoutNode>;
 type GestureState =
   | { type: 'pan'; pointerId: number; x: number; y: number; pan: Point }
   | { type: 'pinch'; pointerIds: [number, number]; distance: number; zoom: number; worldPoint: Point };
+
+const GRAPH_UI_NODE_LIMIT = 240;
+const GRAPH_UI_LINK_LIMIT = 420;
 
 const graphTypeColors: Record<string, string> = {
   item: '#f4f4ef',
@@ -79,61 +93,54 @@ function titleCase(value: string): string {
   return value.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+function graphNodeWeight(node: RembrGraphNode): number {
+  return node.type === 'item' ? 5 : node.itemCount ?? 0;
+}
+
+function capGraphForUi(graph: RembrKnowledgeGraph | null): RembrKnowledgeGraph | null {
+  if (!graph || (graph.nodes.length <= GRAPH_UI_NODE_LIMIT && graph.links.length <= GRAPH_UI_LINK_LIMIT)) return graph;
+  const nodes = [...graph.nodes].sort((left, right) => graphNodeWeight(right) - graphNodeWeight(left)).slice(0, GRAPH_UI_NODE_LIMIT);
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const links = graph.links.filter((link) => nodeIds.has(link.source) && nodeIds.has(link.target)).slice(0, GRAPH_UI_LINK_LIMIT);
+  const groups = graph.groups
+    .filter((group) => nodeIds.has(group.id))
+    .map((group) => ({ ...group, items: group.items.filter((item) => nodeIds.has(`item:${item.id}`)) }));
+  return { ...graph, nodes, links, groups };
+}
+
 function graphLayout(nodes: RembrGraphNode[], links: RembrGraphLink[]): Map<string, Point> {
   const points = new Map<string, Point>();
-  const nodeIndex = new Map(nodes.map((node, index) => [node.id, index]));
-  const velocity = nodes.map(() => ({ x: 0, y: 0 }));
-  const degree = new Map(nodes.map((node) => [node.id, 0]));
-  nodes.forEach((node, index) => {
-    // A stable phyllotaxis seed keeps the force layout repeatable between visits.
-    const angle = index * 2.399963;
-    const radius = 24 + Math.sqrt(index + 1) * 19;
-    points.set(node.id, { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius * 0.82 });
+  if (!nodes.length) return points;
+  const simulationNodes: LayoutNode[] = nodes.map((node, index) => {
+    const angle = (Math.PI * 2 * index) / nodes.length;
+    const radius = node.type === 'item' ? 190 : 80 + ((index * 37) % 130);
+    return { ...node, x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
   });
-  const edges = links.flatMap((link) => {
-    const source = nodeIndex.get(link.source); const target = nodeIndex.get(link.target);
-    if (source !== undefined && target !== undefined) {
-      degree.set(link.source, (degree.get(link.source) ?? 0) + 1);
-      degree.set(link.target, (degree.get(link.target) ?? 0) + 1);
-    }
-    return source === undefined || target === undefined ? [] : [[source, target] as const];
-  });
+  const simulationLinks: LayoutLink[] = links.map((link) => ({ source: link.source, target: link.target }));
+  const simulation = forceSimulation<LayoutNode>(simulationNodes)
+    .force('link', forceLink<LayoutNode, LayoutLink>(simulationLinks)
+      .id((node) => node.id)
+      .distance((link) => {
+        const source = typeof link.source === 'object' ? link.source : null;
+        const target = typeof link.target === 'object' ? link.target : null;
+        return source?.type === 'item' || target?.type === 'item' ? 82 : 48;
+      })
+      .strength(0.28))
+    .force('charge', forceManyBody<LayoutNode>().strength((node) => (node.type === 'item' ? -360 : -160)))
+    .force('collide', forceCollide<LayoutNode>().radius((node) => (node.type === 'item' ? 34 : 20)).strength(0.9))
+    .force('center', forceCenter(0, 0))
+    .stop();
+  for (let index = 0; index < 260; index += 1) simulation.tick();
 
-  const radii = nodes.map((node) => Math.min(8, 2.8 + Math.sqrt(degree.get(node.id) ?? 0) * 0.55));
-  // Stable force-directed relaxation: connections pull into topic clusters,
-  // while all nodes repel and a light center force prevents unbounded drift.
-  for (let iteration = 0; iteration < 120; iteration += 1) {
-    const cooling = 1 - iteration / 150;
-    for (let left = 0; left < nodes.length; left += 1) {
-      const a = points.get(nodes[left]!.id)!;
-      for (let right = left + 1; right < nodes.length; right += 1) {
-        const b = points.get(nodes[right]!.id)!;
-        let dx = a.x - b.x; let dy = a.y - b.y;
-        let distance = Math.hypot(dx, dy);
-        if (distance < 0.001) { dx = left < right ? -0.1 : 0.1; dy = 0.1; distance = Math.hypot(dx, dy); }
-        const minimum = radii[left]! + radii[right]! + 18;
-        const repulsion = Math.min(2.8, 1900 / (distance * distance)) + Math.max(0, minimum - distance) * 0.035;
-        const force = repulsion * cooling;
-        velocity[left]!.x += (dx / distance) * force;
-        velocity[left]!.y += (dy / distance) * force;
-        velocity[right]!.x -= (dx / distance) * force;
-        velocity[right]!.y -= (dy / distance) * force;
-      }
-    }
-    for (const [source, target] of edges) {
-      const a = points.get(nodes[source]!.id)!; const b = points.get(nodes[target]!.id)!;
-      const dx = b.x - a.x; const dy = b.y - a.y;
-      const distance = Math.max(0.001, Math.hypot(dx, dy));
-      const spring = Math.max(-2.4, Math.min(2.4, (distance - 82) * 0.008)) * cooling;
-      velocity[source]!.x += (dx / distance) * spring; velocity[source]!.y += (dy / distance) * spring;
-      velocity[target]!.x -= (dx / distance) * spring; velocity[target]!.y -= (dy / distance) * spring;
-    }
-    nodes.forEach((node, index) => {
-      const point = points.get(node.id)!; const speed = velocity[index]!;
-      speed.x += -point.x * 0.0011; speed.y += -point.y * 0.0011;
-      point.x = Math.max(-470, Math.min(470, point.x + Math.max(-6, Math.min(6, speed.x))));
-      point.y = Math.max(-285, Math.min(285, point.y + Math.max(-6, Math.min(6, speed.y))));
-      speed.x *= 0.68; speed.y *= 0.68;
+  const xs = simulationNodes.map((node) => node.x ?? 0);
+  const ys = simulationNodes.map((node) => node.y ?? 0);
+  const minX = Math.min(...xs); const maxX = Math.max(...xs);
+  const minY = Math.min(...ys); const maxY = Math.max(...ys);
+  const scale = Math.min(860 / Math.max(maxX - minX, 1), 500 / Math.max(maxY - minY, 1), 1.6);
+  for (const node of simulationNodes) {
+    points.set(node.id, {
+      x: ((node.x ?? 0) - (minX + maxX) / 2) * scale,
+      y: ((node.y ?? 0) - (minY + maxY) / 2) * scale,
     });
   }
   return points;
@@ -163,23 +170,24 @@ export function RembrKnowledgeGraphPanel({
   const gestureRef = useRef<GestureState | null>(null);
   const query = filter.trim().toLowerCase();
 
+  const uiGraph = useMemo(() => capGraphForUi(graph), [graph]);
   const filteredGroups = useMemo(() => {
-    const groups = graph?.groups ?? [];
+    const groups = uiGraph?.groups ?? [];
     if (!query) return groups;
     return groups.filter((group) => group.label.toLowerCase().includes(query)
       || group.items.some((item) => item.title.toLowerCase().includes(query)));
-  }, [graph, query]);
+  }, [query, uiGraph]);
 
   const visibleGraph = useMemo(() => {
-    if (!graph || !query) return { nodes: graph?.nodes ?? [], links: graph?.links ?? [] };
+    if (!uiGraph || !query) return { nodes: uiGraph?.nodes ?? [], links: uiGraph?.links ?? [] };
     const conceptIds = new Set(filteredGroups.map((group) => group.id));
     const itemIds = new Set(filteredGroups.flatMap((group) => group.items.map((item) => item.id)));
-    const nodes = graph.nodes.filter((node) => node.type === 'item'
+    const nodes = uiGraph.nodes.filter((node) => node.type === 'item'
       ? Boolean(node.itemId && itemIds.has(node.itemId))
       : conceptIds.has(node.id));
     const nodeIds = new Set(nodes.map((node) => node.id));
-    return { nodes, links: graph.links.filter((link) => nodeIds.has(link.source) && nodeIds.has(link.target)) };
-  }, [filteredGroups, graph, query]);
+    return { nodes, links: uiGraph.links.filter((link) => nodeIds.has(link.source) && nodeIds.has(link.target)) };
+  }, [filteredGroups, query, uiGraph]);
 
   const positions = useMemo(() => graphLayout(visibleGraph.nodes, visibleGraph.links), [visibleGraph.nodes, visibleGraph.links]);
   const selectedNode = graph?.nodes.find((node) => node.id === selectedNodeId) ?? null;
@@ -187,20 +195,20 @@ export function RembrKnowledgeGraphPanel({
     ? graph?.groups.flatMap((group) => group.items).find((item) => item.id === selectedNode.itemId)
     : undefined;
   const selectedConnections = useMemo(() => {
-    if (!selectedNodeId || !graph) return [];
-    const otherIds = new Set(graph.links.flatMap((link) => link.source === selectedNodeId
+    if (!selectedNodeId || !uiGraph) return [];
+    const otherIds = new Set(uiGraph.links.flatMap((link) => link.source === selectedNodeId
       ? [link.target]
       : link.target === selectedNodeId ? [link.source] : []));
-    return graph.nodes.filter((node) => otherIds.has(node.id)).slice(0, 18);
-  }, [graph, selectedNodeId]);
+    return uiGraph.nodes.filter((node) => otherIds.has(node.id)).slice(0, 18);
+  }, [selectedNodeId, uiGraph]);
   const focusNodeId = selectedNodeId || hoveredNodeId;
   const highlightedConnections = useMemo(() => {
-    if (!focusNodeId || !graph) return [];
-    const otherIds = new Set(graph.links.flatMap((link) => link.source === focusNodeId
+    if (!focusNodeId || !uiGraph) return [];
+    const otherIds = new Set(uiGraph.links.flatMap((link) => link.source === focusNodeId
       ? [link.target]
       : link.target === focusNodeId ? [link.source] : []));
-    return graph.nodes.filter((node) => otherIds.has(node.id));
-  }, [focusNodeId, graph]);
+    return uiGraph.nodes.filter((node) => otherIds.has(node.id));
+  }, [focusNodeId, uiGraph]);
 
   useEffect(() => {
     if (selectedNodeId && !visibleGraph.nodes.some((node) => node.id === selectedNodeId)) setSelectedNodeId('');
@@ -351,6 +359,7 @@ export function RembrKnowledgeGraphPanel({
       </div>
 
       {graph?.truncated && !loading && <p className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-xs leading-5 text-muted-foreground" role="status">This graph is bounded to the latest indexed saves and strongest concepts. The export includes its coverage status.</p>}
+      {graph && !loading && (graph.nodes.length > GRAPH_UI_NODE_LIMIT || graph.links.length > GRAPH_UI_LINK_LIMIT) && <p className="rounded-xl border border-white/10 bg-white/[0.025] px-4 py-3 text-xs leading-5 text-muted-foreground" role="status">The graph view shows the strongest 240 nodes and up to 420 links for readability. Exports retain the full graph.</p>}
 
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
         <section className="relative h-[360px] overflow-hidden rounded-2xl border border-white/10 bg-white/[0.025] shadow-2xl shadow-black/25 sm:h-[410px] lg:h-[470px] xl:h-[540px]" aria-label="Interactive knowledge graph">
