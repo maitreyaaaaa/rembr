@@ -1000,6 +1000,13 @@ h1, h2, h3, p { margin-top: 0; }
 .phase2-tab-links { display: flex; gap: 5px; padding: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); }
 .phase2-tab-links a { padding: 8px 11px; border-radius: 7px; color: var(--muted) !important; font-size: 11px; font-weight: 700; text-decoration: none; }
 .phase2-tab-links a.active { background: var(--surface); color: var(--primary) !important; box-shadow: 0 2px 7px rgb(23 20 17 / 8%); }
+.settings-advanced-links { display: grid; gap: 8px; margin-top: 18px; }
+.settings-advanced-link { display: flex; min-height: 64px; align-items: center; justify-content: space-between; gap: 18px; border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; color: var(--text); text-decoration: none; transition: border-color 150ms ease, background 150ms ease; }
+.settings-advanced-link:hover, .settings-advanced-link:focus-visible { border-color: var(--primary); background: rgb(255 255 255 / 3%); outline: none; }
+.settings-advanced-link strong, .settings-advanced-link small { display: block; }
+.settings-advanced-link strong { font-size: 13px; font-weight: 650; }
+.settings-advanced-link small { margin-top: 4px; color: var(--muted); font-size: 11px; line-height: 1.45; }
+.settings-advanced-link > span:last-child { color: var(--primary); font-size: 18px; }
 .smart-collection-groups { display: grid; gap: 28px; }
 .smart-collection-groups > section > h2 { margin: 0 0 10px; font-size: 16px; font-weight: 600; letter-spacing: -.02em; }
 .smart-collection-groups .phase2-collection-grid { grid-template-columns: repeat(auto-fill, minmax(min(100%, 96px), 1fr)); gap: 4px 8px; }

@@ -12,7 +12,7 @@ import { GlobalButtonTooltips } from './components/ui/GlobalButtonTooltips.js';
 import { LibraryPage, KnowledgeGraphPage, LibraryCheckupPage } from './features/library/pages.js';
 import { AddPage, ImportsPage, ImportDetailPage } from './features/imports/pages.js';
 import { ItemDetailPage, ItemEditPage, NoteEditorPage } from './features/items/pages.js';
-import { SettingsPage } from './features/settings/SettingsPage.js';
+import { AdvancedOptionsPage, SettingsPage } from './features/settings/SettingsPage.js';
 import { DeveloperAccessPage } from './features/settings/DeveloperAccessPage.js';
 import { McpAccessPage } from './features/settings/McpAccessPage.js';
 import { WorkOSMcpConsentPage } from './features/auth/WorkOSMcpConsentPage.js';
@@ -62,6 +62,7 @@ function AppRoutes() {
       <Route path="checkup" element={<LibraryCheckupPage />} />
       <Route path="settings/profile" element={<SettingsPage />} />
       <Route path="settings/preferences" element={<SettingsPage />} />
+      <Route path="settings/advanced" element={<AdvancedOptionsPage />} />
       <Route path="settings/developer-access" element={<DeveloperAccessPage />} />
       <Route path="settings/mcp-access" element={<McpAccessPage />} />
     </Route>
@@ -266,13 +267,9 @@ function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promi
   const navItems = [
     { path: '/app', label: 'Saved library', icon: <SidebarIcon name="book-saved" />, exact: true },
     { path: '/app/smart-collections', label: 'Smart collections', icon: <SidebarIcon name="folder-2" /> },
-    { path: '/app/graph', label: 'Connections', icon: <SidebarIcon name="hierarchy-2" /> },
     { path: '/app/add', label: 'Add saves', icon: <SidebarIcon name="document-upload" /> },
   ];
-  const moreItems = [
-    { path: '/app/checkup', label: 'Review', icon: <SidebarIcon name="scan" /> },
-  ];
-  const activeMoreLink = moreItems.find(({ path }) => location.pathname.startsWith(path));
+  const mobileMoreActive = location.pathname.startsWith('/app/smart-collections') || location.pathname === '/how-to-use';
   const accountLabel = session.profile?.username ? `@${session.profile.username}` : session.user.email;
   const avatar = session.profile?.avatarAssetUrl ?? session.profile?.avatarUrl;
   const userMark = session.profile?.username?.slice(0, 1) ?? session.user.email.slice(0, 1);
@@ -298,15 +295,6 @@ function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promi
           className={`flex items-center rounded-lg text-sm transition ${isActive(item.path, item.exact) ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'} ${sidebarExpanded ? 'gap-3 px-3 py-2.5' : 'h-11 w-11 justify-center'}`}>
           {item.icon}{sidebarExpanded && <span className="truncate">{item.label}</span>}
         </Link>)}
-        <div className={`relative ${sidebarExpanded ? '' : 'w-11'}`}>
-          <button type="button" onClick={() => setMoreOpen((open) => !open)} data-active={Boolean(activeMoreLink)} aria-expanded={moreOpen} aria-controls="rembr-more-navigation" aria-label={activeMoreLink?.label ? `More navigation, ${activeMoreLink.label} selected` : 'More navigation'}
-            className={`flex w-full items-center rounded-lg text-sm transition ${activeMoreLink ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'} ${sidebarExpanded ? 'gap-3 px-3 py-2.5' : 'h-11 justify-center'}`}>
-            <SidebarIcon name="more" />{sidebarExpanded && <><span className="flex-1 text-left">More</span><SidebarIcon name={moreOpen ? 'arrow-up-01' : 'arrow-down-01'} /></>}
-          </button>
-          {moreOpen && <div id="rembr-more-navigation" className={`iscraper-more-menu ${sidebarExpanded ? 'is-expanded' : ''}`}>
-            {moreItems.map((item) => <Link key={item.path} to={item.path} onClick={() => setMoreOpen(false)} aria-current={isActive(item.path) ? 'page' : undefined} className={isActive(item.path) ? 'is-active' : ''}>{item.icon}<span>{item.label}</span></Link>)}
-          </div>}
-        </div>
       </nav>
       <div className="flex flex-col gap-2 border-t border-white/5 p-3">
         <Link to="/how-to-use" className={`flex h-11 items-center rounded-lg text-sm text-muted-foreground transition hover:bg-white/5 hover:text-foreground ${sidebarExpanded ? 'gap-3 px-3' : 'w-11 justify-center'}`} aria-label="How to use"><SidebarIcon name="book-open" />{sidebarExpanded && <span>How to use</span>}</Link>
@@ -323,16 +311,14 @@ function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promi
     {moreOpen && <button type="button" className="mobile-navigation-backdrop md:hidden" onClick={() => setMoreOpen(false)} aria-label="Close more navigation" />}
     <nav className="mobile-bottom-navigation md:hidden" aria-label="Main navigation" onKeyDown={(event) => { if (event.key === 'Escape') setMoreOpen(false); }}>
       <div id="rembr-mobile-more" className="mobile-more-panel" role="group" aria-label="More sections" hidden={!moreOpen}>
-        {moreItems.map((item) => <Link key={item.path} to={item.path} onClick={() => setMoreOpen(false)} aria-current={isActive(item.path) ? 'page' : undefined} className={`mobile-more-item ${isActive(item.path) ? 'is-active' : ''}`}>{item.icon}<span>{item.label}</span></Link>)}
         <Link to="/app/smart-collections" onClick={() => setMoreOpen(false)} aria-current={isActive('/app/smart-collections') ? 'page' : undefined} className={`mobile-more-item ${isActive('/app/smart-collections') ? 'is-active' : ''}`}><SidebarIcon name="folder-2" /><span>Smart collections</span></Link>
         <Link to="/how-to-use" onClick={() => setMoreOpen(false)} className="mobile-more-item"><SidebarIcon name="book-open" /><span>How to use</span></Link>
       </div>
       {[
         { path: '/app', label: 'Library', icon: <SidebarIcon name="book-saved" />, exact: true },
-        { path: '/app/graph', label: 'Connections', icon: <SidebarIcon name="hierarchy-2" /> },
         { path: '/app/add', label: 'Add', icon: <SidebarIcon name="document-upload" />, add: true },
       ].map((item) => <Link key={item.path} to={item.path} aria-current={isActive(item.path, item.exact) ? 'page' : undefined} className={`mobile-bottom-navigation-button ${isActive(item.path, item.exact) ? 'is-active' : ''} ${item.add ? 'is-add' : ''}`}>{item.icon}<span>{item.label}</span></Link>)}
-      <button type="button" onClick={() => setMoreOpen((open) => !open)} aria-expanded={moreOpen} aria-controls="rembr-mobile-more" className={`mobile-bottom-navigation-button ${activeMoreLink || moreOpen ? 'is-active' : ''}`}><SidebarIcon name="more" /><span>More</span></button>
+      <button type="button" onClick={() => setMoreOpen((open) => !open)} aria-expanded={moreOpen} aria-controls="rembr-mobile-more" className={`mobile-bottom-navigation-button ${mobileMoreActive || moreOpen ? 'is-active' : ''}`}><SidebarIcon name="more" /><span>More</span></button>
     </nav>
   </>;
 }
