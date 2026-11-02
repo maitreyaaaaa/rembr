@@ -27,6 +27,9 @@ interface Props {
   feedback: Record<string, 'helpful' | 'not_helpful'>;
   onFeedback: (item: LibraryCardItem, rating: 'helpful' | 'not_helpful') => void;
   onRemove: (item: LibraryCardItem) => void;
+  removeLabel?: string;
+  totalCount?: number;
+  showSort?: boolean;
   hasMore?: boolean;
   loadingMore?: boolean;
   loadMoreError?: string;
@@ -81,7 +84,7 @@ function itemData(item: LibraryCardItem) {
   return { note, thumbnail, title, preview, chip, statusLabel, StatusIcon, source: note ? 'Personal note' : host(item.url) };
 }
 
-export function PortedLibraryGrid({ items, searchActive, feedback, onFeedback, onRemove, hasMore = false, loadingMore = false, loadMoreError = '', onLoadMore, sort = 'created_desc', onSortChange }: Props) {
+export function PortedLibraryGrid({ items, searchActive, feedback, onFeedback, onRemove, removeLabel = 'Remove', totalCount, showSort = true, hasMore = false, loadingMore = false, loadMoreError = '', onLoadMore, sort = 'created_desc', onSortChange }: Props) {
   const [layout, setLayout] = useState<(typeof layouts)[number]['key']>('grid');
   const [viewportHeight, setViewportHeight] = useState(() => window.innerHeight);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -102,21 +105,21 @@ export function PortedLibraryGrid({ items, searchActive, feedback, onFeedback, o
   }, [hasMore, loadingMore, loadMoreError, onLoadMore, viewportHeight]);
   return <section className="source-library-results" aria-label="Saved library">
     <div className="source-library-toolbar">
-      <p className="source-library-count">{items.length}{hasMore ? '+' : ''} saved {items.length === 1 && !hasMore ? 'item' : 'items'}</p>
+      <p className="source-library-count">{totalCount ?? `${items.length}${hasMore ? '+' : ''}`} saved {(totalCount ?? items.length) === 1 && !hasMore ? 'item' : 'items'}</p>
       <div className="source-library-layout" aria-label="Library layout">
         {layouts.map(({ key, label }) => <button type="button" key={key} aria-pressed={layout === key} onClick={() => setLayout(key)}>{label}</button>)}
       </div>
-      <label className="source-library-sort" aria-label="Sort saved items">
+      {showSort && <label className="source-library-sort" aria-label="Sort saved items">
         <span>Sort</span>
         <select value={sort === 'created_asc' ? 'created_asc' : sort === 'relevance' ? 'relevance' : 'created_desc'} onChange={(event) => onSortChange?.(event.currentTarget.value)}>
           {searchActive && <option value="relevance">Relevant</option>}
           <option value="created_desc">Newest</option>
           <option value="created_asc">Oldest</option>
         </select>
-      </label>
+      </label>}
     </div>
     <div className={`source-library-grid ${layout === 'list' ? 'is-list' : layout === 'gallery' ? 'is-gallery' : 'is-masonry'}`}>
-      {items.map((item, index) => <LibraryCard key={item.id} item={item} index={index} layout={layout} searchActive={searchActive} feedback={feedback[item.id]} onFeedback={onFeedback} onRemove={onRemove} />)}
+      {items.map((item, index) => <LibraryCard key={item.id} item={item} index={index} layout={layout} searchActive={searchActive} feedback={feedback[item.id]} onFeedback={onFeedback} onRemove={onRemove} removeLabel={removeLabel} />)}
       {loadingMore && <LibraryCardSkeletons count={Math.min(20, Math.max(4, Math.ceil((window.innerWidth - 100) / 320) * 2))} layout={layout} />}
     </div>
     <div ref={sentinelRef} className="library-infinite-scroll-sentinel" aria-hidden="true" />
@@ -132,12 +135,13 @@ export function LibraryCardSkeletons({ count = 12, layout = 'grid' }: { count?: 
   </div>;
 }
 
-function LibraryCard({ item, index, layout, searchActive, feedback, onFeedback, onRemove }: {
+function LibraryCard({ item, index, layout, searchActive, feedback, onFeedback, onRemove, removeLabel }: {
   item: LibraryCardItem;
   index: number;
   layout: 'grid' | 'gallery' | 'list';
   searchActive: boolean;
   feedback?: 'helpful' | 'not_helpful';
+  removeLabel: string;
   onFeedback: Props['onFeedback'];
   onRemove: Props['onRemove'];
 }) {
@@ -153,7 +157,7 @@ function LibraryCard({ item, index, layout, searchActive, feedback, onFeedback, 
       <h2>{title}</h2><p className="source-library-domain">{source}</p><p className="source-library-preview">{preview}</p>
     </Link>
     {thumbnail ? <img src={thumbnail} alt="" loading="lazy" decoding="async" /> : <div className="source-library-row-placeholder">{note ? <FileText /> : <Eye />}</div>}
-    <LibraryCardActions item={item} returnTo={returnTo} searchActive={searchActive} feedback={feedback} onFeedback={onFeedback} onRemove={onRemove} />
+    <LibraryCardActions item={item} returnTo={returnTo} searchActive={searchActive} feedback={feedback} onFeedback={onFeedback} onRemove={onRemove} removeLabel={removeLabel} />
   </article>;
 
   if (layout === 'gallery') return <article className="source-library-gallery group">
@@ -161,7 +165,7 @@ function LibraryCard({ item, index, layout, searchActive, feedback, onFeedback, 
       {thumbnail ? <img src={thumbnail} alt="" loading="lazy" decoding="async" /> : <div className="source-library-gallery-empty"><span>{note ? <FileText /> : <ImageIcon />}</span><small>Preview pending</small><p>{preview}</p></div>}
       <span className="source-library-platform"><SourceBadge item={item} /></span>
     </Link>
-    <div className="source-library-gallery-copy"><div className="source-library-meta"><span>{source}</span><span className={`source-status is-${item.status}`}><StatusIcon />{statusLabel}</span></div><Link to={detailHref} state={{ returnTo }}><h2>{title}</h2></Link><p className="source-library-preview">{preview}</p>{chip && <span className="source-library-chip">{chip}</span>}<LibraryCardActions item={item} returnTo={returnTo} searchActive={searchActive} feedback={feedback} onFeedback={onFeedback} onRemove={onRemove} /></div>
+    <div className="source-library-gallery-copy"><div className="source-library-meta"><span>{source}</span><span className={`source-status is-${item.status}`}><StatusIcon />{statusLabel}</span></div><Link to={detailHref} state={{ returnTo }}><h2>{title}</h2></Link><p className="source-library-preview">{preview}</p>{chip && <span className="source-library-chip">{chip}</span>}<LibraryCardActions item={item} returnTo={returnTo} searchActive={searchActive} feedback={feedback} onFeedback={onFeedback} onRemove={onRemove} removeLabel={removeLabel} /></div>
   </article>;
 
   return <article className="source-library-pin group" style={{ '--pin-backdrop': backdrops[index % backdrops.length], '--pin-ratio': thumbnail ? ratios[index % ratios.length] : '1.3 / 1' } as React.CSSProperties}>
@@ -170,21 +174,22 @@ function LibraryCard({ item, index, layout, searchActive, feedback, onFeedback, 
       <div className="source-library-pin-top"><SourceBadge item={item} /><i>{note ? <FileText /> : <Eye />}</i></div>
       <div className="source-library-pin-title">{chip && <span>{chip}</span>}<h2>{title}</h2></div>
     </Link>
-    <div className="source-library-pin-copy"><div className="source-library-meta"><span>{source}</span>{!note && <span className={`source-status is-${item.status}`}><StatusIcon />{statusLabel}</span>}</div><p className="source-library-preview">{preview}</p><LibraryCardActions item={item} returnTo={returnTo} searchActive={searchActive} feedback={feedback} onFeedback={onFeedback} onRemove={onRemove} /></div>
+    <div className="source-library-pin-copy"><div className="source-library-meta"><span>{source}</span>{!note && <span className={`source-status is-${item.status}`}><StatusIcon />{statusLabel}</span>}</div><p className="source-library-preview">{preview}</p><LibraryCardActions item={item} returnTo={returnTo} searchActive={searchActive} feedback={feedback} onFeedback={onFeedback} onRemove={onRemove} removeLabel={removeLabel} /></div>
   </article>;
 }
 
-function LibraryCardActions({ item, returnTo, searchActive, feedback, onFeedback, onRemove }: {
+function LibraryCardActions({ item, returnTo, searchActive, feedback, onFeedback, onRemove, removeLabel }: {
   item: LibraryCardItem;
   returnTo: string;
   searchActive: boolean;
   feedback?: 'helpful' | 'not_helpful';
+  removeLabel: string;
   onFeedback: Props['onFeedback'];
   onRemove: Props['onRemove'];
 }) {
   return <div className="source-library-actions">
     {searchActive && <div className="source-library-feedback"><span>Useful?</span><button type="button" aria-pressed={feedback === 'helpful'} onClick={() => onFeedback(item, 'helpful')}>Yes</button><button type="button" aria-pressed={feedback === 'not_helpful'} onClick={() => onFeedback(item, 'not_helpful')}>No</button></div>}
     <Link to={`/app/items/${encodeURIComponent(item.id)}/edit`} state={{ returnTo }} aria-label={`Edit ${item.title}`}>Edit <ArrowUpRight /></Link>
-    <button type="button" className="source-library-remove" onClick={() => onRemove(item)} aria-label={`Remove ${item.title}`}>Remove</button>
+    <button type="button" className="source-library-remove" onClick={() => onRemove(item)} aria-label={`${removeLabel} ${item.title}`}>{removeLabel}</button>
   </div>;
 }

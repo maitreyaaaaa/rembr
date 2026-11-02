@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
-import { MoreHorizontal } from 'lucide-react';
+import { EllipsisVertical, Folder } from 'lucide-react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { ColorPicker } from './arc/color-picker/color-picker.js';
 import type { ColorSwatch } from './arc/color-picker/color-picker.js';
 import { SavedItemLink } from './SavedItemLink.js';
+import { PortedLibraryGrid } from '../features/library/LibraryCards.js';
+import type { SavedItem } from '../app/contracts.js';
 
 type Request = <T>(path: string, init?: RequestInit) => Promise<T>;
-interface SmartItem { id: string; title: string; description: string; url: string; createdAt: string; matchConfidence: number; matchReason: string; overrideAction?: 'include' | 'exclude' | null }
+interface SmartItem extends SavedItem { matchConfidence: number; matchReason: string; overrideAction?: 'include' | 'exclude' | null }
 interface SmartCollection { id: string; slug: string; name: string; description: string; sourceType: string; pinned: boolean; hidden: boolean; color: string | null; folderGroup: string; matchSignals: string[]; itemCount: number; previewItems: SmartItem[] }
 interface SmartCollectionList { collections: SmartCollection[]; truncated: boolean; generatedAt: string }
 interface SmartCollectionItems { collection: { id: string; name: string; description: string; itemCount: number }; items: SmartItem[]; excludedItems: SmartItem[]; excludedHasMore: boolean; nextCursor: string | null; hasMore: boolean; truncated: boolean }
@@ -18,6 +20,8 @@ export function SmartCollectionsPage({ request }: { request: Request }) {
   const [data, setData] = useState<SmartCollectionList | null>(null);
   const [detail, setDetail] = useState<SmartCollectionItems | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [renamingId, setRenamingId] = useState('');
@@ -56,7 +60,7 @@ export function SmartCollectionsPage({ request }: { request: Request }) {
 
   const loadItems = useCallback(async () => {
     if (!collectionId) { setDetail(null); return; }
-    setLoading(true); setError('');
+    setLoading(true); setError(''); setLoadMoreError('');
     try {
       const query = new URLSearchParams({ search, limit: '25' });
       if (cursor) query.set('cursor', cursor);
@@ -64,6 +68,17 @@ export function SmartCollectionsPage({ request }: { request: Request }) {
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not load this smart collection.'); }
     finally { setLoading(false); }
   }, [collectionId, cursor, request, search]);
+
+  const loadNextItems = useCallback(async () => {
+    if (!collectionId || !detail?.hasMore || !detail.nextCursor || loadingMore) return;
+    setLoadingMore(true); setLoadMoreError('');
+    try {
+      const query = new URLSearchParams({ search, limit: '25', cursor: detail.nextCursor });
+      const next = await request<SmartCollectionItems>(`/api/smart-collections/${encodeURIComponent(collectionId)}/items?${query}`);
+      setDetail((current) => current ? { ...next, items: [...current.items, ...next.items] } : next);
+    } catch (cause) { setLoadMoreError(cause instanceof Error ? cause.message : 'Could not load more saves.'); }
+    finally { setLoadingMore(false); }
+  }, [collectionId, detail, loadingMore, request, search]);
 
   useEffect(() => { if (collectionId) void loadItems(); else void load(); }, [collectionId, load, loadItems]);
 
@@ -131,11 +146,6 @@ export function SmartCollectionsPage({ request }: { request: Request }) {
     if (value) next.set('search', value); else next.delete('search');
     next.delete('cursor'); setSearchParams(next, { replace: true });
   }
-  function page(cursorValue: string | null) {
-    const next = new URLSearchParams(searchParams);
-    if (cursorValue) next.set('cursor', cursorValue); else next.delete('cursor');
-    setSearchParams(next);
-  }
   function toggleHidden(value: boolean) {
     setIncludeHidden(value);
     const next = new URLSearchParams(searchParams);
@@ -144,7 +154,7 @@ export function SmartCollectionsPage({ request }: { request: Request }) {
   }
   if (collectionId) return <>
     <div className="phase2-back"><Link to="/app/smart-collections">← All smart collections</Link></div>
-    {detail && <PageHeading title={detail.collection.name} description={detail.collection.description} actions={<Link className="quiet-button" to="/app/smart-collections">All smart collections</Link>} />}
+    {detail && <PageHeading title={detail.collection.name} description={detail.collection.description} actions={<span className="smart-collection-detail-count">{detail.collection.itemCount} saved {detail.collection.itemCount === 1 ? 'item' : 'items'}</span>} />}
     <section className="phase2-panel">
       <form className="phase2-filter-grid" onSubmit={submitSearch}><label>Search this group<input type="search" maxLength={120} value={groupSearchDraft} onChange={(event) => setGroupSearchDraft(event.target.value)} placeholder="Title, note, page text, or topic" /></label><button className="quiet-button" type="submit">Search group</button><div><p className="eyebrow">Matching saves</p><strong>{detail?.collection.itemCount ?? 0}</strong></div></form>
       <p className="phase2-helper">Matches are based on saved page text, your notes, existing tags, folders, and analysis. No new AI analysis is run.</p>
@@ -161,9 +171,22 @@ export function SmartCollectionsPage({ request }: { request: Request }) {
       {libraryHasMore && <p className="phase2-helper" role="status">Showing the first 10 results. Refine your search to narrow the list.</p>}
     </section>
     {error && <p className="notice error" role="alert">{error}</p>}
-    {loading ? <div className="phase2-state" role="status">Loading smart collection…</div> : detail?.items.length ? <ul className="item-list">{detail.items.map((item) => <li className="item-card" key={item.id}><div className="item-main"><div className="item-info"><SavedItemLink className="item-title" itemId={item.id}>{item.title}</SavedItemLink><p className="item-description">{item.description || item.matchReason}</p><p className="phase2-helper">{item.matchReason}</p></div><div className="item-actions"><button className="quiet-button" type="button" disabled={busy} onClick={() => void (item.overrideAction === 'include' ? resetOverride(item) : exclude(item))}>{item.overrideAction === 'include' ? 'Undo manual add' : 'Remove from this group'}</button></div></div></li>)}</ul> : <div className="empty-state"><h2>{search ? 'No saves match that search.' : 'No saves in this group yet.'}</h2><p>{search ? 'Try a broader phrase.' : 'This group updates as your library grows.'}</p></div>}
+    {loading ? <div className="phase2-state" role="status">Loading smart collection…</div> : detail?.items.length ? <PortedLibraryGrid
+      items={detail.items}
+      searchActive={false}
+      feedback={{}}
+      onFeedback={() => undefined}
+      onRemove={(card) => { const item = detail.items.find((entry) => entry.id === card.id); if (item) void exclude(item); }}
+      removeLabel="Remove from folder"
+      totalCount={search ? undefined : detail.collection.itemCount}
+      showSort={false}
+      hasMore={detail.hasMore}
+      loadingMore={loadingMore}
+      loadMoreError={loadMoreError}
+      onLoadMore={() => void loadNextItems()}
+    /> : !loading && <div className="empty-state"><h2>{search ? 'No saves match that search.' : 'No saves in this group yet.'}</h2><p>{search ? 'Try a broader phrase.' : 'This group updates as your library grows.'}</p></div>}
     {!loading && detail && detail.excludedItems.length > 0 && <section className="phase2-panel" aria-labelledby="excluded-saves-heading"><h2 id="excluded-saves-heading">Removed from this group</h2><p className="phase2-helper">You can restore any save to its automatic grouping. This keeps your earlier correction reversible.</p><ul className="item-list">{detail.excludedItems.map((item) => <li className="item-card" key={item.id}><div className="item-main"><div className="item-info"><SavedItemLink className="item-title" itemId={item.id}>{item.title}</SavedItemLink><p className="item-description">{item.description || item.matchReason}</p></div><div className="item-actions"><button className="quiet-button" type="button" disabled={busy} onClick={() => void resetOverride(item)}>Restore automatic match</button></div></div></li>)}</ul>{detail.excludedHasMore && <p className="phase2-helper" role="status">Showing the first {detail.excludedItems.length} removed saves. Refine your search to find another.</p>}</section>}
-    {!loading && detail && <nav className="phase2-pagination" aria-label="Smart collection pages"><span>{detail.truncated ? 'This group is based on the latest library scan.' : `${detail.items.length} shown`}</span><button className="quiet-button" type="button" disabled={!cursor} onClick={() => page(null)}>First page</button><button className="primary-button" type="button" disabled={!detail.hasMore} onClick={() => page(detail.nextCursor)}>Next page</button></nav>}
+    {!loading && detail?.truncated && <p className="phase2-helper">This group is based on the latest library scan.</p>}
   </>;
 
   return <>
@@ -203,7 +226,7 @@ function SmartCollectionCard({ collection, busy, renaming, renameValue, onRename
   return <li className="smart-folder-card" style={folderStyle}>
     <div className="smart-folder-toolbar">
       <details className="phase2-card-menu smart-folder-menu">
-        <summary aria-label={`Folder options for ${collection.name}`}><MoreHorizontal size={19} aria-hidden="true" /></summary>
+        <summary aria-label={`Folder options for ${collection.name}`}><EllipsisVertical size={18} aria-hidden="true" /></summary>
         <div className="phase2-card-menu-items">
           <button className="smart-folder-menu-action" type="button" disabled={busy} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setColorDraft(collection.color ?? defaultFolderColor); setColorOpen((open) => !open); }}>Change color</button>
           <button className="smart-folder-menu-action" type="button" disabled={busy} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); onRename(); }}>Rename</button>
@@ -215,11 +238,8 @@ function SmartCollectionCard({ collection, busy, renaming, renameValue, onRename
       </details>
     </div>
     {colorOpen && <div className="smart-folder-color-editor"><ColorPicker label="Folder color" value={colorDraft} onValueChange={setColorDraft} background="#090b09" defaultSwatches={folderColorSwatches} className="smart-folder-color-picker" /><div className="smart-folder-color-actions"><button className="primary-button" type="button" disabled={busy} onClick={() => { void onColorSave(colorDraft).then(() => setColorOpen(false)); }}>Save color</button><button className="quiet-button" type="button" disabled={busy} onClick={() => { void onColorSave(null).then(() => setColorOpen(false)); }}>Reset</button></div></div>}
-    <Link className="smart-folder-link" to={`/app/smart-collections/${encodeURIComponent(collection.id)}`} aria-label={`Open ${collection.name}, ${collection.itemCount} saves`}><span className="smart-folder-scene" aria-hidden="true"><span className="smart-folder-pages"><span className="smart-folder-page smart-folder-page-one" /><span className="smart-folder-page smart-folder-page-two" /><span className="smart-folder-page smart-folder-page-three" /></span><span className="smart-folder-back" /><span className="smart-folder-flap" /></span></Link>
-    <p className="eyebrow">{collection.folderGroup.endsWith(' collections') ? collection.folderGroup.slice(0, -12) : collection.sourceType} · {collection.itemCount} saves</p>
-    {renaming ? <form className="phase2-form" onSubmit={(event) => { event.preventDefault(); const name = renameValue.trim(); if (name && name !== collection.name) void onRenameSave(name); else onRenameCancel(); }}><label>Folder name<input autoFocus maxLength={80} required value={renameValue} onChange={(event) => onRenameValueChange(event.target.value)} /></label><div className="phase2-card-actions"><button className="quiet-button" type="submit" disabled={busy || !renameValue.trim()}>Save name</button><button className="quiet-button" type="button" disabled={busy} onClick={onRenameCancel}>Cancel</button></div></form> : <><h3>{collection.name}</h3><p>{collection.description}</p><p className="phase2-helper">{collection.matchSignals.slice(0, 3).join(' · ')}</p></>}
-    {collection.previewItems.length > 0 && <ul className="smart-collection-preview">{collection.previewItems.map((item) => <li key={item.id}><SavedItemLink itemId={item.id}>{item.title}</SavedItemLink></li>)}</ul>}
-    <div className="phase2-card-actions"><Link className="primary-button" to={`/app/smart-collections/${encodeURIComponent(collection.id)}`}>Open folder</Link></div>
+    <Link className="smart-folder-link" to={`/app/smart-collections/${encodeURIComponent(collection.id)}`} aria-label={`Open ${collection.name}, ${collection.itemCount} saves`}><Folder size={42} strokeWidth={1.5} fill="var(--smart-folder-color)" aria-hidden="true" /></Link>
+    {renaming ? <form className="phase2-form" onSubmit={(event) => { event.preventDefault(); const name = renameValue.trim(); if (name && name !== collection.name) void onRenameSave(name); else onRenameCancel(); }}><label>Folder name<input autoFocus maxLength={80} required value={renameValue} onChange={(event) => onRenameValueChange(event.target.value)} /></label><div className="phase2-card-actions"><button className="quiet-button" type="submit" disabled={busy || !renameValue.trim()}>Save name</button><button className="quiet-button" type="button" disabled={busy} onClick={onRenameCancel}>Cancel</button></div></form> : <h3><Link to={`/app/smart-collections/${encodeURIComponent(collection.id)}`}>{collection.name}</Link></h3>}
   </li>;
 }
 

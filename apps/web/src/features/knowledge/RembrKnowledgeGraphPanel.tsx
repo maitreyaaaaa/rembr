@@ -56,7 +56,10 @@ export interface RembrKnowledgeGraphPanelProps {
 
 type GraphTab = 'details' | 'export';
 type Point = { x: number; y: number };
-type DragState = { x: number; y: number; pan: Point; moved: boolean };
+type ActivePointer = Point & { pointerType: string };
+type GestureState =
+  | { type: 'pan'; pointerId: number; x: number; y: number; pan: Point }
+  | { type: 'pinch'; pointerIds: [number, number]; distance: number; zoom: number; worldPoint: Point };
 
 const graphTypeColors: Record<string, string> = {
   item: '#f4f4ef',
@@ -80,46 +83,57 @@ function graphLayout(nodes: RembrGraphNode[], links: RembrGraphLink[]): Map<stri
   const points = new Map<string, Point>();
   const nodeIndex = new Map(nodes.map((node, index) => [node.id, index]));
   const velocity = nodes.map(() => ({ x: 0, y: 0 }));
+  const degree = new Map(nodes.map((node) => [node.id, 0]));
   nodes.forEach((node, index) => {
-    // A stable spiral gives the force layout a repeatable starting point.
+    // A stable phyllotaxis seed keeps the force layout repeatable between visits.
     const angle = index * 2.399963;
-    const radius = 36 + Math.sqrt(index + 1) * 21;
-    points.set(node.id, { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius * 0.62 });
+    const radius = 24 + Math.sqrt(index + 1) * 19;
+    points.set(node.id, { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius * 0.82 });
   });
   const edges = links.flatMap((link) => {
     const source = nodeIndex.get(link.source); const target = nodeIndex.get(link.target);
+    if (source !== undefined && target !== undefined) {
+      degree.set(link.source, (degree.get(link.source) ?? 0) + 1);
+      degree.set(link.target, (degree.get(link.target) ?? 0) + 1);
+    }
     return source === undefined || target === undefined ? [] : [[source, target] as const];
   });
 
-  // Lightweight deterministic force layout: linked saves cluster around shared
-  // AI topics and entities while unrelated nodes repel into a readable field.
-  for (let iteration = 0; iteration < 44; iteration += 1) {
-    const cooling = 1 - iteration / 48;
+  const radii = nodes.map((node) => Math.min(8, 2.8 + Math.sqrt(degree.get(node.id) ?? 0) * 0.55));
+  // Stable force-directed relaxation: connections pull into topic clusters,
+  // while all nodes repel and a light center force prevents unbounded drift.
+  for (let iteration = 0; iteration < 120; iteration += 1) {
+    const cooling = 1 - iteration / 150;
     for (let left = 0; left < nodes.length; left += 1) {
       const a = points.get(nodes[left]!.id)!;
       for (let right = left + 1; right < nodes.length; right += 1) {
         const b = points.get(nodes[right]!.id)!;
-        const dx = a.x - b.x; const dy = a.y - b.y;
-        const distanceSquared = Math.max(dx * dx + dy * dy, 36);
-        const push = Math.min(1.2, 250 / distanceSquared) * cooling;
-        velocity[left]!.x += (dx / Math.sqrt(distanceSquared)) * push;
-        velocity[left]!.y += (dy / Math.sqrt(distanceSquared)) * push;
-        velocity[right]!.x -= (dx / Math.sqrt(distanceSquared)) * push;
-        velocity[right]!.y -= (dy / Math.sqrt(distanceSquared)) * push;
+        let dx = a.x - b.x; let dy = a.y - b.y;
+        let distance = Math.hypot(dx, dy);
+        if (distance < 0.001) { dx = left < right ? -0.1 : 0.1; dy = 0.1; distance = Math.hypot(dx, dy); }
+        const minimum = radii[left]! + radii[right]! + 18;
+        const repulsion = Math.min(2.8, 1900 / (distance * distance)) + Math.max(0, minimum - distance) * 0.035;
+        const force = repulsion * cooling;
+        velocity[left]!.x += (dx / distance) * force;
+        velocity[left]!.y += (dy / distance) * force;
+        velocity[right]!.x -= (dx / distance) * force;
+        velocity[right]!.y -= (dy / distance) * force;
       }
     }
     for (const [source, target] of edges) {
       const a = points.get(nodes[source]!.id)!; const b = points.get(nodes[target]!.id)!;
       const dx = b.x - a.x; const dy = b.y - a.y;
-      velocity[source]!.x += dx * 0.0022; velocity[source]!.y += dy * 0.0022;
-      velocity[target]!.x -= dx * 0.0022; velocity[target]!.y -= dy * 0.0022;
+      const distance = Math.max(0.001, Math.hypot(dx, dy));
+      const spring = Math.max(-2.4, Math.min(2.4, (distance - 82) * 0.008)) * cooling;
+      velocity[source]!.x += (dx / distance) * spring; velocity[source]!.y += (dy / distance) * spring;
+      velocity[target]!.x -= (dx / distance) * spring; velocity[target]!.y -= (dy / distance) * spring;
     }
     nodes.forEach((node, index) => {
       const point = points.get(node.id)!; const speed = velocity[index]!;
-      speed.x += -point.x * 0.0008; speed.y += -point.y * 0.0008;
-      point.x = Math.max(-445, Math.min(445, point.x + Math.max(-5, Math.min(5, speed.x))));
-      point.y = Math.max(-265, Math.min(265, point.y + Math.max(-5, Math.min(5, speed.y))));
-      speed.x *= 0.58; speed.y *= 0.58;
+      speed.x += -point.x * 0.0011; speed.y += -point.y * 0.0011;
+      point.x = Math.max(-470, Math.min(470, point.x + Math.max(-6, Math.min(6, speed.x))));
+      point.y = Math.max(-285, Math.min(285, point.y + Math.max(-6, Math.min(6, speed.y))));
+      speed.x *= 0.68; speed.y *= 0.68;
     });
   }
   return points;
@@ -141,9 +155,12 @@ export function RembrKnowledgeGraphPanel({
 }: RembrKnowledgeGraphPanelProps) {
   const [tab, setTab] = useState<GraphTab>('details');
   const [selectedNodeId, setSelectedNodeId] = useState('');
+  const [hoveredNodeId, setHoveredNodeId] = useState('');
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState<Point>({ x: 0, y: 0 });
-  const dragRef = useRef<DragState | null>(null);
+  const graphSvgRef = useRef<SVGSVGElement | null>(null);
+  const activePointersRef = useRef(new Map<number, ActivePointer>());
+  const gestureRef = useRef<GestureState | null>(null);
   const query = filter.trim().toLowerCase();
 
   const filteredGroups = useMemo(() => {
@@ -176,10 +193,33 @@ export function RembrKnowledgeGraphPanel({
       : link.target === selectedNodeId ? [link.source] : []));
     return graph.nodes.filter((node) => otherIds.has(node.id)).slice(0, 18);
   }, [graph, selectedNodeId]);
+  const focusNodeId = selectedNodeId || hoveredNodeId;
+  const highlightedConnections = useMemo(() => {
+    if (!focusNodeId || !graph) return [];
+    const otherIds = new Set(graph.links.flatMap((link) => link.source === focusNodeId
+      ? [link.target]
+      : link.target === focusNodeId ? [link.source] : []));
+    return graph.nodes.filter((node) => otherIds.has(node.id));
+  }, [focusNodeId, graph]);
 
   useEffect(() => {
     if (selectedNodeId && !visibleGraph.nodes.some((node) => node.id === selectedNodeId)) setSelectedNodeId('');
   }, [selectedNodeId, visibleGraph.nodes]);
+
+  useEffect(() => {
+    const svg = graphSvgRef.current;
+    if (!svg) return undefined;
+    function wheelZoom(event: globalThis.WheelEvent) {
+      event.preventDefault();
+      const focal = graphPointAt(svg!, event.clientX, event.clientY);
+      const nextZoom = Math.max(0.55, Math.min(2.8, zoom * Math.exp(-event.deltaY * 0.001)));
+      const worldPoint = { x: (focal.x - 500 - pan.x) / zoom, y: (focal.y - 310 - pan.y) / zoom };
+      setZoom(nextZoom);
+      setPan({ x: focal.x - 500 - worldPoint.x * nextZoom, y: focal.y - 310 - worldPoint.y * nextZoom });
+    }
+    svg.addEventListener('wheel', wheelZoom, { passive: false });
+    return () => svg.removeEventListener('wheel', wheelZoom);
+  }, [pan, visibleGraph.nodes, zoom]);
 
   function selectNode(nodeId: string) {
     setSelectedNodeId((current) => current === nodeId ? '' : nodeId);
@@ -190,34 +230,100 @@ export function RembrKnowledgeGraphPanel({
     setZoom(1);
     setPan({ x: 0, y: 0 });
     setSelectedNodeId('');
+    setHoveredNodeId('');
+    gestureRef.current = null;
+  }
+
+  function graphPointAt(svg: SVGSVGElement, clientX: number, clientY: number): Point {
+    const matrix = svg.getScreenCTM();
+    if (matrix) {
+      const point = svg.createSVGPoint();
+      point.x = clientX; point.y = clientY;
+      const viewPoint = point.matrixTransform(matrix.inverse());
+      return { x: viewPoint.x, y: viewPoint.y };
+    }
+    const bounds = svg.getBoundingClientRect();
+    return { x: ((clientX - bounds.left) / Math.max(1, bounds.width)) * 1000, y: ((clientY - bounds.top) / Math.max(1, bounds.height)) * 620 };
+  }
+
+  function beginPinch(svg: SVGSVGElement) {
+    const points = Array.from(activePointersRef.current.entries()).slice(0, 2);
+    if (points.length < 2) return;
+    const [[firstId, first], [secondId, second]] = points as [[number, ActivePointer], [number, ActivePointer]];
+    const clientX = (first.x + second.x) / 2;
+    const clientY = (first.y + second.y) / 2;
+    const focal = graphPointAt(svg, clientX, clientY);
+    gestureRef.current = {
+      type: 'pinch',
+      pointerIds: [firstId, secondId],
+      distance: Math.max(1, Math.hypot(second.x - first.x, second.y - first.y)),
+      zoom,
+      worldPoint: { x: (focal.x - 500 - pan.x) / zoom, y: (focal.y - 310 - pan.y) / zoom },
+    };
+    for (const [pointerId] of points) {
+      try { svg.setPointerCapture(pointerId); } catch { /* Pointer may already have ended. */ }
+    }
   }
 
   function pointerDown(event: PointerEvent<SVGSVGElement>) {
-    if (event.pointerType === 'touch') return;
     const target = event.target as Element;
-    // Node selection is handled by the node's click/keyboard handlers. Capturing
-    // the pointer here as well would select and then immediately deselect it.
-    if (target.closest('[data-graph-node]')) return;
-    dragRef.current = { x: event.clientX, y: event.clientY, pan, moved: false };
-    event.currentTarget.setPointerCapture(event.pointerId);
+    const onNode = Boolean(target.closest('[data-graph-node]'));
+    if (onNode && event.pointerType !== 'touch') return;
+    activePointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY, pointerType: event.pointerType });
+    if (activePointersRef.current.size >= 2) {
+      beginPinch(event.currentTarget);
+      event.preventDefault();
+      return;
+    }
+    if (onNode) return;
+    gestureRef.current = { type: 'pan', pointerId: event.pointerId, x: event.clientX, y: event.clientY, pan };
+    try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* Ignore a pointer that ended during capture. */ }
+    if (event.pointerType === 'touch') event.preventDefault();
   }
 
   function pointerMove(event: PointerEvent<SVGSVGElement>) {
-    const drag = dragRef.current;
-    if (!drag) return;
-    const dx = event.clientX - drag.x;
-    const dy = event.clientY - drag.y;
-    if (Math.hypot(dx, dy) > 3) drag.moved = true;
-    if (drag.moved) setPan({ x: drag.pan.x + dx, y: drag.pan.y + dy });
+    if (!activePointersRef.current.has(event.pointerId)) return;
+    activePointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY, pointerType: event.pointerType });
+    const gesture = gestureRef.current;
+    if (activePointersRef.current.size >= 2) {
+      if (gesture?.type !== 'pinch') beginPinch(event.currentTarget);
+      const pinch = gestureRef.current;
+      if (pinch?.type !== 'pinch') return;
+      const first = activePointersRef.current.get(pinch.pointerIds[0]);
+      const second = activePointersRef.current.get(pinch.pointerIds[1]);
+      if (!first || !second) return;
+      const distance = Math.max(1, Math.hypot(second.x - first.x, second.y - first.y));
+      const nextZoom = Math.max(0.55, Math.min(2.8, pinch.zoom * distance / pinch.distance));
+      const focal = graphPointAt(event.currentTarget, (first.x + second.x) / 2, (first.y + second.y) / 2);
+      setZoom(nextZoom);
+      setPan({ x: focal.x - 500 - pinch.worldPoint.x * nextZoom, y: focal.y - 310 - pinch.worldPoint.y * nextZoom });
+      event.preventDefault();
+      return;
+    }
+    if (gesture?.type === 'pan' && gesture.pointerId === event.pointerId) {
+      setPan({ x: gesture.pan.x + event.clientX - gesture.x, y: gesture.pan.y + event.clientY - gesture.y });
+      if (event.pointerType === 'touch') event.preventDefault();
+    }
   }
 
   function pointerUp(event: PointerEvent<SVGSVGElement>) {
-    dragRef.current = null;
+    activePointersRef.current.delete(event.pointerId);
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    const remaining = Array.from(activePointersRef.current.entries())[0];
+    if (remaining) {
+      const [pointerId, point] = remaining;
+      gestureRef.current = { type: 'pan', pointerId, x: point.x, y: point.y, pan };
+    } else gestureRef.current = null;
   }
 
   const nodeIds = new Set(visibleGraph.nodes.map((node) => node.id));
   const connectedLinks = visibleGraph.links.filter((link) => nodeIds.has(link.source) && nodeIds.has(link.target));
+  const highlightedNodeIds = new Set(highlightedConnections.map((node) => node.id));
+  const nodeConnectionCounts = new Map<string, number>();
+  for (const link of connectedLinks) {
+    nodeConnectionCounts.set(link.source, (nodeConnectionCounts.get(link.source) ?? 0) + 1);
+    nodeConnectionCounts.set(link.target, (nodeConnectionCounts.get(link.target) ?? 0) + 1);
+  }
 
   return (
     <div className="mx-auto w-full max-w-[1480px] space-y-6 px-4 pb-10 pt-8 sm:px-6 md:px-10 md:py-12">
@@ -249,7 +355,7 @@ export function RembrKnowledgeGraphPanel({
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
         <section className="relative h-[360px] overflow-hidden rounded-2xl border border-white/10 bg-white/[0.025] shadow-2xl shadow-black/25 sm:h-[410px] lg:h-[470px] xl:h-[540px]" aria-label="Interactive knowledge graph">
           <div className="absolute left-3 top-3 z-10 flex items-center gap-1 rounded-full border border-white/10 bg-black/85 p-1 backdrop-blur sm:left-4 sm:top-4">
-            <button type="button" onClick={() => setZoom((current) => Math.min(2.6, Number((current + 0.18).toFixed(2))))} aria-label="Zoom in" className="rounded-full p-2 text-muted-foreground transition hover:bg-white/10 hover:text-primary"><ZoomIn className="h-4 w-4" /></button>
+            <button type="button" onClick={() => setZoom((current) => Math.min(2.8, Number((current + 0.18).toFixed(2))))} aria-label="Zoom in" className="rounded-full p-2 text-muted-foreground transition hover:bg-white/10 hover:text-primary"><ZoomIn className="h-4 w-4" /></button>
             <button type="button" onClick={() => setZoom((current) => Math.max(0.55, Number((current - 0.18).toFixed(2))))} aria-label="Zoom out" className="rounded-full p-2 text-muted-foreground transition hover:bg-white/10 hover:text-primary"><ZoomOut className="h-4 w-4" /></button>
             <button type="button" onClick={resetView} aria-label="Reset graph view" className="rounded-full p-2 text-muted-foreground transition hover:bg-white/10 hover:text-primary"><RotateCcw className="h-4 w-4" /></button>
             <span className="pr-2 font-mono text-[10px] text-muted-foreground">{Math.round(zoom * 100)}%</span>
@@ -265,26 +371,27 @@ export function RembrKnowledgeGraphPanel({
               <div><div className="mx-auto grid h-12 w-12 place-items-center rounded-2xl border border-primary/20 bg-primary/5 text-primary"><span aria-hidden="true">✳</span></div><h2 className="mt-4 font-display text-xl font-bold">Your graph is ready to grow</h2><p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-muted-foreground">Save pages and notes. Connections appear as Rembr analyzes topics and entities in their content.</p></div>
             </div>
               : !visibleGraph.nodes.length ? <div className="grid h-full place-items-center px-8 text-center"><div><h2 className="font-display text-xl font-bold">No connections match this filter</h2><p className="mt-2 text-sm text-muted-foreground">Try a broader phrase or clear the search.</p><button type="button" onClick={() => onFilterChange('')} className="mt-4 rounded-full border border-white/10 px-4 py-2 text-xs font-semibold text-foreground transition hover:border-primary">Clear filter</button></div></div>
-                : <svg viewBox="0 0 1000 620" role="img" aria-label="Knowledge graph nodes and relationships" className="h-full w-full touch-none select-none cursor-grab active:cursor-grabbing" onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={() => { dragRef.current = null; }}>
+                : <svg ref={graphSvgRef} viewBox="0 0 1000 620" role="img" aria-label="Knowledge graph nodes and relationships. Scroll or pinch to zoom, drag to move." className="h-full w-full touch-none select-none cursor-grab active:cursor-grabbing" onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={pointerUp}>
                   <rect width="1000" height="620" fill="transparent" />
                   <g transform={`translate(${500 + pan.x} ${310 + pan.y}) scale(${zoom})`}>
                     {connectedLinks.map((link) => {
                       const source = positions.get(link.source); const target = positions.get(link.target);
                       if (!source || !target) return null;
-                      const selected = selectedNodeId && (link.source === selectedNodeId || link.target === selectedNodeId);
-                      return <line key={link.id} x1={source.x} y1={source.y} x2={target.x} y2={target.y} stroke={selected ? 'rgba(165,255,24,0.78)' : 'rgba(165,255,24,0.18)'} strokeWidth={selected ? 2 : 0.9} />;
+                      const highlighted = focusNodeId && (link.source === focusNodeId || link.target === focusNodeId);
+                      return <line key={link.id} x1={source.x} y1={source.y} x2={target.x} y2={target.y} stroke={highlighted ? 'rgba(165,255,24,0.82)' : 'rgba(165,255,24,0.16)'} strokeWidth={highlighted ? 1.8 : 0.8} />;
                     })}
                     {visibleGraph.nodes.map((node) => {
                       const point = positions.get(node.id); if (!point) return null;
                       const isItem = node.type === 'item';
                       const selected = selectedNodeId === node.id;
-                      const neighbor = selectedConnections.some((connection) => connection.id === node.id);
-                      const dimmed = Boolean(selectedNodeId && !selected && !neighbor);
-                      const radius = isItem ? 8 : Math.min(17, 5 + Math.sqrt(node.itemCount ?? 1) * 3);
-                      const showLabel = selected || neighbor || (!isItem && (node.itemCount ?? 0) >= 3);
-                      return <g key={node.id} data-graph-node data-node-id={node.id} transform={`translate(${point.x} ${point.y})`} role="button" tabIndex={0} aria-label={`${titleCase(node.type)}: ${node.label}`} aria-pressed={selected} opacity={dimmed ? 0.22 : 1} className="cursor-pointer outline-none" onClick={() => selectNode(node.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectNode(node.id); } }}>
-                        <title>{node.label}</title><circle r={radius + (selected ? 9 : 5)} fill={nodeColor(node.type)} opacity="0.16" /><circle r={radius} fill={nodeColor(node.type)} stroke={selected ? '#ffffff' : 'rgba(0,0,0,0.55)'} strokeWidth={selected ? 2 : 1} />
-                        {showLabel && <text y={radius + 16} textAnchor="middle" className="pointer-events-none select-none fill-white text-[10px] font-semibold">{node.label.slice(0, 24)}</text>}
+                      const neighbor = highlightedNodeIds.has(node.id);
+                      const dimmed = Boolean(focusNodeId && !selected && !neighbor);
+                      const connectionCount = nodeConnectionCounts.get(node.id) ?? 0;
+                      const radius = Math.min(7, (isItem ? 2.2 : 2.8) + Math.sqrt(connectionCount) * (isItem ? 0.3 : 0.52));
+                      const showLabel = selected || neighbor || (zoom >= 1.75 && !isItem && connectionCount >= 5);
+                      return <g key={node.id} data-graph-node data-node-id={node.id} transform={`translate(${point.x} ${point.y})`} role="button" tabIndex={0} aria-label={`${titleCase(node.type)}: ${node.label}`} aria-pressed={selected} opacity={dimmed ? 0.18 : 1} className="cursor-pointer outline-none" onMouseEnter={() => setHoveredNodeId(node.id)} onMouseLeave={() => setHoveredNodeId((current) => current === node.id ? '' : current)} onFocus={() => setHoveredNodeId(node.id)} onBlur={() => setHoveredNodeId((current) => current === node.id ? '' : current)} onClick={() => selectNode(node.id)} onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectNode(node.id); } }}>
+                        <title>{node.label}</title><circle r={Math.max(9, radius + 4)} fill="transparent" /><circle r={radius + (selected ? 5 : neighbor ? 3 : 1.8)} fill={nodeColor(node.type)} opacity={selected ? '0.2' : '0.1'} /><circle r={radius} fill={nodeColor(node.type)} stroke={selected ? '#ffffff' : 'rgba(0,0,0,0.55)'} strokeWidth={selected ? 1.5 : 0.7} />
+                        {showLabel && <text y={radius + 12} textAnchor="middle" className="pointer-events-none select-none fill-white text-[8px] font-semibold">{node.label.slice(0, 22)}</text>}
                       </g>;
                     })}
                   </g>
