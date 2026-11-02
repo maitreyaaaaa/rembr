@@ -5,6 +5,7 @@ import { config } from '../config.js';
 
 const COOKIE_NAME = 'rembr_session';
 export const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
+export const REMEMBERED_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 export interface AuthenticatedUser {
   id: string;
@@ -42,17 +43,18 @@ function getCookie(req: Request, name: string): string | null {
   return null;
 }
 
-function cookieOptions() {
-  return { httpOnly: true, sameSite: 'lax' as const, secure: config.secureCookies, path: '/', maxAge: SESSION_TTL_MS };
+function cookieOptions(maxAge: number) {
+  return { httpOnly: true, sameSite: 'lax' as const, secure: config.secureCookies, path: '/', maxAge };
 }
 
-export async function createSession(database: DatabaseHandle, userId: string, res: Response) {
+export async function createSession(database: DatabaseHandle, userId: string, res: Response, rememberMe = false) {
   const token = randomBytes(32).toString('base64url');
   const now = new Date();
+  const ttl = rememberMe ? REMEMBERED_SESSION_TTL_MS : SESSION_TTL_MS;
   await database.prepare(`INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at)
     VALUES (?, ?, ?, ?, ?)`)
-    .run(randomUUID(), userId, digest(token), new Date(now.getTime() + SESSION_TTL_MS).toISOString(), now.toISOString());
-  res.cookie(COOKIE_NAME, token, cookieOptions());
+    .run(randomUUID(), userId, digest(token), new Date(now.getTime() + ttl).toISOString(), now.toISOString());
+  res.cookie(COOKIE_NAME, token, cookieOptions(ttl));
 }
 
 export async function destroySession(database: DatabaseHandle, req: Request, res: Response) {

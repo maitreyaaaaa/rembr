@@ -33,8 +33,8 @@ import { createIntegrationRouters } from './integrations/api-v1.js';
 
 const emailSchema = z.string().trim().email().max(254).transform((email) => email.toLowerCase());
 const passwordSchema = z.string().refine((password) => countPasswordCodePoints(password) <= 128);
-const registerSchema = z.object({ email: emailSchema, password: passwordSchema }).strict();
-const loginSchema = z.object({ email: emailSchema, password: passwordSchema.refine((password) => countPasswordCodePoints(password) > 0) }).strict();
+const registerSchema = z.object({ email: emailSchema, password: passwordSchema, rememberMe: z.boolean().default(false) }).strict();
+const loginSchema = z.object({ email: emailSchema, password: passwordSchema.refine((password) => countPasswordCodePoints(password) > 0), rememberMe: z.boolean().default(false) }).strict();
 const captureSchema = z.object({ url: z.string().trim().min(8).max(2048) }).strict();
 
 function errorResponse(code: string, message: string, requestId?: string) {
@@ -101,7 +101,7 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
       const passwordHash = await hashNewPassword(parsed.data.password);
       await database.prepare('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)')
         .run(userId, parsed.data.email, passwordHash, new Date().toISOString());
-      await createSession(database, userId, res);
+      await createSession(database, userId, res, parsed.data.rememberMe);
       res.status(201).json({ user: { id: userId, email: parsed.data.email } });
     } catch (error) {
       if ((typeof error === 'object' && error !== null && 'code' in error && error.code === '23505') || String(error).includes('users_email_key')) {
@@ -130,7 +130,7 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
         res.status(403).json(errorResponse('account_disabled', 'This account is disabled.', req.requestId));
         return;
       }
-      await createSession(database, user.id, res);
+      await createSession(database, user.id, res, parsed.data.rememberMe);
       res.json({ user: { id: user.id, email: user.email } });
     } catch (error) {
       next(error);

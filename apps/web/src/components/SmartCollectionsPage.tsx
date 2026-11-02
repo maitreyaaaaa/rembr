@@ -200,17 +200,17 @@ function SmartCollectionCard({ collection, busy, renaming, renameValue, onRename
   const [colorDraft, setColorDraft] = useState(collection.color ?? defaultFolderColor);
   const folderStyle = { '--smart-folder-color': collection.color ?? defaultFolderColor } as CSSProperties;
 
-  return <li className="phase2-panel smart-folder-card" style={folderStyle}>
+  return <li className="smart-folder-card" style={folderStyle}>
     <div className="smart-folder-toolbar">
       <details className="phase2-card-menu smart-folder-menu">
         <summary aria-label={`Folder options for ${collection.name}`}><MoreHorizontal size={19} aria-hidden="true" /></summary>
         <div className="phase2-card-menu-items">
-          <button className="quiet-button" type="button" disabled={busy} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setColorDraft(collection.color ?? defaultFolderColor); setColorOpen((open) => !open); }}>Change color</button>
-          <button className="quiet-button" type="button" disabled={busy} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); onRename(); }}>Rename</button>
-          <button className="quiet-button" type="button" disabled={busy} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); onPin(); }}>{collection.pinned ? 'Unpin folder' : 'Pin folder'}</button>
+          <button className="smart-folder-menu-action" type="button" disabled={busy} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setColorDraft(collection.color ?? defaultFolderColor); setColorOpen((open) => !open); }}>Change color</button>
+          <button className="smart-folder-menu-action" type="button" disabled={busy} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); onRename(); }}>Rename</button>
+          <button className="smart-folder-menu-action" type="button" disabled={busy} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); onPin(); }}>{collection.pinned ? 'Unpin folder' : 'Pin folder'}</button>
           {collection.hidden
-            ? <button className="quiet-button" type="button" disabled={busy} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); void onRestore(); }}>Restore folder</button>
-            : <button className="quiet-button" type="button" disabled={busy} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); onDelete(); }}>Delete folder</button>}
+            ? <button className="smart-folder-menu-action" type="button" disabled={busy} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); void onRestore(); }}>Restore folder</button>
+            : <button className="smart-folder-menu-action" type="button" disabled={busy} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); onDelete(); }}>Delete folder</button>}
         </div>
       </details>
     </div>
