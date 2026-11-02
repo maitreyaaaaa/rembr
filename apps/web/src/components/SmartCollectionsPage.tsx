@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
-import { EllipsisVertical, Folder } from 'lucide-react';
+import { EllipsisVertical } from 'lucide-react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { ColorPicker } from './arc/color-picker/color-picker.js';
 import type { ColorSwatch } from './arc/color-picker/color-picker.js';
@@ -238,9 +238,23 @@ function SmartCollectionCard({ collection, busy, renaming, renameValue, onRename
       </details>
     </div>
     {colorOpen && <div className="smart-folder-color-editor"><ColorPicker label="Folder color" value={colorDraft} onValueChange={setColorDraft} background="#090b09" defaultSwatches={folderColorSwatches} className="smart-folder-color-picker" /><div className="smart-folder-color-actions"><button className="primary-button" type="button" disabled={busy} onClick={() => { void onColorSave(colorDraft).then(() => setColorOpen(false)); }}>Save color</button><button className="quiet-button" type="button" disabled={busy} onClick={() => { void onColorSave(null).then(() => setColorOpen(false)); }}>Reset</button></div></div>}
-    <Link className="smart-folder-link" to={`/app/smart-collections/${encodeURIComponent(collection.id)}`} aria-label={`Open ${collection.name}, ${collection.itemCount} saves`}><Folder size={42} strokeWidth={1.5} fill="var(--smart-folder-color)" aria-hidden="true" /></Link>
+    <Link className="smart-folder-link" to={`/app/smart-collections/${encodeURIComponent(collection.id)}`} aria-label={`Open ${collection.name}, ${collection.itemCount} saves`}><AnimatedFolderIllustration /></Link>
     {renaming ? <form className="phase2-form" onSubmit={(event) => { event.preventDefault(); const name = renameValue.trim(); if (name && name !== collection.name) void onRenameSave(name); else onRenameCancel(); }}><label>Folder name<input autoFocus maxLength={80} required value={renameValue} onChange={(event) => onRenameValueChange(event.target.value)} /></label><div className="phase2-card-actions"><button className="quiet-button" type="submit" disabled={busy || !renameValue.trim()}>Save name</button><button className="quiet-button" type="button" disabled={busy} onClick={onRenameCancel}>Cancel</button></div></form> : <h3><Link to={`/app/smart-collections/${encodeURIComponent(collection.id)}`}>{collection.name}</Link></h3>}
   </li>;
+}
+
+function AnimatedFolderIllustration() {
+  return <span className="smart-folder-visual" aria-hidden="true">
+    <span className="smart-folder-back" />
+    <span className="smart-folder-papers">
+      <span className="smart-folder-paper smart-folder-paper--left"><i /></span>
+      <span className="smart-folder-paper smart-folder-paper--middle"><i /></span>
+      <span className="smart-folder-paper smart-folder-paper--right"><i /></span>
+    </span>
+    <svg className="smart-folder-flap" viewBox="0 0 321 241" focusable="false">
+      <path d="M0 25C0 11.1929 11.1929 0 25 0h111.084c6.96 0 13.605 2.90139 18.336 8.00608l23.66 25.52822c4.731 5.1047 11.376 8.0061 18.336 8.0061H296c13.807 0 25 11.1929 25 25V216c0 13.807-11.193 25-25 25H25C11.1929 241 0 229.807 0 216V25Z" />
+    </svg>
+  </span>;
 }
 
 function PageHeading({ title, description, actions }: { title: string; description: string; actions?: ReactNode }) {
