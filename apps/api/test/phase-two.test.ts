@@ -834,10 +834,13 @@ test('Postgres schema starts with the complete empty Rembr model', async () => {
   try {
     const result = await database.prepare(`SELECT count(*) AS count FROM information_schema.tables
       WHERE table_schema='public' AND table_type='BASE TABLE'`).get() as { count: string };
-    assert.equal(Number(result.count), 45);
+    assert.equal(Number(result.count), 47);
     const rls = await database.prepare(`SELECT count(*) AS count FROM pg_class c
       JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='r' AND c.relrowsecurity`).get() as { count: string };
-    assert.equal(Number(rls.count), 45);
+    assert.equal(Number(rls.count), 47);
+    const mcpRls = await database.prepare(`SELECT count(*) AS count FROM pg_class c
+      JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname IN ('workos_mcp_user_links','mcp_tool_audit_events') AND c.relrowsecurity`).get() as { count: string };
+    assert.equal(Number(mcpRls.count), 2);
     const apiKeyRls = await database.prepare(`SELECT c.relrowsecurity AS enabled FROM pg_class c
       JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname='personal_api_keys'`).get() as { enabled: boolean };
     assert.equal(apiKeyRls.enabled, true);

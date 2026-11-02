@@ -30,6 +30,8 @@ import { createSemanticSearchRouter } from './library/semantic-routes.js';
 import type { EmbeddingProvider } from './library/semantic-embeddings.js';
 import { countPasswordCodePoints, hashNewPassword, validateNewPassword, verifyPassword } from './auth/passwords.js';
 import { createIntegrationRouters } from './integrations/api-v1.js';
+import { createWorkOSMcpAuthRouter } from './auth/workos-mcp.js';
+import { createWorkOSMcpApp } from './mcp/routes.js';
 
 const emailSchema = z.string().trim().email().max(254).transform((email) => email.toLowerCase());
 const passwordSchema = z.string().refine((password) => countPasswordCodePoints(password) <= 128);
@@ -56,6 +58,19 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
   app.use((req, res, next) => {
     req.requestId = randomUUID();
     res.setHeader('X-Request-Id', req.requestId);
+    next();
+  });
+  if (config.WORKOS_API_KEY && config.WORKOS_AUTHKIT_DOMAIN && config.MCP_RESOURCE_URL) {
+    const mcpApp = createWorkOSMcpApp(database, assetStorage, mediaStorage, options.validateUrl);
+    app.use((req, res, next) => {
+      if (req.path === '/mcp' || req.path.startsWith('/.well-known/oauth-')) {
+        mcpApp(req, res, next);
+        return;
+      }
+      next();
+    });
+  }
+  app.use((req, res, next) => {
     const origin = req.get('origin');
     if (origin && origin !== new URL(config.WEB_ORIGIN).origin) {
       res.status(403).json(errorResponse('origin_not_allowed', 'This request origin is not allowed.', req.requestId));
@@ -77,6 +92,7 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
   app.use(express.json({ limit: '16kb', strict: true }));
   app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
   app.use('/api', integrations.management);
+  app.use('/api', createWorkOSMcpAuthRouter(database));
   app.use('/api/v1', integrations.publicApi);
 
   const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false });

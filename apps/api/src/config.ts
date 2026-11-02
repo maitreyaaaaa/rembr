@@ -8,7 +8,7 @@ const configDirectory = dirname(fileURLToPath(import.meta.url));
 const projectRoot = [resolve(configDirectory, '../../..'), resolve(configDirectory, '../..')]
   .find((candidate) => existsSync(resolve(candidate, 'supabase/migrations')))
   ?? process.cwd();
-dotenv.config({ path: resolve(projectRoot, '.env') });
+dotenv.config({ path: [resolve(projectRoot, '.env.local'), resolve(projectRoot, '.env')] });
 
 const environmentSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -19,6 +19,9 @@ const environmentSchema = z.object({
   DATABASE_URL: z.preprocess((value) => value === '' ? undefined : value, z.string().url().optional()),
   SUPABASE_URL: z.preprocess((value) => value === '' ? undefined : value, z.string().url().optional()),
   SUPABASE_SERVICE_ROLE_KEY: z.preprocess((value) => value === '' ? undefined : value, z.string().min(1).optional()),
+  WORKOS_API_KEY: z.preprocess((value) => value === '' ? undefined : value, z.string().min(1).optional()),
+  WORKOS_AUTHKIT_DOMAIN: z.preprocess((value) => value === '' ? undefined : value, z.string().url().optional()),
+  MCP_RESOURCE_URL: z.preprocess((value) => value === '' ? undefined : value, z.string().url().optional()),
   META_API_KEY: z.preprocess((value) => value === '' ? undefined : value, z.string().min(1).optional()),
   AI_WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(4).default(2),
   OPENROUTER_API_KEY: z.preprocess((value) => value === '' ? undefined : value, z.string().min(1).optional()),
@@ -34,6 +37,24 @@ const environmentSchema = z.object({
   MAX_CAPTURE_BYTES: z.coerce.number().int().min(64_000).max(5_000_000).default(2_097_152),
   MAX_CAPTURE_REDIRECTS: z.coerce.number().int().min(0).max(5).default(3),
 }).superRefine((value, context) => {
+  const workosMcpConfigured = Boolean(value.WORKOS_API_KEY || value.WORKOS_AUTHKIT_DOMAIN || value.MCP_RESOURCE_URL);
+  if (workosMcpConfigured) {
+    if (!value.WORKOS_API_KEY) context.addIssue({ code: 'custom', path: ['WORKOS_API_KEY'], message: 'Required when WorkOS MCP is configured.' });
+    if (!value.WORKOS_AUTHKIT_DOMAIN) context.addIssue({ code: 'custom', path: ['WORKOS_AUTHKIT_DOMAIN'], message: 'Required when WorkOS MCP is configured.' });
+    if (!value.MCP_RESOURCE_URL) context.addIssue({ code: 'custom', path: ['MCP_RESOURCE_URL'], message: 'Required when WorkOS MCP is configured.' });
+  }
+  if (value.WORKOS_AUTHKIT_DOMAIN) {
+    const authKitUrl = new URL(value.WORKOS_AUTHKIT_DOMAIN);
+    if (authKitUrl.protocol !== 'https:' || authKitUrl.pathname !== '/' || authKitUrl.search || authKitUrl.hash) {
+      context.addIssue({ code: 'custom', path: ['WORKOS_AUTHKIT_DOMAIN'], message: 'Use the HTTPS origin for your WorkOS AuthKit environment.' });
+    }
+  }
+  if (value.MCP_RESOURCE_URL) {
+    const resourceUrl = new URL(value.MCP_RESOURCE_URL);
+    if (!['https:', 'http:'].includes(resourceUrl.protocol) || resourceUrl.search || resourceUrl.hash || resourceUrl.username || resourceUrl.password) {
+      context.addIssue({ code: 'custom', path: ['MCP_RESOURCE_URL'], message: 'Use a public MCP endpoint URL without credentials, query parameters, or a fragment.' });
+    }
+  }
   if (value.STORAGE_BACKEND === 'supabase') {
     if (!value.SUPABASE_URL) context.addIssue({ code: 'custom', path: ['SUPABASE_URL'], message: 'Required when STORAGE_BACKEND=supabase.' });
     if (!value.SUPABASE_SERVICE_ROLE_KEY) context.addIssue({ code: 'custom', path: ['SUPABASE_SERVICE_ROLE_KEY'], message: 'Required when STORAGE_BACKEND=supabase.' });

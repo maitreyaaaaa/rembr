@@ -15,5 +15,5 @@ export function date(value?: string): string {
 export function sameAppPath(value: string | null | undefined): string {
   if (!value) return '/app';
   const pathname = value.split(/[?#]/, 1)[0] ?? '';
-  return pathname === '/app' || pathname.startsWith('/app/') ? value : '/app';
+  return pathname === '/auth/workos/mcp' || pathname === '/app' || pathname.startsWith('/app/') ? value : '/app';
 }
