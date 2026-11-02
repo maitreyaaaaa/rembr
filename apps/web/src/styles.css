@@ -1222,9 +1222,15 @@ body .smart-collection-groups > section.phase2-panel .phase2-collection-grid > l
 
 /* Let the masonry board use the workspace width while keeping the search focused. */
 body .phase2-main:has(.library-page) {
+  --library-page-gutter: clamp(18px, 2.6vw, 48px);
+  --library-sidebar-clearance: clamp(86px, 8vw, 118px);
   width: min(2400px, 100%);
   margin: 0 auto;
-  padding: 35px clamp(18px, 2.6vw, 48px) 64px;
+  padding: 35px var(--library-page-gutter) 64px var(--library-sidebar-clearance);
+}
+.library-page .source-library-grid.is-masonry {
+  width: calc(100% + var(--library-sidebar-clearance) - var(--library-page-gutter));
+  margin-left: calc(var(--library-page-gutter) - var(--library-sidebar-clearance));
 }
 .library-page .phase2-page-heading { margin-bottom: 24px; }
 @media (max-width: 760px) {
