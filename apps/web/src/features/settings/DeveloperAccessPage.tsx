@@ -108,15 +108,6 @@ export function DeveloperAccessPage() {
         </table>
       </div>}
     </section>
-    <details className="developer-api-guide-details"><summary>API usage examples</summary><section className="phase2-panel developer-api-guide" aria-labelledby="api-guide-title">
-      <h2 id="api-guide-title">Use a key</h2>
-      <p className="phase2-helper">Keep your key in an environment variable. Send it as a Bearer token; never put it in a URL or browser code.</p>
-      <p className="field-note">Set <code>REMBR_BASE_URL</code> to your Rembr instance URL and <code>REMBR_API_KEY</code> to the key you just created.</p>
-      <pre><code>curl "$REMBR_BASE_URL/api/v1/items?limit=25" -H "Authorization: Bearer $REMBR_API_KEY"</code></pre>
-      <p className="field-note">Add <code>search</code> or <code>limit</code> (1–100) to filter results; follow <code>nextCursor</code> to load another page. Read access requires <code>library:read</code>.</p>
-      <pre><code>curl -X POST "$REMBR_BASE_URL/api/v1/items" -H "Authorization: Bearer $REMBR_API_KEY" -H "Content-Type: application/json" -d '&#123;"url":"https://example.com/article"&#125;'</code></pre>
-      <p className="field-note">Saving a link requires <code>library:write</code>; new links return <code>202</code> and duplicates return <code>200</code>. The key can also use <code>GET /api/v1/items/:id</code> with <code>library:read</code> and <code>GET /api/v1/collections</code> with <code>collections:read</code>.</p>
-    </section></details>
     {keyToRevoke && <div className="developer-sensitive-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setKeyToRevoke(null); }}><section className="developer-sensitive-dialog" role="alertdialog" aria-modal="true" aria-labelledby="revoke-key-title" aria-describedby="revoke-key-description"><header><div><h2 id="revoke-key-title">Revoke API key</h2><p>Access control</p></div><button type="button" aria-label="Close confirmation" disabled={busy} onClick={() => setKeyToRevoke(null)}><X size={17} /></button></header><p id="revoke-key-description">“{keyToRevoke.name}” will stop working immediately. This cannot be undone.</p><footer><button type="button" disabled={busy} onClick={() => setKeyToRevoke(null)}>Cancel</button><button className="developer-sensitive-confirm" type="button" disabled={busy} onClick={() => void revokeKey(keyToRevoke.id)}>{busy ? 'Revoking…' : 'Revoke key'}</button></footer></section></div>}
   </>;
 }

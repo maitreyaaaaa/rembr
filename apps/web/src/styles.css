@@ -1525,8 +1525,6 @@ body [role='alert'] button { border-color: rgb(255 255 255 / 40%); background: #
 .developer-access-card .developer-keys-secondary { color: #8e948b; font-size: 10px; }
 .developer-access-card .developer-keys-actions { text-align: right; }
 .developer-access-card .developer-keys-actions .secondary-button { min-height: 32px; padding: 0 10px; font-size: 10px; }
-.developer-api-guide { margin-top: 18px; }
-.developer-access-card + .developer-api-guide { width: min(1120px, 100%); }
 @media (max-width: 680px) {
   .developer-access-heading { align-items: flex-start; padding: 15px; }
   .developer-access-heading h2 { font-size: 16px; }
@@ -1605,15 +1603,6 @@ body [role='alert'] button { border-color: rgb(255 255 255 / 40%); background: #
 .developer-sensitive-dialog footer button { min-height: 30px; padding: 0 10px; border: 1px solid #353a40; border-radius: 6px; background: #111315; color: #dce1e7; font: inherit; font-size: 11px; cursor: pointer; }
 .developer-sensitive-dialog footer .developer-sensitive-confirm { border-color: #f0f1f2; background: #f0f1f2; color: #17191b; font-weight: 600; }
 .developer-sensitive-dialog button:focus-visible { outline: 2px solid #82b8ff; outline-offset: 2px; }
-.developer-api-guide { border-color: #282c31; border-radius: 9px; background: #090a0b; font-family: Arial, sans-serif; }
-.developer-api-guide-details { margin-top: 10px; border-bottom: 1px solid #24282d; font-family: Arial, sans-serif; }
-.developer-api-guide-details > summary { width: fit-content; padding: 5px 0; color: #aeb8c4; font-size: 11px; cursor: pointer; }
-.developer-api-guide-details[open] > summary { margin-bottom: 8px; color: #dce5ef; }
-.developer-api-guide-details .developer-api-guide { max-width: 100%; margin: 0 0 12px; padding: 12px; }
-.developer-api-guide h2 { color: #e8edf2; font-family: Arial, sans-serif; font-size: 15px; letter-spacing: -.01em; }
-.developer-api-guide .phase2-helper, .developer-api-guide .field-note { color: #aeb8c4; }
-.developer-api-guide pre { border: 1px solid #292d32; border-radius: 6px; background: #111315; }
-.developer-api-guide code { color: #dce5ef; }
 .mcp-access-page { max-width: none; gap: 12px; font-family: Arial, sans-serif; }
 .mcp-access-hero { min-height: 0; padding: 16px; border-color: #24282d; border-radius: 10px; background: #090a0b; }
 .mcp-access-hero .rg-kicker { margin-bottom: 8px; color: #b7c9de; }
