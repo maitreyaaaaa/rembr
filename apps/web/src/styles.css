@@ -223,15 +223,16 @@ body .phase2-card-menu-items { background: #090b09; }
 .quick-add-trigger:hover { transform: translateY(-3px) scale(1.03); box-shadow: 0 16px 44px rgb(255 106 0 / 38%); }
 .quick-add-trigger svg { width: 27px; height: 27px; stroke-width: 2; }
 .quick-add-layer { position: fixed; z-index: 100; inset: 0; }
-.quick-add-backdrop { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; background: rgb(0 0 0 / 58%); backdrop-filter: blur(7px); cursor: default; }
-.quick-add-panel { position: absolute; top: 24px; right: 24px; bottom: 24px; display: flex; width: min(416px, calc(100vw - 32px)); flex-direction: column; overflow: hidden; border: 1px solid rgb(255 255 255 / 12%); border-radius: 18px; background: #080908; box-shadow: 0 28px 90px rgb(0 0 0 / 70%); animation: quick-add-enter 180ms ease-out both; }
+.quick-add-backdrop { position: fixed; z-index: 100; inset: 0; background: rgb(0 0 0 / 58%); }
+.quick-add-panel { position: fixed; z-index: 101; top: 24px; right: 24px; bottom: 24px; display: flex; width: min(416px, calc(100vw - 32px)); flex-direction: column; overflow: hidden; border: 1px solid rgb(255 255 255 / 12%); border-radius: 18px; background: #080908; box-shadow: 0 28px 90px rgb(0 0 0 / 70%); animation: quick-add-enter 180ms ease-out both; }
 .quick-add-panel > header { display: flex; min-height: 84px; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid rgb(255 255 255 / 9%); padding: 15px 19px; }
+.quick-add-panel[data-view='menu'] { bottom: auto; max-height: calc(100dvh - 48px); }
 .quick-add-panel > header h2 { margin: 5px 0 0; color: #f4f4f0; font-size: 23px; font-weight: 750; letter-spacing: -.055em; line-height: 1.1; }
 .quick-add-kicker { color: var(--primary); font: 700 9px ui-monospace, monospace; letter-spacing: .22em; text-transform: uppercase; }
 .quick-add-close { display: grid; width: 42px; height: 42px; flex: none; place-items: center; border: 1px solid rgb(255 255 255 / 12%); border-radius: 50%; background: transparent; color: var(--muted); cursor: pointer; }
 .quick-add-close:hover { color: #fff; background: rgb(255 255 255 / 6%); }
 .quick-add-close svg { width: 19px; height: 19px; }
-.quick-add-menu { display: grid; gap: 12px; padding: 20px; }
+.quick-add-menu { display: grid; min-height: 0; overflow-y: auto; gap: 10px; padding: 16px; }
 .quick-add-menu > button { display: flex; min-height: 78px; align-items: center; gap: 13px; border: 1px solid rgb(255 255 255 / 11%); border-radius: 17px; padding: 0 16px; background: #0b0c0b; color: #f4f4f0; font-size: 16px; font-weight: 700; text-align: left; cursor: pointer; transition: border-color 160ms ease, background 160ms ease, transform 160ms ease; }
 .quick-add-menu > button:hover { transform: translateY(-1px); border-color: rgb(165 255 24 / 55%); background: rgb(165 255 24 / 4%); }
 .quick-add-menu > button > span { display: grid; width: 44px; height: 44px; flex: none; place-items: center; border-radius: 50%; background: rgb(165 255 24 / 10%); color: var(--primary); }
@@ -742,12 +743,15 @@ h1, h2, h3, p { margin-top: 0; }
 .rembr-detail-underlay > .phase2-main { min-height: 100%; }
 .rembr-detail-route { position: relative; z-index: 2; min-height: 100%; }
 .rembr-detail-route > .phase2-main { width: 100%; min-height: 100%; padding: 0; }
-.rembr-detail-route [data-testid='rembr-detail-drawer-backdrop'] { z-index: 80; }
-.rembr-detail-route [role='dialog'] { width: min(100%, 680px); max-width: 680px; border-left-color: rgb(255 255 255 / 12%); box-shadow: -32px 0 90px rgb(0 0 0 / 42%); }
-.rembr-detail-route [role='dialog'] > header { min-height: 72px; }
-.rembr-detail-route [role='dialog'] h2 { line-height: 1.08; }
-.rembr-detail-route [role='dialog'] button:focus-visible,
-.rembr-detail-route [role='dialog'] a:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 3px; }
+.rembr-item-backdrop { position: fixed; z-index: 80; inset: 0; background: rgb(0 0 0 / 70%); }
+.rembr-item-dialog { position: fixed; z-index: 81; inset: 0 0 0 auto; width: min(100%, 680px); border-left-color: rgb(255 255 255 / 12%); box-shadow: -32px 0 90px rgb(0 0 0 / 42%); overscroll-behavior: contain; }
+.rembr-item-dialog > header { min-height: 56px; padding-top: max(8px, env(safe-area-inset-top)); }
+.rembr-item-dialog h2 { line-height: 1.08; }
+.rembr-item-dialog button:focus-visible,
+.rembr-item-dialog a:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 3px; }
+.rembr-image-backdrop { position: fixed; z-index: 90; inset: 0; background: rgb(0 0 0 / 90%); }
+.rembr-image-dialog { position: fixed; z-index: 91; inset: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); display: grid; place-items: center; padding-top: 48px; }
+.rembr-image-close { position: absolute; top: 0; right: 0; display: grid; width: 44px; height: 44px; place-items: center; border: 1px solid var(--line); border-radius: 8px; background: #080908; color: var(--text); cursor: pointer; }
 .rembr-source-wordmark { display: block; color: var(--color-foreground); font-family: var(--font-display); font-size: 20px; font-weight: 700; letter-spacing: -.075em; line-height: 1; white-space: nowrap; }
 .rembr-source-wordmark span { color: var(--color-primary); }
 .iscraper-sidebar nav > a svg,
@@ -1550,7 +1554,7 @@ body .phase2-main-sensitive > .phase2-page-heading h1 { font-family: Arial, sans
 .phase2-main-sensitive > .phase2-page-heading > div:first-child > p:last-child { color: #aeb8c4; font-size: 11px; }
 .phase2-main-sensitive .phase2-tab-links { border-color: #30343a; background: #0d0f11; }
 .phase2-main-sensitive .phase2-tab-links a { color: #b8c1cb; }
-.phase2-main-sensitive .phase2-tab-links a.active { background: #eef0f2; color: #16181a; }
+.phase2-main-sensitive .phase2-tab-links a.active { background: #eef0f2; color: #16181a !important; }
 .developer-access-card { width: 100%; max-width: none; margin: 0 0 12px; border-color: #242628; border-radius: 15px; background: #090a0b; font-family: Arial, sans-serif; }
 .developer-access-heading { min-height: 78px; gap: 14px; padding: 14px 16px; border-color: #242628; }
 .developer-access-heading-actions { display: flex; align-items: center; gap: 14px; }
@@ -1598,7 +1602,7 @@ body .phase2-main-sensitive > .phase2-page-heading h1 { font-family: Arial, sans
 .developer-secret-value button { display: grid; width: 28px; height: 28px; place-items: center; border: 0; border-radius: 5px; background: transparent; color: #c3ccd6; cursor: pointer; }
 .developer-secret-value button:hover { background: #1c2025; color: #fff; }
 .developer-sensitive-backdrop { position: fixed; z-index: 90; inset: 0; display: grid; place-items: center; padding: 16px; background: rgb(0 0 0 / 65%); backdrop-filter: blur(3px); }
-.developer-sensitive-dialog { width: min(440px, 100%); overflow: hidden; border: 1px solid #34383d; border-radius: 10px; background: #090a0b; color: #e9edf1; font-family: Arial, sans-serif; box-shadow: 0 18px 65px rgb(0 0 0 / 55%); }
+.developer-sensitive-dialog { position: fixed; z-index: 91; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); overflow-y: auto; border: 1px solid #34383d; border-radius: 10px; background: #090a0b; color: #e9edf1; font-family: Arial, sans-serif; box-shadow: 0 18px 65px rgb(0 0 0 / 55%); }
 .developer-sensitive-dialog header { display: flex; align-items: center; justify-content: space-between; padding: 13px 15px; border-bottom: 1px solid #292c30; }
 .developer-sensitive-dialog header h2 { margin: 0; font-size: 15px; font-weight: 600; }
 .developer-sensitive-dialog header p { margin: 3px 0 0; color: #abb4be; font-size: 10px; }

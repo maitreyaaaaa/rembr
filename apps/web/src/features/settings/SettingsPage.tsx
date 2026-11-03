@@ -246,7 +246,7 @@ export function SettingsPage() {
     }
   }
 
-  return <main className="rembr-settings-page" aria-labelledby="rembr-settings-title">
+  return <section className="rembr-settings-page" aria-labelledby="rembr-settings-title">
     <header className="rembr-settings-header">
       <div><p className="rg-kicker">ACCOUNT / SETTINGS</p><h1 id="rembr-settings-title">Settings</h1><p>Manage your profile, library preferences, and privacy controls.</p></div>
       <div className="rembr-settings-account"><span>{session.user.email}</span><span className="rembr-settings-account-state"><i /> Account active</span></div>
@@ -329,7 +329,7 @@ export function SettingsPage() {
       <div className="rembr-settings-save-status"><span className="rembr-settings-unsaved-dot" /><span aria-live="polite">{dirtyCount} unsaved {dirtyCount === 1 ? 'change' : 'changes'}</span><small>Saved to your account when you choose Save changes.</small></div>
       <div className="rembr-settings-save-actions"><button className="rembr-settings-discard" type="button" disabled={busy} onClick={resetChanges}>Discard</button><button className="rembr-settings-save" type="button" disabled={busy || !settingsLoaded} onClick={() => void saveChanges()}>{busy ? 'Saving…' : 'Save changes'}</button></div>
     </div>}
-  </main>;
+  </section>;
 }
 
 function PrivacySetting({ title, description, details, enabled, providerAvailable, busy, onChange }: {
@@ -345,6 +345,6 @@ function PrivacySetting({ title, description, details, enabled, providerAvailabl
     <div className="rembr-settings-privacy-copy"><div><h3>{title}</h3><span className={`rembr-settings-state ${enabled ? 'is-on' : ''}`}><i />{enabled ? 'Enabled' : 'Off'}</span></div><p>{description}</p>{details && <p className="rembr-settings-privacy-detail">{details}</p>}
       <span className="rembr-settings-provider">{providerAvailable ? 'Service available' : 'Service not configured yet'}</span>
     </div>
-    <div className="rembr-settings-privacy-action"><label className="rembr-settings-switch"><input type="checkbox" role="switch" checked={enabled} disabled={busy || providerAvailable === undefined} onChange={(event) => onChange(event.currentTarget.checked)} /><span /></label></div>
+    <div className="rembr-settings-privacy-action"><label className="rembr-settings-switch"><input type="checkbox" role="switch" aria-label={`Allow ${title.toLocaleLowerCase()}`} checked={enabled} disabled={busy || providerAvailable === undefined} onChange={(event) => onChange(event.currentTarget.checked)} /><span /></label></div>
   </div>;
 }

@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { Tabs } from '@base-ui/react/tabs';
 import { ArrowRight, CheckCircle2, FileText, Link2, PackageOpen, Upload, X } from 'lucide-react';
 import { LoadingSpinner, ProgressBar } from '../../components/ui/LoadingStates.jsx';
 import { MagneticDropZone } from '../../components/MagneticDropZone.js';
@@ -75,19 +76,20 @@ export function RembrAddFlow({
         )}
       </header>
 
-      <div role="tablist" aria-label="Add to Rembr" className="grid gap-2 rounded-2xl border border-white/10 bg-white/[0.025] p-2 sm:grid-cols-2">
-        <button type="button" role="tab" aria-selected={mode === 'link'} aria-controls="rembr-add-link" id="rembr-add-link-tab" onClick={() => setMode('link')}
+      <Tabs.Root value={mode} onValueChange={(value) => setMode(value as AddMode)} className="space-y-5">
+      <Tabs.List activateOnFocus aria-label="Add to Rembr" className="grid grid-cols-2 gap-1 rounded-xl border border-white/10 bg-white/[0.025] p-1">
+        <Tabs.Tab value="link" disabled={busy || loading}
           className={`inline-flex min-h-12 items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition ${mode === 'link' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'}`}>
           <Link2 className="h-4 w-4" /> Save a link
-        </button>
-        <button type="button" role="tab" aria-selected={mode === 'archive'} aria-controls="rembr-add-archive" id="rembr-add-archive-tab" onClick={() => setMode('archive')}
+        </Tabs.Tab>
+        <Tabs.Tab value="archive" disabled={busy || loading}
           className={`inline-flex min-h-12 items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold transition ${mode === 'archive' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'}`}>
           <Upload className="h-4 w-4" /> Import an archive
-        </button>
-      </div>
+        </Tabs.Tab>
+      </Tabs.List>
 
       {mode === 'link' ? (
-        <section id="rembr-add-link" role="tabpanel" aria-labelledby="rembr-add-link-tab" className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.025]">
+        <Tabs.Panel value="link" render={<section />} className="overflow-hidden rounded-2xl border border-white/10 bg-white/[0.025]">
           <div className="grid lg:grid-cols-[minmax(0,1fr)_17rem]">
             <form onSubmit={onSaveLink} className="space-y-5 p-5 md:p-8">
               <div>
@@ -116,9 +118,9 @@ export function RembrAddFlow({
               </button>
             </aside>
           </div>
-        </section>
+        </Tabs.Panel>
       ) : (
-        <section id="rembr-add-archive" role="tabpanel" aria-labelledby="rembr-add-archive-tab" className="space-y-5">
+        <Tabs.Panel value="archive" render={<section />} className="space-y-5">
           <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_17rem]">
             <div className="space-y-4">
               <MagneticDropZone accept={archiveAccept} maxSize={25 * 1024 * 1024} maxFiles={20} maxTotalSize={100 * 1024 * 1024} multiple selectedFiles={files} onFilesChange={receiveFiles} disabled={busy || loading} label="Drop your export files here" hint="or browse · HTML, JSON, CSV, JS, TXT, or ZIP · up to 25 MiB each" />
@@ -169,8 +171,9 @@ export function RembrAddFlow({
             </div>
             {busy && <div className="mt-4 rounded-xl border border-white/10 bg-black/40 p-4"><ProgressBar value={progress} label="Uploading export files" detail={typeof progress === 'number' ? `${Math.max(0, Math.min(100, progress))}%` : 'Preparing secure upload'} /></div>}
           </div>
-        </section>
+        </Tabs.Panel>
       )}
+      </Tabs.Root>
     </div>
   );
 }

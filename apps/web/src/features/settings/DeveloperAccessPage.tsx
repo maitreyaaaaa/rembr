@@ -1,4 +1,5 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { AlertDialog } from '@base-ui/react/alert-dialog';
 import { Check, Copy, Eye, EyeOff, KeyRound, Plus, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api } from '../../app/api.js';
@@ -24,18 +25,14 @@ export function DeveloperAccessPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [message, setMessage] = useState('');
+  const [revokeError, setRevokeError] = useState('');
+  const revokeCancelRef = useRef<HTMLButtonElement>(null);
 
   async function refresh() {
     const result = await api<{ keys: ApiKeyInfo[] }>('/api/developer-keys');
     setKeys(result.keys);
   }
   useEffect(() => { void refresh().catch(() => setError('Could not load API keys.')); }, []);
-  useEffect(() => {
-    if (!keyToRevoke) return;
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape' && !busy) setKeyToRevoke(null); };
-    window.addEventListener('keydown', closeOnEscape);
-    return () => window.removeEventListener('keydown', closeOnEscape);
-  }, [keyToRevoke, busy]);
 
   function toggleScope(scope: Scope, enabled: boolean) {
     setScopes((current) => enabled ? [...new Set([...current, scope])] : current.filter((entry) => entry !== scope));
@@ -51,9 +48,9 @@ export function DeveloperAccessPage() {
     finally { setBusy(false); }
   }
   async function revokeKey(id: string) {
-    setBusy(true); setError(''); setMessage('');
+    setBusy(true); setRevokeError(''); setMessage('');
     try { await api<void>(`/api/developer-keys/${encodeURIComponent(id)}`, { method: 'DELETE' }); setKeyToRevoke(null); await refresh(); setMessage('API key revoked.'); }
-    catch { setError('Could not revoke this key. Try again.'); }
+    catch { setRevokeError('Could not revoke this key. Try again.'); }
     finally { setBusy(false); }
   }
   async function copyKey() {
@@ -102,12 +99,22 @@ export function DeveloperAccessPage() {
               <td><div className="developer-keys-scopes">{key.scopes.map((scope) => <span key={scope}>{scope === 'library:read' ? 'Read' : scope === 'library:write' ? 'Read & write' : 'Collections'}</span>)}</div></td>
               <td><span>{new Date(key.createdAt).toLocaleDateString()}</span><span className="developer-keys-secondary">{key.revokedAt ? 'Revoked' : `Expires ${new Date(key.expiresAt).toLocaleDateString()}`}</span></td>
               <td>{key.lastUsedAt ? new Date(key.lastUsedAt).toLocaleString() : <span className="developer-keys-secondary">Never</span>}</td>
-              <td className="developer-keys-actions">{key.revokedAt ? <span className="developer-keys-secondary"><Check size={13} aria-hidden="true" /> Revoked</span> : <button className="developer-key-revoke" type="button" disabled={busy} onClick={() => setKeyToRevoke(key)}>Revoke</button>}</td>
+              <td className="developer-keys-actions">{key.revokedAt ? <span className="developer-keys-secondary"><Check size={13} aria-hidden="true" /> Revoked</span> : <button className="developer-key-revoke" type="button" disabled={busy} onClick={() => { setRevokeError(''); setKeyToRevoke(key); }}>Revoke</button>}</td>
             </tr>;
           })}</tbody>
         </table>
       </div>}
     </section>
-    {keyToRevoke && <div className="developer-sensitive-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busy) setKeyToRevoke(null); }}><section className="developer-sensitive-dialog" role="alertdialog" aria-modal="true" aria-labelledby="revoke-key-title" aria-describedby="revoke-key-description"><header><div><h2 id="revoke-key-title">Revoke API key</h2><p>Access control</p></div><button type="button" aria-label="Close confirmation" disabled={busy} onClick={() => setKeyToRevoke(null)}><X size={17} /></button></header><p id="revoke-key-description">“{keyToRevoke.name}” will stop working immediately. This cannot be undone.</p><footer><button type="button" disabled={busy} onClick={() => setKeyToRevoke(null)}>Cancel</button><button className="developer-sensitive-confirm" type="button" disabled={busy} onClick={() => void revokeKey(keyToRevoke.id)}>{busy ? 'Revoking…' : 'Revoke key'}</button></footer></section></div>}
+    <AlertDialog.Root open={Boolean(keyToRevoke)} onOpenChange={(open) => { if (!open && !busy) setKeyToRevoke(null); }}>
+      <AlertDialog.Portal>
+        <AlertDialog.Backdrop className="developer-sensitive-backdrop" />
+        <AlertDialog.Popup className="developer-sensitive-dialog" initialFocus={revokeCancelRef}>
+          <header><div><AlertDialog.Title render={<h2 />}>Revoke API key</AlertDialog.Title><p>Access control</p></div><AlertDialog.Close aria-label="Close confirmation" disabled={busy}><X size={17} /></AlertDialog.Close></header>
+          <AlertDialog.Description>“{keyToRevoke?.name}” will stop working immediately. This cannot be undone.</AlertDialog.Description>
+          {revokeError && <p className="notice error" role="alert">{revokeError}</p>}
+          <footer><AlertDialog.Close ref={revokeCancelRef} disabled={busy}>Cancel</AlertDialog.Close><button className="developer-sensitive-confirm" type="button" disabled={busy || !keyToRevoke} onClick={() => { if (keyToRevoke) void revokeKey(keyToRevoke.id); }}>{busy ? 'Revoking…' : 'Revoke key'}</button></footer>
+        </AlertDialog.Popup>
+      </AlertDialog.Portal>
+    </AlertDialog.Root>
   </>;
 }

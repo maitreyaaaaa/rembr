@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
+import { Tabs } from '@base-ui/react/tabs';
 import { Check, Download, ExternalLink, RotateCcw, Search, ZoomIn, ZoomOut } from 'lucide-react';
 import {
   forceCenter,
@@ -407,12 +408,12 @@ export function RembrKnowledgeGraphPanel({
                 </svg>}
         </section>
 
-        <aside className="rounded-2xl border border-white/10 bg-white/[0.025] p-4 sm:p-5" aria-label="Graph details and tools">
-          <div className="grid grid-cols-2 gap-1 rounded-xl border border-white/10 bg-black p-1" role="tablist" aria-label="Graph panel">
-            {(['details', 'export'] as const).map((key) => <button key={key} type="button" role="tab" aria-selected={tab === key} onClick={() => setTab(key)} className={`rounded-lg px-2 py-2 text-xs font-semibold transition sm:px-3 ${tab === key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'}`}>{titleCase(key)}</button>)}
-          </div>
+        <Tabs.Root value={tab} onValueChange={(value) => setTab(value as 'details' | 'export')} render={<aside />} className="rounded-2xl border border-white/10 bg-white/[0.025] p-4 sm:p-5" aria-label="Graph details and tools">
+          <Tabs.List activateOnFocus className="grid grid-cols-2 gap-1 rounded-xl border border-white/10 bg-black p-1" aria-label="Graph panel">
+            {(['details', 'export'] as const).map((key) => <Tabs.Tab key={key} value={key} className={`rounded-lg px-2 py-2 text-xs font-semibold transition sm:px-3 ${tab === key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'}`}>{titleCase(key)}</Tabs.Tab>)}
+          </Tabs.List>
 
-          {tab === 'details' && <div className="mt-5">
+          {tab === 'details' && <Tabs.Panel value="details" className="mt-5">
             <div className="flex items-start gap-3"><span className="mt-1 h-3 w-3 shrink-0 rounded-full" style={{ background: nodeColor(selectedNode?.type ?? 'item') }} /><div className="min-w-0"><div className="font-mono text-[10px] uppercase tracking-[0.24em] text-primary">{selectedNode ? titleCase(selectedNode.type) : 'Selection'}</div><h2 className="mt-1 line-clamp-2 font-display text-xl font-bold tracking-tight">{selectedNode?.label ?? 'Click a node'}</h2></div></div>
             <p className="mt-3 text-sm leading-6 text-muted-foreground">{selectedNode ? selectedNode.type === 'item' ? selectedItem ? `${titleCase(selectedItem.status)} save${selectedItem.createdAt ? ` · added ${new Date(selectedItem.createdAt).toLocaleDateString()}` : ''}.` : 'Saved item in your library.' : `${selectedNode.itemCount ?? selectedConnections.length} linked saves or concepts.` : 'Select any node to inspect its nearby connections.'}</p>
             {selectedNode?.type === 'item' && selectedNode.itemId && <button type="button" onClick={() => onSelectItem(selectedNode.itemId!)} className="mt-3 inline-flex min-h-10 w-full items-center justify-center gap-2 rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground transition hover:scale-[1.01]">Open save detail <ExternalLink className="h-3.5 w-3.5" /></button>}
@@ -420,14 +421,14 @@ export function RembrKnowledgeGraphPanel({
               {selectedConnections.length ? <div className="max-h-72 space-y-2 overflow-y-auto pr-1">{selectedConnections.map((node) => <button key={node.id} type="button" onClick={() => selectNode(node.id)} className="flex min-h-10 w-full items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-left text-xs transition hover:border-primary"><span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ background: nodeColor(node.type) }} /><span className="min-w-0 flex-1 truncate">{node.label}</span><span className="text-[10px] uppercase text-muted-foreground">{titleCase(node.type)}</span></button>)}</div>
                 : <p className="text-sm leading-6 text-muted-foreground">{selectedNode ? 'No nearby nodes found.' : 'Select a node to see its connections.'}</p>}
             </div>
-          </div>}
+          </Tabs.Panel>}
 
-          {tab === 'export' && <div className="mt-5 space-y-4"><div><h2 className="font-display text-xl font-bold tracking-tight">Take your graph with you</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">Download the current graph data as JSON or export notes and links for Obsidian.</p></div>
+          {tab === 'export' && <Tabs.Panel value="export" className="mt-5 space-y-4"><div><h2 className="font-display text-xl font-bold tracking-tight">Take your graph with you</h2><p className="mt-2 text-sm leading-6 text-muted-foreground">Download the current graph data as JSON or export notes and links for Obsidian.</p></div>
             {graph?.truncated && <p className="rounded-lg border border-primary/20 bg-primary/5 p-3 text-xs leading-5 text-muted-foreground">This export reflects the bounded graph shown here, with truncation reported in the export metadata.</p>}
             <div className="grid gap-2"><button type="button" onClick={onExportObsidian} disabled={exportingObsidian || !graph} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground transition hover:scale-[1.01] disabled:cursor-wait disabled:opacity-60"><Download className="h-4 w-4" />{exportingObsidian ? 'Preparing Obsidian export…' : obsidianExported ? 'Obsidian export downloaded' : 'Export Obsidian graph'}</button>
               <button type="button" onClick={onExportJson} disabled={!graph} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-white/10 px-4 py-3 text-sm font-semibold text-foreground transition hover:border-primary hover:text-primary disabled:opacity-50"><Check className="h-4 w-4" />{exported ? 'Graph JSON downloaded' : 'Download graph JSON'}</button></div>
-          </div>}
-        </aside>
+          </Tabs.Panel>}
+        </Tabs.Root>
       </div>
     </div>
   );

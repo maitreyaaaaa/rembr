@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { gsap } from 'gsap';
+import { useRef, useState, type ReactNode } from 'react';
+import { Dialog } from '@base-ui/react/dialog';
 import {
   AlertCircle,
   ArrowUpRight,
@@ -164,7 +164,6 @@ export function RembrDetailDrawer({
   onReprocess,
   onToggleTag,
 }: RembrDetailDrawerProps) {
-  const panelRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const [preview, setPreview] = useState<{ url: string; label: string } | null>(null);
   const [tagSearch, setTagSearch] = useState('');
@@ -172,8 +171,8 @@ export function RembrDetailDrawer({
   const isNote = item.kind === 'note';
   const readyMedia = (item.media ?? []).filter((asset) => asset.status === 'ready' && asset.url);
   const noteAssets = item.note?.assets ?? [];
-  const canRetry = item.status === 'failed';
-  const canReprocess = item.status === 'ready' || item.status === 'partial';
+  const canRetry = !isNote && item.status === 'failed';
+  const canReprocess = !isNote && (item.status === 'ready' || item.status === 'partial');
   const displayTitle = item.titleOverride || item.title || 'Untitled save';
   const savedText = item.text || item.textPreview;
   const attachedTagIds = new Set(item.tags.map((tag) => tag.id));
@@ -182,39 +181,6 @@ export function RembrDetailDrawer({
     ? allTags.filter((tag) => !attachedTagIds.has(tag.id) && tag.name.toLocaleLowerCase().includes(normalizedTagSearch)).slice(0, 8)
     : [];
 
-  useEffect(() => {
-    const panel = panelRef.current;
-    if (!panel) return;
-    closeRef.current?.focus();
-    const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (!reducedMotion) gsap.fromTo(panel, { x: '100%' }, { x: 0, duration: 0.5, ease: 'power3.out' });
-    return () => { gsap.killTweensOf(panel); };
-  }, []);
-
-  function onDialogKeyDown(event: KeyboardEvent<HTMLElement>) {
-    if (event.key === 'Escape') {
-      event.stopPropagation();
-      if (preview) setPreview(null);
-      else onClose();
-      return;
-    }
-    if (event.key !== 'Tab' || !panelRef.current) return;
-    const focusable = Array.from(panelRef.current.querySelectorAll<HTMLElement>(
-      'a[href], button:not(:disabled), [tabindex]:not([tabindex="-1"])',
-    ));
-    if (!focusable.length) return;
-    const first = focusable[0];
-    const last = focusable.at(-1);
-    if (!first || !last) return;
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  }
-
   function runAction(action: RembrDetailAction) {
     if (action === 'cancel') onCancelProcessing(item);
     else if (action === 'retry') onRetryProcessing(item);
@@ -222,19 +188,14 @@ export function RembrDetailDrawer({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex bg-black/70 backdrop-blur-md"
-      onClick={onClose}
-      data-testid="rembr-detail-drawer-backdrop"
-    >
-      <section
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
+    <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(); }}>
+      <Dialog.Portal>
+      <Dialog.Backdrop className="rembr-item-backdrop" data-testid="rembr-detail-drawer-backdrop" />
+      <Dialog.Popup
+        initialFocus={closeRef}
         aria-labelledby="rembr-detail-title"
-        onClick={(event) => event.stopPropagation()}
-        onKeyDown={onDialogKeyDown}
-        className="ml-auto flex h-full w-full max-w-2xl flex-col overflow-y-auto border-l border-white/10 bg-black text-foreground shadow-2xl shadow-black"
+        aria-describedby={undefined}
+        className="rembr-item-dialog flex flex-col overflow-y-auto border-l border-white/10 bg-black text-foreground"
       >
         <header className="sticky top-0 z-10 flex items-center justify-end border-b border-white/10 bg-black/90 px-4 py-2 backdrop-blur sm:px-6">
           <button ref={closeRef} type="button" onClick={onClose} className="grid h-10 w-10 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-white/5 hover:text-foreground" aria-label="Close item details">
@@ -344,7 +305,7 @@ export function RembrDetailDrawer({
                 : <span key={tag.id} className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-muted-foreground">{tag.name}</span>)}</div>
               {onToggleTag && item.tags.length < MAX_ITEM_TAGS && <button type="button" aria-expanded={tagPickerOpen} onClick={() => { setTagPickerOpen((open) => !open); setTagSearch(''); }} className="mt-3 inline-flex min-h-9 items-center gap-2 rounded-full border border-white/10 px-3 text-xs font-semibold text-muted-foreground transition hover:border-primary hover:text-primary"><Tag className="h-3.5 w-3.5" /> Add tag</button>}
               {tagPickerOpen && item.tags.length < MAX_ITEM_TAGS && <div className="mt-3 max-w-md">
-                <label className="relative block"><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><input autoFocus type="search" value={tagSearch} onChange={(event) => setTagSearch(event.target.value)} placeholder="Find a tag" className="min-h-10 w-full rounded-xl border border-white/10 bg-black px-10 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-primary" /></label>
+                <label className="relative block"><span className="visually-hidden">Find a tag</span><Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" /><input autoFocus type="search" value={tagSearch} onChange={(event) => setTagSearch(event.target.value)} placeholder="Find a tag" className="min-h-10 w-full rounded-xl border border-white/10 bg-black px-10 text-sm text-foreground outline-none placeholder:text-muted-foreground focus:border-primary" /></label>
                 {normalizedTagSearch.length > 0 && normalizedTagSearch.length < 2 && <p className="mt-2 text-xs text-muted-foreground">Type at least two characters.</p>}
                 {matchingTags.length > 0 && <div className="mt-2 flex max-h-36 flex-wrap gap-2 overflow-y-auto">{matchingTags.map((tag) => <button key={tag.id} type="button" onClick={() => { onToggleTag?.(tag, true); setTagSearch(''); }} className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-muted-foreground transition hover:border-primary hover:text-primary">{tag.name}</button>)}</div>}
                 {normalizedTagSearch.length >= 2 && matchingTags.length === 0 && <p className="mt-2 text-xs text-muted-foreground">No matching tags.</p>}
@@ -358,13 +319,18 @@ export function RembrDetailDrawer({
             {item.fetchedAt && <><span aria-hidden="true">·</span><Clock3 className="h-3.5 w-3.5" /> Processed {formatDate(item.fetchedAt)}</>}
           </footer>
         </div>
-      </section>
-
-      {preview && <div className="fixed inset-0 z-[60] grid place-items-center bg-black/90 p-4 backdrop-blur-sm" onClick={() => setPreview(null)}>
-        <button type="button" className="absolute right-5 top-5 grid h-11 w-11 place-items-center rounded-lg border border-white/10 bg-black/70 text-white hover:bg-white/10" onClick={() => setPreview(null)} aria-label="Close image preview"><X className="h-5 w-5" /></button>
-        <img src={preview.url} alt={preview.label} className="max-h-[88vh] max-w-[92vw] rounded-2xl border border-white/10 object-contain shadow-2xl shadow-black" />
-      </div>}
-    </div>
+      <Dialog.Root open={Boolean(preview)} onOpenChange={(open) => { if (!open) setPreview(null); }}>
+        <Dialog.Portal>
+          <Dialog.Backdrop className="rembr-image-backdrop" />
+          <Dialog.Popup className="rembr-image-dialog" aria-label="Image preview" aria-describedby={undefined}>
+            <Dialog.Close className="rembr-image-close" aria-label="Close image preview"><X className="h-5 w-5" /></Dialog.Close>
+            {preview && <img src={preview.url} alt={preview.label} className="max-h-[82dvh] max-w-full rounded-xl border border-white/10 object-contain" />}
+          </Dialog.Popup>
+        </Dialog.Portal>
+      </Dialog.Root>
+      </Dialog.Popup>
+      </Dialog.Portal>
+    </Dialog.Root>
   );
 }
 

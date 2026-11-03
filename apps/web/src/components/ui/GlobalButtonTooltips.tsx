@@ -22,9 +22,6 @@ function buttonLabel(button: HTMLElement): string {
   const explicit = button.dataset.tooltip?.trim();
   if (explicit) return explicit;
 
-  const accessibleLabel = button.getAttribute('aria-label')?.trim();
-  if (accessibleLabel) return accessibleLabel;
-
   const nativeTitle = button.getAttribute('title')?.trim();
   if (nativeTitle) return nativeTitle;
 
@@ -34,7 +31,10 @@ function buttonLabel(button: HTMLElement): string {
 
   const clone = button.cloneNode(true) as HTMLElement;
   clone.querySelectorAll('[aria-hidden="true"], [hidden], .sr-only, .visually-hidden').forEach((node) => node.remove());
-  return (clone.textContent ?? '').replace(/\s+/g, ' ').trim();
+  // Labeled controls already explain themselves. Tooltips are reserved for
+  // icon-only controls or an explicit data-tooltip/title explanation.
+  if ((clone.textContent ?? '').trim()) return '';
+  return button.getAttribute('aria-label')?.trim() ?? '';
 }
 
 export function GlobalButtonTooltips() {
@@ -93,13 +93,13 @@ export function GlobalButtonTooltips() {
     };
 
     const scheduleShow = (trigger: HTMLElement | null) => {
-      if (!trigger) return;
+      if (!trigger || trigger.matches(':disabled, [aria-disabled="true"]')) { dismiss(); return; }
       const text = buttonLabel(trigger);
-      if (!text) return;
+      if (!text) { dismiss(); return; }
       if (triggerRef.current === trigger && viewRef.current) return;
       clearTimer();
       const entrance: TooltipView['entrance'] = Date.now() - lastOpenedAtRef.current < 300 ? 'quick' : 'standard';
-      timerRef.current = window.setTimeout(() => show(trigger, text, entrance), entrance === 'quick' ? 0 : 250);
+      timerRef.current = window.setTimeout(() => { if (trigger.isConnected) show(trigger, text, entrance); }, entrance === 'quick' ? 0 : 250);
     };
 
     const onPointerOver = (event: PointerEvent) => {
@@ -129,6 +129,10 @@ export function GlobalButtonTooltips() {
     document.addEventListener('focusin', onFocusIn);
     document.addEventListener('focusout', onFocusOut);
     document.addEventListener('keydown', onKeyDown);
+    document.addEventListener('click', dismiss, true);
+    document.addEventListener('pointerdown', dismiss, true);
+    const observer = new MutationObserver(() => { if (triggerRef.current && !triggerRef.current.isConnected) dismiss(); });
+    observer.observe(document.body, { childList: true, subtree: true });
     window.addEventListener('scroll', onScroll, true);
     window.addEventListener('resize', dismiss);
     return () => {
@@ -137,6 +141,9 @@ export function GlobalButtonTooltips() {
       document.removeEventListener('focusin', onFocusIn);
       document.removeEventListener('focusout', onFocusOut);
       document.removeEventListener('keydown', onKeyDown);
+      document.removeEventListener('click', dismiss, true);
+      document.removeEventListener('pointerdown', dismiss, true);
+      observer.disconnect();
       window.removeEventListener('scroll', onScroll, true);
       window.removeEventListener('resize', dismiss);
       clearTimer();

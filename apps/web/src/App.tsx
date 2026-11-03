@@ -3,6 +3,9 @@ import { api, apiWithProgress } from './app/api.js';
 import { messageOf, sameAppPath } from './app/helpers.js';
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { FileText, Link2, Plus, Upload, X } from 'lucide-react';
+import { Dialog } from '@base-ui/react/dialog';
+import { Tabs } from '@base-ui/react/tabs';
+import { Popover } from '@base-ui/react/popover';
 import { BrowserRouter, Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AvatarUpload } from './components/AvatarUpload.js';
 import { RembrAuthFrame } from './features/auth/RembrAuthFrame.js';
@@ -108,9 +111,9 @@ function AuthPage() {
 
   return <RembrAuthFrame title="Keep what you find. Find it again." description="Save a public page with its source and a readable copy." sideNote="Made for the long read">
     <div className="auth-card-heading"><h2 id="auth-form-title">{mode === 'login' ? 'Welcome back.' : 'Create your account.'}</h2></div>
-      <div className="auth-tabs" role="tablist" aria-label="Account access"><button type="button" role="tab" aria-selected={mode === 'login'} onClick={() => { setMode('login'); setPassword(''); setPasswordRevealed(false); setError(''); }}>Sign in</button><button type="button" role="tab" aria-selected={mode === 'register'} onClick={() => { setMode('register'); setPassword(''); setPasswordRevealed(false); setError(''); }}>Create account</button></div>
-      <form className="stack-form" onSubmit={(event) => void submit(event)}><label htmlFor="email">Email address</label><input id="email" autoComplete="email" type="email" required maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} />{mode === 'register' ? <PasswordStrengthField id="password" value={password} onValueChange={setPassword} disabled={busy} /> : <><label htmlFor="password">Password</label><div className="password-input-wrap"><input id="password" name="password" autoComplete="current-password" type={passwordRevealed ? 'text' : 'password'} required minLength={1} maxLength={128} value={password} onChange={(event) => setPassword(event.target.value)} /><button type="button" className="password-reveal" aria-label={passwordRevealed ? 'Hide password' : 'Show password'} aria-controls="password" aria-pressed={passwordRevealed} onClick={() => setPasswordRevealed((current) => !current)}>{passwordRevealed ? 'Hide' : 'Show'}</button></div></>}<label className="auth-remember"><input type="checkbox" checked={rememberMe} onChange={(event) => setRememberMe(event.currentTarget.checked)} /><span>Keep me signed in on this browser for 30 days</span></label>{error && <p className="notice error" role="alert">{error}</p>}<button className="primary-button" type="submit" disabled={busy}>{busy ? (mode === 'register' ? 'Creating account…' : 'Signing in…') : mode === 'register' ? 'Create your library' : 'Sign in to Rembr'}</button></form>
-      <p className="privacy-note"><span>✳</span>Your library is private to your account. Rembr can save public pages.</p>
+      <Tabs.Root value={mode} onValueChange={(value) => { setMode(value as 'login' | 'register'); setPassword(''); setPasswordRevealed(false); setError(''); }}><Tabs.List className="auth-tabs" aria-label="Account access" activateOnFocus><Tabs.Tab value="login">Sign in</Tabs.Tab><Tabs.Tab value="register">Create account</Tabs.Tab></Tabs.List><Tabs.Panel value={mode}>
+      <form className="stack-form" onSubmit={(event) => void submit(event)}><label htmlFor="email">Email address</label><input id="email" autoComplete="email" type="email" required maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} />{mode === 'register' ? <Suspense fallback={<p className="field-note" role="status">Loading password checks…</p>}><PasswordStrengthField id="password" value={password} onValueChange={setPassword} disabled={busy} /></Suspense> : <><label htmlFor="password">Password</label><div className="password-input-wrap"><input id="password" name="password" autoComplete="current-password" type={passwordRevealed ? 'text' : 'password'} required minLength={1} maxLength={128} value={password} onChange={(event) => setPassword(event.target.value)} /><button type="button" className="password-reveal" aria-label={passwordRevealed ? 'Hide password' : 'Show password'} aria-controls="password" aria-pressed={passwordRevealed} onClick={() => setPasswordRevealed((current) => !current)}>{passwordRevealed ? 'Hide' : 'Show'}</button></div></>}<label className="auth-remember"><input type="checkbox" checked={rememberMe} onChange={(event) => setRememberMe(event.currentTarget.checked)} /><span>Keep me signed in on this browser for 30 days</span></label>{error && <p className="notice error" role="alert">{error}</p>}<button className="primary-button" type="submit" disabled={busy || (mode === 'register' && !password)}>{busy ? (mode === 'register' ? 'Creating account…' : 'Signing in…') : mode === 'register' ? 'Create your library' : 'Sign in to Rembr'}</button></form>
+      </Tabs.Panel></Tabs.Root><p className="privacy-note"><span>✳</span>Your library is private to your account. Rembr can save public pages.</p>
   </RembrAuthFrame>;
 }
 
@@ -193,13 +196,6 @@ function QuickAddDock() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    if (!open) return undefined;
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape' && !busy) close(); };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [open, busy]);
-
   function close() { setOpen(false); setView('menu'); setError(''); }
   async function saveLink(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError('');
@@ -225,12 +221,12 @@ function QuickAddDock() {
     finally { setBusy(false); }
   }
 
-  return <>
-    <button className="quick-add-trigger" type="button" aria-label="Quick add to your library" aria-expanded={open} onClick={() => { setOpen(true); setView('menu'); }}><Plus aria-hidden="true" /></button>
-    {open && <div className="quick-add-layer">
-      <button className="quick-add-backdrop" type="button" aria-label="Close quick add" onClick={close} />
-      <section className="quick-add-panel" role="dialog" aria-modal="true" aria-labelledby="quick-add-title">
-        <header><div><span className="quick-add-kicker">Quick add</span><h2 id="quick-add-title">Add to your Library</h2></div><button className="quick-add-close" type="button" aria-label="Close quick add" onClick={close}><X /></button></header>
+  return <Dialog.Root open={open} onOpenChange={(nextOpen) => { if (busy) return; if (nextOpen) { setOpen(true); setView('menu'); } else close(); }}>
+    <Dialog.Trigger className="quick-add-trigger" aria-label="Quick add to your library"><Plus aria-hidden="true" /></Dialog.Trigger>
+    <Dialog.Portal>
+      <Dialog.Backdrop className="quick-add-backdrop" />
+      <Dialog.Popup className="quick-add-panel" data-view={view} aria-describedby={undefined}>
+        <header><div><span className="quick-add-kicker">Quick add</span><Dialog.Title id="quick-add-title" render={<h2 />}>Add to your Library</Dialog.Title></div><Dialog.Close className="quick-add-close" aria-label="Close quick add" disabled={busy}><X /></Dialog.Close></header>
         {view === 'menu' && <div className="quick-add-menu">
           <button type="button" onClick={() => { setError(''); setView('link'); }}><span><Link2 /></span>Paste link</button>
           <button type="button" onClick={() => { setError(''); setView('note'); }}><span><FileText /></span>Write note</button>
@@ -238,21 +234,21 @@ function QuickAddDock() {
           <Link to="/app/add" onClick={close}><Upload />Open full Add Saves page</Link>
         </div>}
         {view === 'link' && <form className="quick-add-form" onSubmit={(event) => void saveLink(event)}>
-          <button className="quick-add-back" type="button" onClick={() => { setView('menu'); setError(''); }}>← Quick add</button>
+          <button className="quick-add-back" type="button" disabled={busy} onClick={() => { setView('menu'); setError(''); }}>← Quick add</button>
           <h3>Save a page</h3><label htmlFor="quick-add-url">Paste a link</label><input id="quick-add-url" type="url" inputMode="url" autoComplete="url" required maxLength={2048} placeholder="https://example.com/article" value={url} onChange={(event) => setUrl(event.currentTarget.value)} />
           {error && <p className="notice error" role="alert">{error}</p>}<button className="primary-button" type="submit" disabled={busy || !url.trim()}>{busy ? 'Saving…' : 'Save page'}</button>
         </form>}
         {view === 'note' && <form className="quick-add-form" onSubmit={(event) => void saveNote(event)}>
-          <button className="quick-add-back" type="button" onClick={() => { setView('menu'); setError(''); }}>← Quick add</button>
+          <button className="quick-add-back" type="button" disabled={busy} onClick={() => { setView('menu'); setError(''); }}>← Quick add</button>
           <h3>Save a quick thought</h3><label className="visually-hidden" htmlFor="quick-add-note-body">Note</label><textarea id="quick-add-note-body" rows={1} maxLength={20000} required placeholder="Write the note, reminder, or idea…" value={body} onChange={(event) => { setBody(event.currentTarget.value); event.currentTarget.style.height = 'auto'; event.currentTarget.style.height = `${event.currentTarget.scrollHeight}px`; }} />
           <label className="visually-hidden" htmlFor="quick-add-note-title">Title (optional)</label><input id="quick-add-note-title" maxLength={240} placeholder="Title optional" value={title} onChange={(event) => setTitle(event.currentTarget.value)} />
           <label className="visually-hidden" htmlFor="quick-add-note-links">Optional links</label><textarea id="quick-add-note-links" rows={1} placeholder="Optional links, one per line" value={links} onChange={(event) => { setLinks(event.currentTarget.value); event.currentTarget.style.height = 'auto'; event.currentTarget.style.height = `${event.currentTarget.scrollHeight}px`; }} />
           <label className="quick-add-image-button" htmlFor="quick-add-note-images"><Upload />Add images <span>{images.length}/5 selected</span></label><input id="quick-add-note-images" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple onChange={(event) => { const picked = Array.from(event.currentTarget.files ?? []).slice(0, 5); setImages(picked); event.currentTarget.value = ''; }} />
           {error && <p className="notice error" role="alert">{error}</p>}<button className="primary-button" type="submit" disabled={busy || !body.trim()}>{busy ? 'Saving note…' : 'Save note'}</button>
         </form>}
-      </section>
-    </div>}
-  </>;
+      </Dialog.Popup>
+    </Dialog.Portal>
+  </Dialog.Root>;
 }
 
 function SidebarIcon({ name }: { name: string }) {
@@ -309,17 +305,22 @@ function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promi
       <Link to="/" aria-label="Rembr home" className="flex min-h-11 min-w-11 items-center gap-2"><SidebarIcon name="arrow-left-02" /><img className="rembr-official-logo app-nav-brand" src="/brand/rembr-wordmark.svg?v=20261101" alt="Rembr" /></Link>
       <Link to="/app/settings/profile" className="grid h-11 w-11 place-items-center overflow-hidden rounded-full border border-white/10 bg-primary text-sm font-bold text-primary-foreground" aria-label="Open account settings">{avatar ? <img src={avatar} alt="" className="h-full w-full object-cover" /> : userMark.toUpperCase()}</Link>
     </header>
-    {moreOpen && <button type="button" className="mobile-navigation-backdrop md:hidden" onClick={() => setMoreOpen(false)} aria-label="Close more navigation" />}
-    <nav className="mobile-bottom-navigation md:hidden" aria-label="Main navigation" onKeyDown={(event) => { if (event.key === 'Escape') setMoreOpen(false); }}>
-      <div id="rembr-mobile-more" className="mobile-more-panel" role="group" aria-label="More sections" hidden={!moreOpen}>
-        <Link to="/app/smart-collections" onClick={() => setMoreOpen(false)} aria-current={isActive('/app/smart-collections') ? 'page' : undefined} className={`mobile-more-item ${isActive('/app/smart-collections') ? 'is-active' : ''}`}><SidebarIcon name="folder-2" /><span>Smart collections</span></Link>
-        <Link to="/how-to-use" onClick={() => setMoreOpen(false)} className="mobile-more-item"><SidebarIcon name="book-open" /><span>How to use</span></Link>
-      </div>
+    <nav className="mobile-bottom-navigation md:hidden" aria-label="Main navigation">
       {[
         { path: '/app', label: 'Library', icon: <SidebarIcon name="book-saved" />, exact: true },
         { path: '/app/add', label: 'Add', icon: <SidebarIcon name="document-upload" />, add: true },
       ].map((item) => <Link key={item.path} to={item.path} aria-current={isActive(item.path, item.exact) ? 'page' : undefined} className={`mobile-bottom-navigation-button ${isActive(item.path, item.exact) ? 'is-active' : ''} ${item.add ? 'is-add' : ''}`}>{item.icon}<span>{item.label}</span></Link>)}
-      <button type="button" onClick={() => setMoreOpen((open) => !open)} aria-expanded={moreOpen} aria-controls="rembr-mobile-more" className={`mobile-bottom-navigation-button ${mobileMoreActive || moreOpen ? 'is-active' : ''}`}><SidebarIcon name="more" /><span>More</span></button>
+      <Popover.Root open={moreOpen} onOpenChange={setMoreOpen}>
+        <Popover.Trigger className={`mobile-bottom-navigation-button ${mobileMoreActive || moreOpen ? 'is-active' : ''}`}><SidebarIcon name="more" /><span>More</span></Popover.Trigger>
+        <Popover.Portal>
+          <Popover.Positioner className="mobile-more-positioner" side="top" align="end" sideOffset={10} collisionPadding={12}>
+            <Popover.Popup className="mobile-more-panel" aria-label="More sections">
+              <Link to="/app/smart-collections" onClick={() => setMoreOpen(false)} aria-current={isActive('/app/smart-collections') ? 'page' : undefined} className={`mobile-more-item ${isActive('/app/smart-collections') ? 'is-active' : ''}`}><SidebarIcon name="folder-2" /><span>Smart collections</span></Link>
+              <Link to="/how-to-use" onClick={() => setMoreOpen(false)} className="mobile-more-item"><SidebarIcon name="book-open" /><span>How to use</span></Link>
+            </Popover.Popup>
+          </Popover.Positioner>
+        </Popover.Portal>
+      </Popover.Root>
     </nav>
   </>;
 }
