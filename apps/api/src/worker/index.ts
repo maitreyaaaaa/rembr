@@ -9,11 +9,13 @@ import { processNextAiJob } from '../ai/worker.js';
 import { resolveTemporaryAnalysisMedia } from '../ai/temporary-media.js';
 import type { MediaProcessor } from './process-job.js';
 import { createStorageAdapters } from '../storage/adapters.js';
+import { createSmartCollectionService } from '../smart-collections/service.js';
 
 const database = await createDatabase();
 const { imports: importStorage, media: mediaStorage } = createStorageAdapters();
 await Promise.all([importStorage.initialize(), mediaStorage.initialize()]);
 const imports = createImportService(database, importStorage);
+const smartCollections = createSmartCollectionService(database);
 const mediaProcessor: MediaProcessor = { fetchMedia: fetchPublicMedia, storage: mediaStorage };
 const metaClient = createMetaModelClient({ apiKey: config.META_API_KEY });
 const aiMediaResolver = async (job: { original_url: string }) => {
@@ -80,8 +82,9 @@ async function run() {
     })();
   }, 30_000);
   const aiWorkers = Array.from({ length: config.AI_WORKER_CONCURRENCY }, (_, index) => runAiWorker(index + 1));
+  const collectionWorker = runSmartCollectionRefreshes();
   await runApplicationJobs();
-  await Promise.allSettled(aiWorkers);
+  await Promise.allSettled([...aiWorkers, collectionWorker]);
   clearInterval(statusHeartbeat);
   await writeAiWorkerStatus(false).catch(() => undefined);
   await database.close();
@@ -90,6 +93,19 @@ async function run() {
 function stop(signal: string) {
   console.info('rembr_worker_shutdown', { signal });
   stopping = true;
+}
+
+async function runSmartCollectionRefreshes() {
+  while (!stopping) {
+    try {
+      const ownerId = await smartCollections.processNextRefresh();
+      if (ownerId) console.info('rembr_smart_collections_refreshed', { ownerId });
+      else await delay(1500);
+    } catch (error) {
+      console.error('rembr_worker_error', { worker: 'smart-collections', errorType: error instanceof Error ? error.name : 'unknown' });
+      await delay(1500);
+    }
+  }
 }
 
 process.on('SIGINT', () => stop('SIGINT'));

@@ -32,7 +32,8 @@ export function createSmartCollectionRouter(database: DatabaseHandle, storage: A
   router.post('/smart-collections/refresh', signedIn, profile, async (req, res) => {
     const parsed = z.object({ includeHidden: z.enum(['true','false']).default('false') }).safeParse(req.query);
     if (!parsed.success) return fail(res, 400, 'invalid_query', 'Smart collection filters are invalid.', req.requestId);
-    return res.json(await smartCollections.list(req.user!.id, parsed.data.includeHidden === 'true'));
+    await smartCollections.requestRefresh(req.user!.id);
+    return res.status(202).json(await smartCollections.list(req.user!.id, parsed.data.includeHidden === 'true'));
   });
   router.get('/smart-collections/:collectionId/items', signedIn, profile, async (req, res) => {
     const parsed = z.object({ search: z.string().trim().max(120).default(''), limit: z.coerce.number().int().min(1).max(100).default(25), cursor: z.string().max(2048).optional() }).safeParse(req.query);

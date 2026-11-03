@@ -13,6 +13,7 @@ import { MetaApiError } from '../src/ai/meta-client.js';
 import { utcMonthStart } from '../src/ai/usage.js';
 import { recoverAssets } from '../src/assets/recovery.js';
 import { LocalAssetStorage } from '../src/assets/storage.js';
+import { createSmartCollectionService } from '../src/smart-collections/service.js';
 
 const origin = 'http://127.0.0.1:5173';
 const password = 'correct-horse-battery-staple';
@@ -601,6 +602,13 @@ test('Smart Collections support owner-scoped renames and manual membership corre
     await database.prepare(`UPDATE saved_items SET source_platform='instagram',source_metadata_json=? WHERE owner_id=? AND id=?`)
       .run(JSON.stringify({ collections: ['Design references'] }), ownerId, ids[2]);
 
+    const smartCollections = createSmartCollectionService(database);
+    const queued = await fetch(`${baseUrl}/api/smart-collections/refresh`, { method: 'POST', headers: { Cookie: owner.cookie } });
+    assert.equal(queued.status, 202);
+    assert.equal((await queued.json() as { refresh: { status: string } }).refresh.status, 'pending');
+    assert.equal((await database.prepare('SELECT COUNT(*) AS count FROM smart_collections WHERE owner_id=?').get<{ count: number }>(ownerId))?.count, 0);
+    await smartCollections.processNextRefresh(ownerId);
+
     const list = await fetch(`${baseUrl}/api/smart-collections`, { headers: { Cookie: owner.cookie } });
     assert.equal(list.status, 200);
     const collections = (await list.json() as { collections: Array<{ id: string; slug: string; name: string }> }).collections;
@@ -685,6 +693,9 @@ test('Smart Collections rules use existing summary, visual, OCR, and transcript 
       }
     }
 
+    const smartCollections = createSmartCollectionService(database);
+    await smartCollections.requestRefresh(owner.user.user.id);
+    await smartCollections.processNextRefresh(owner.user.user.id);
     const response = await fetch(`${baseUrl}/api/smart-collections`, { headers: { Cookie: owner.cookie } });
     assert.equal(response.status, 200);
     const collections = (await response.json() as { collections: Array<{ slug: string; itemCount: number; folderGroup: string }> }).collections;
@@ -834,10 +845,14 @@ test('Postgres schema starts with the complete empty Rembr model', async () => {
   try {
     const result = await database.prepare(`SELECT count(*) AS count FROM information_schema.tables
       WHERE table_schema='public' AND table_type='BASE TABLE'`).get() as { count: string };
-    assert.equal(Number(result.count), 47);
+    assert.equal(Number(result.count), 49);
     const rls = await database.prepare(`SELECT count(*) AS count FROM pg_class c
       JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='r' AND c.relrowsecurity`).get() as { count: string };
-    assert.equal(Number(rls.count), 47);
+    assert.equal(Number(rls.count), 49);
+    const collectionRls = await database.prepare(`SELECT count(*) AS count FROM pg_class c
+      JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public'
+      AND c.relname IN ('smart_collection_memberships','smart_collection_refresh_state') AND c.relrowsecurity`).get() as { count: string };
+    assert.equal(Number(collectionRls.count), 2);
     const mcpRls = await database.prepare(`SELECT count(*) AS count FROM pg_class c
       JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname IN ('workos_mcp_user_links','mcp_tool_audit_events') AND c.relrowsecurity`).get() as { count: string };
     assert.equal(Number(mcpRls.count), 2);

@@ -23,7 +23,8 @@ type SmartItem = { id: string; title: string; description: string; url: string; 
 type CandidateItem = { item: SmartItem; confidence: number; reason: string; overrideAction?: 'include' | 'exclude' };
 type Candidate = { slug: string; name: string; description: string; sourceType: SourceType; folderGroup: string; matchSignals: Set<string>; items: Map<string, CandidateItem> };
 type CollectionRow = { id: string; owner_id: string; slug: string; name: string; description: string; source_type: SourceType; pinned: boolean | number; hidden: boolean | number; folder_color: string | null; generation_metadata: string; created_at: string; updated_at: string };
-type OverrideRow = { collection_id: string; item_id: string; action: 'include' | 'exclude'; reason: string };
+type StoredMatch = { collection_id: string; item_id: string; confidence: number; reason: string; override_action: 'include' | 'exclude' | null; created_at: string };
+type RefreshState = { revision: string | number; built_revision: string | number; lease_token: string | null; generated_at: string | null; truncated: boolean; failed: boolean };
 type DbItemRow = Record<string, unknown>;
 
 function readStrings(value: unknown): string[] {
@@ -138,7 +139,9 @@ export class SmartCollectionError extends Error {
 }
 
 export function createSmartCollectionService(database: DatabaseHandle) {
-  async function loadItems(ownerId: string): Promise<{ items: SmartItem[]; truncated: boolean }> {
+  async function loadItems(ownerId: string, itemIds?: string[]): Promise<{ items: SmartItem[]; truncated: boolean }> {
+    if (itemIds?.length === 0) return { items: [], truncated: false };
+    const selection = itemIds ? `AND saved_items.id IN (${itemIds.map(() => '?').join(',')})` : '';
     const rows = await database.prepare(`SELECT saved_items.id,
         COALESCE(saved_items.title_override,saved_items.title) AS title,
         COALESCE(saved_items.description_override,saved_items.description,'') AS description,
@@ -170,7 +173,7 @@ export function createSmartCollectionService(database: DatabaseHandle) {
       FROM saved_items
       LEFT JOIN extracted_artifacts ON extracted_artifacts.owner_id=saved_items.owner_id AND extracted_artifacts.item_id=saved_items.id
       LEFT JOIN notes ON notes.owner_id=saved_items.owner_id AND notes.item_id=saved_items.id
-      WHERE saved_items.owner_id=? ORDER BY saved_items.created_at DESC, saved_items.id DESC LIMIT ?`).all(ownerId, ITEM_SCAN_LIMIT) as DbItemRow[];
+      WHERE saved_items.owner_id=? ${selection} ORDER BY saved_items.created_at DESC, saved_items.id DESC LIMIT ?`).all(ownerId, ...(itemIds ?? []), ITEM_SCAN_LIMIT) as DbItemRow[];
     if (!rows.length) return { items: [], truncated: false };
     const ids = rows.map((row) => String(row.id));
     const marks = ids.map(() => '?').join(',');
@@ -209,15 +212,8 @@ export function createSmartCollectionService(database: DatabaseHandle) {
           source_type=EXCLUDED.source_type,generation_metadata=EXCLUDED.generation_metadata,updated_at=EXCLUDED.updated_at`)
         .run(randomUUID(), ownerId, candidate.slug, candidate.name, candidate.description, candidate.sourceType, metadata, now, now);
     }
-    const slugs = candidates.map((candidate) => candidate.slug);
-    const generatedCollections = slugs.length ? `slug IN (${slugs.map(() => '?').join(',')}) OR ` : '';
     const records = await database.prepare(`SELECT id,owner_id,slug,name,description,source_type,pinned,hidden,folder_color,generation_metadata,created_at,updated_at
-      FROM smart_collections WHERE owner_id=? AND source_type<>'collection' AND (${generatedCollections}id IN (
-        SELECT collection_id FROM smart_collection_item_overrides WHERE owner_id=?))`)
-      .all(ownerId, ...slugs, ownerId) as CollectionRow[];
-    const overrides = records.length ? await database.prepare(`SELECT collection_id,item_id,action,reason FROM smart_collection_item_overrides
-      WHERE owner_id=? AND collection_id IN (${records.map(() => '?').join(',')})`).all(ownerId, ...records.map((entry) => entry.id)) as OverrideRow[] : [];
-    const byId = new Map(loaded.items.map((item) => [item.id, item]));
+      FROM smart_collections WHERE owner_id=? AND source_type<>'collection'`).all(ownerId) as CollectionRow[];
     const result = records.map((record) => {
       const metadata = safeMetadata(record.generation_metadata);
       const candidate = candidateBySlug.get(record.slug) ?? {
@@ -225,64 +221,137 @@ export function createSmartCollectionService(database: DatabaseHandle) {
         folderGroup: typeof metadata.folderGroup === 'string' ? metadata.folderGroup : 'Smart folders',
         matchSignals: new Set(strings(metadata.matchSignals)), items: new Map<string, CandidateItem>(),
       };
-      const correctionRows = overrides.filter((entry) => entry.collection_id === record.id);
-      const correctionByItem = new Map(correctionRows.map((entry) => [entry.item_id, entry]));
-      const active = new Map<string, CandidateItem>();
-      const excluded = new Map<string, CandidateItem>();
-      for (const [itemId, match] of candidate.items) {
-        const correction = correctionByItem.get(itemId);
-        if (correction?.action === 'exclude') excluded.set(itemId, { ...match, reason: correction.reason || 'Removed by you.', overrideAction: 'exclude' });
-        else if (correction?.action === 'include') active.set(itemId, { ...match, reason: correction.reason || 'Added by you.', overrideAction: 'include' });
-        else active.set(itemId, match);
-      }
-      for (const correction of correctionRows) {
-        const item = byId.get(correction.item_id);
-        if (!item) continue;
-        if (correction.action === 'include' && !active.has(correction.item_id)) {
-          active.set(item.id, { item, confidence: 1, reason: correction.reason || 'Added by you.', overrideAction: 'include' });
-        }
-        if (correction.action === 'exclude' && !excluded.has(correction.item_id)) {
-          excluded.set(item.id, { item, confidence: 0, reason: correction.reason || 'Removed by you.', overrideAction: 'exclude' });
-        }
-      }
-      const matches = [...active.values()].sort((left, right) => right.confidence - left.confidence || right.item.createdAt.localeCompare(left.item.createdAt));
-      const excludedMatches = [...excluded.values()].sort((left, right) => right.item.createdAt.localeCompare(left.item.createdAt));
+      const matches = [...candidate.items.values()].sort((left, right) => right.confidence - left.confidence || right.item.createdAt.localeCompare(left.item.createdAt));
       return {
         id: record.id, slug: record.slug, name: record.name, description: record.description,
         sourceType: record.source_type, pinned: Boolean(record.pinned), hidden: Boolean(record.hidden), color: record.folder_color,
         folderGroup: typeof metadata.folderGroup === 'string' ? metadata.folderGroup : 'Smart folders',
         matchSignals: unique([...strings(metadata.matchSignals), ...matches.slice(0, 6).map((entry) => entry.reason)], 8),
         itemCount: matches.length, previewItems: matches.slice(0, 3).map(({ item }) => item),
-        createdAt: record.created_at, updatedAt: record.updated_at, matchedItems: matches, excludedItems: excludedMatches,
+        createdAt: record.created_at, updatedAt: record.updated_at, matchedItems: matches,
       };
     });
     result.sort((left, right) => Number(right.pinned) - Number(left.pinned) || right.itemCount - left.itemCount || right.updatedAt.localeCompare(left.updatedAt) || left.name.localeCompare(right.name));
     return { candidates: result, truncated: loaded.truncated };
   }
 
+  async function refreshState(ownerId: string) {
+    const state = await database.prepare('SELECT revision,built_revision,lease_token,generated_at,truncated,failed FROM smart_collection_refresh_state WHERE owner_id=?').get<RefreshState>(ownerId);
+    const pending = !state || Number(state.revision) > Number(state.built_revision);
+    return {
+      generatedAt: state?.generated_at ?? null,
+      truncated: Boolean(state?.truncated),
+      refresh: {
+        status: !pending ? 'ready' as const : state?.failed ? 'failed' as const : state?.lease_token ? 'updating' as const : 'pending' as const,
+        hasSnapshot: Boolean(state?.generated_at),
+      },
+    };
+  }
+
+  async function storedMatches(ownerId: string, collectionId?: string): Promise<StoredMatch[]> {
+    return database.prepare(`SELECT keys.collection_id, keys.item_id,
+      CASE WHEN correction.action='include' THEN 1 ELSE COALESCE(member.confidence,0) END AS confidence,
+      COALESCE(correction.reason,member.reason,'') AS reason, correction.action AS override_action, item.created_at
+      FROM (SELECT collection_id,item_id FROM smart_collection_memberships WHERE owner_id=?
+        UNION SELECT collection_id,item_id FROM smart_collection_item_overrides WHERE owner_id=?) keys
+      JOIN saved_items item ON item.owner_id=? AND item.id=keys.item_id
+      LEFT JOIN smart_collection_memberships member ON member.owner_id=item.owner_id AND member.collection_id=keys.collection_id AND member.item_id=keys.item_id
+      LEFT JOIN smart_collection_item_overrides correction ON correction.owner_id=item.owner_id AND correction.collection_id=keys.collection_id AND correction.item_id=keys.item_id
+      ${collectionId ? 'WHERE keys.collection_id=?' : ''}
+      ORDER BY confidence DESC, item.created_at DESC, item.id DESC`).all<StoredMatch>(ownerId, ownerId, ownerId, ...(collectionId ? [collectionId] : []));
+  }
+
   return {
+    async requestRefresh(ownerId: string) {
+      await database.prepare(`INSERT INTO smart_collection_refresh_state(owner_id) VALUES (?)
+        ON CONFLICT(owner_id) DO UPDATE SET revision=smart_collection_refresh_state.revision+1,
+        available_at=CURRENT_TIMESTAMP, failed=FALSE`).run(ownerId);
+    },
+    async processNextRefresh(ownerId?: string) {
+      const token = randomUUID();
+      const now = new Date();
+      const claim = await database.prepare(`UPDATE smart_collection_refresh_state SET lease_token=?,lease_expires_at=?,attempts=attempts+1,failed=FALSE
+        WHERE owner_id=(SELECT owner_id FROM smart_collection_refresh_state
+          WHERE revision>built_revision AND available_at<=? AND (lease_token IS NULL OR lease_expires_at<=?)
+          ${ownerId ? 'AND owner_id=?' : ''} ORDER BY available_at FOR UPDATE SKIP LOCKED LIMIT 1)
+        RETURNING owner_id,revision`).get<{ owner_id: string; revision: string | number }>(token, new Date(now.getTime() + 5 * 60_000).toISOString(), now.toISOString(), now.toISOString(), ...(ownerId ? [ownerId] : []));
+      if (!claim) return null;
+      try {
+        await database.transaction(async () => {
+          const snapshot = await generate(claim.owner_id);
+          const current = await database.prepare('SELECT 1 FROM smart_collection_refresh_state WHERE owner_id=? AND lease_token=? FOR UPDATE').get(claim.owner_id, token);
+          if (!current) throw new Error('smart_collection_lease_lost');
+          await database.prepare('DELETE FROM smart_collection_memberships WHERE owner_id=?').run(claim.owner_id);
+          const rows = snapshot.candidates.flatMap((collection) => collection.matchedItems.map(({ item, confidence, reason }) => ({ collection_id: collection.id, item_id: item.id, confidence, reason })));
+          for (let start = 0; start < rows.length; start += 1000) {
+            await database.prepare(`INSERT INTO smart_collection_memberships(owner_id,collection_id,item_id,confidence,reason)
+              SELECT ?,collection_id,item_id,confidence,reason FROM jsonb_to_recordset(?::jsonb)
+              AS entry(collection_id TEXT,item_id TEXT,confidence DOUBLE PRECISION,reason TEXT)`).run(claim.owner_id, JSON.stringify(rows.slice(start, start + 1000)));
+          }
+          await database.prepare(`UPDATE smart_collection_refresh_state SET built_revision=?,generated_at=?,truncated=?,
+            lease_token=NULL,lease_expires_at=NULL,failed=FALSE WHERE owner_id=? AND lease_token=?`)
+            .run(claim.revision, new Date().toISOString(), snapshot.truncated, claim.owner_id, token);
+        })();
+        return claim.owner_id;
+      } catch (error) {
+        await database.prepare(`UPDATE smart_collection_refresh_state SET lease_token=NULL,lease_expires_at=NULL,failed=TRUE,
+          available_at=? WHERE owner_id=? AND lease_token=?`).run(new Date(Date.now() + 30_000).toISOString(), claim.owner_id, token);
+        throw error;
+      }
+    },
     async list(ownerId: string, includeHidden = false) {
-      const { candidates, truncated } = await generate(ownerId);
-      const visible = candidates.filter((entry) => includeHidden || !entry.hidden).map(({ matchedItems: _matchedItems, excludedItems: _excludedItems, ...entry }) => entry);
-      return { collections: visible, truncated, generatedAt: new Date().toISOString() };
+      const state = await refreshState(ownerId);
+      const records = await database.prepare(`SELECT id,owner_id,slug,name,description,source_type,pinned,hidden,folder_color,generation_metadata,created_at,updated_at
+        FROM smart_collections WHERE owner_id=? AND source_type<>'collection' ${includeHidden ? '' : 'AND hidden=FALSE'}`).all<CollectionRow>(ownerId);
+      const matches = await storedMatches(ownerId);
+      const byCollection = new Map<string, StoredMatch[]>();
+      for (const match of matches) {
+        if (match.override_action === 'exclude') continue;
+        const group = byCollection.get(match.collection_id) ?? [];
+        group.push(match); byCollection.set(match.collection_id, group);
+      }
+      const previewIds = [...new Set(records.flatMap((record) => (byCollection.get(record.id) ?? []).slice(0, 3).map((match) => match.item_id)))];
+      const previews = new Map((await loadItems(ownerId, previewIds)).items.map((item) => [item.id, item]));
+      const collections = records.map((record) => {
+        const metadata = safeMetadata(record.generation_metadata);
+        const active = byCollection.get(record.id) ?? [];
+        return {
+          id: record.id, slug: record.slug, name: record.name, description: record.description, sourceType: record.source_type,
+          pinned: Boolean(record.pinned), hidden: Boolean(record.hidden), color: record.folder_color,
+          folderGroup: typeof metadata.folderGroup === 'string' ? metadata.folderGroup : 'Smart folders',
+          matchSignals: strings(metadata.matchSignals), itemCount: active.length,
+          previewItems: active.slice(0, 3).flatMap((match) => { const item = previews.get(match.item_id); return item ? [item] : []; }),
+          createdAt: record.created_at, updatedAt: record.updated_at,
+        };
+      });
+      collections.sort((left, right) => Number(right.pinned) - Number(left.pinned) || right.itemCount - left.itemCount || left.name.localeCompare(right.name));
+      return { collections, ...state };
     },
     async listItems(ownerId: string, collectionId: string, search: string, limit: number, rawCursor?: string) {
-      const { candidates, truncated } = await generate(ownerId);
-      const collection = candidates.find((entry) => entry.id === collectionId);
+      const collection = await database.prepare('SELECT id,name,description FROM smart_collections WHERE owner_id=? AND id=?').get<{ id: string; name: string; description: string }>(ownerId, collectionId);
       if (!collection) throw new SmartCollectionError('not_found', 'Smart collection not found.');
+      const state = await refreshState(ownerId);
       const fingerprint = search.trim().toLowerCase();
       const expected = { owner: ownerId, collection: collectionId, search: fingerprint };
       const offset = rawCursor ? decodeCursor(rawCursor, expected) : 0;
       if (offset === null) throw new SmartCollectionError('invalid_cursor', 'Restart this smart collection after changing its search.');
-      const filtered = collection.matchedItems.filter(({ item }) => matchesSearch(item, fingerprint));
+      let matches = await storedMatches(ownerId, collectionId);
+      let items = new Map<string, SmartItem>();
+      if (fingerprint) {
+        items = new Map((await loadItems(ownerId, [...new Set(matches.map((match) => match.item_id))])).items.map((item) => [item.id, item]));
+        matches = matches.filter((match) => { const item = items.get(match.item_id); return item && matchesSearch(item, fingerprint); });
+      }
+      const filtered = matches.filter((match) => match.override_action !== 'exclude');
+      const excluded = matches.filter((match) => match.override_action === 'exclude').sort((left, right) => right.created_at.localeCompare(left.created_at));
       const page = filtered.slice(offset, offset + limit);
+      const excludedPage = excluded.slice(0, limit);
+      if (!fingerprint) items = new Map((await loadItems(ownerId, [...new Set([...page, ...excludedPage].map((match) => match.item_id))])).items.map((item) => [item.id, item]));
+      const serialize = (match: StoredMatch) => { const item = items.get(match.item_id); return item ? [{ ...item, matchConfidence: match.confidence, matchReason: match.reason, overrideAction: match.override_action }] : []; };
       const nextCursor = offset + page.length < filtered.length ? encodeCursor({ ...expected, offset: offset + page.length }) : null;
-      const excludedItems = collection.excludedItems.filter(({ item }) => matchesSearch(item, fingerprint));
       return {
         collection: { id: collection.id, name: collection.name, description: collection.description, itemCount: filtered.length },
-        items: page.map(({ item, confidence, reason, overrideAction }) => ({ ...item, matchConfidence: confidence, matchReason: reason, overrideAction: overrideAction ?? null })),
-        excludedItems: excludedItems.slice(0, limit).map(({ item, confidence, reason, overrideAction }) => ({ ...item, matchConfidence: confidence, matchReason: reason, overrideAction })),
-        excludedHasMore: excludedItems.length > limit, nextCursor, hasMore: nextCursor !== null, truncated,
+        items: page.flatMap(serialize), excludedItems: excludedPage.flatMap(serialize),
+        excludedHasMore: excluded.length > limit, nextCursor, hasMore: nextCursor !== null, ...state,
       };
     },
     async update(ownerId: string, collectionId: string, input: { name?: string; pinned?: boolean; hidden?: boolean; color?: string | null }) {

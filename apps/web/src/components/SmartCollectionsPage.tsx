@@ -9,7 +9,7 @@ import { collectionItemToSavedItem, type CollectionItem } from '../features/libr
 type Request = <T>(path: string, init?: RequestInit) => Promise<T>;
 type SmartItem = CollectionItem;
 interface SmartCollection { id: string; slug: string; name: string; description: string; sourceType: string; pinned: boolean; hidden: boolean; color: string | null; folderGroup: string; matchSignals: string[]; itemCount: number; previewItems: SmartItem[] }
-interface SmartCollectionList { collections: SmartCollection[]; truncated: boolean; generatedAt: string }
+interface SmartCollectionList { collections: SmartCollection[]; truncated: boolean; generatedAt: string | null; refresh: { status: 'ready' | 'pending' | 'updating' | 'failed'; hasSnapshot: boolean } }
 interface SmartCollectionItems { collection: { id: string; name: string; description: string; itemCount: number }; items: SmartItem[]; excludedItems: SmartItem[]; excludedHasMore: boolean; nextCursor: string | null; hasMore: boolean; truncated: boolean }
 interface LibraryMatch { id: string; title: string; description: string; url: string }
 
@@ -17,6 +17,8 @@ export function SmartCollectionsPage({ request }: { request: Request }) {
   const { collectionId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const [data, setData] = useState<SmartCollectionList | null>(null);
+  const listRequestRef = useRef(0);
+  const listBusyRef = useRef(false);
   const [detail, setDetail] = useState<SmartCollectionItems | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -46,15 +48,18 @@ export function SmartCollectionsPage({ request }: { request: Request }) {
 
   useEffect(() => { setGroupSearchDraft(search); }, [collectionId, search]);
 
-  const load = useCallback(async (refresh = false) => {
+  const load = useCallback(async (refresh = false, background = false) => {
+    if (background && listBusyRef.current) return;
+    const generation = ++listRequestRef.current;
+    listBusyRef.current = true;
     setLoading(true); setError('');
     try {
       const result = refresh
         ? await request<SmartCollectionList>(`/api/smart-collections/refresh?includeHidden=${includeHidden}`, { method: 'POST' })
         : await request<SmartCollectionList>(`/api/smart-collections?includeHidden=${includeHidden}`);
-      setData(result);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not load smart collections.'); }
-    finally { setLoading(false); }
+      if (generation === listRequestRef.current) setData(result);
+    } catch (cause) { if (generation === listRequestRef.current) setError(cause instanceof Error ? cause.message : 'Could not load smart collections.'); }
+    finally { if (generation === listRequestRef.current) { setLoading(false); listBusyRef.current = false; } }
   }, [includeHidden, request]);
 
   const loadItems = useCallback(async () => {
@@ -80,6 +85,18 @@ export function SmartCollectionsPage({ request }: { request: Request }) {
   }, [collectionId, detail, loadingMore, request, search]);
 
   useEffect(() => { if (collectionId) void loadItems(); else void load(); }, [collectionId, load, loadItems]);
+  const refreshPending = data?.refresh?.status === 'pending' || data?.refresh?.status === 'updating';
+  useEffect(() => {
+    if (collectionId || !refreshPending || error) return undefined;
+    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void load(false, true); }, 2500);
+    return () => window.clearInterval(timer);
+  }, [collectionId, refreshPending, error, load]);
+  useEffect(() => {
+    if (collectionId) return undefined;
+    const onFocus = () => void load(false, true);
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, [collectionId, load]);
 
   async function updateCollection(collection: SmartCollection, update: { name?: string; pinned?: boolean; hidden?: boolean; color?: string | null }) {
     setBusy(true); setError('');
@@ -189,11 +206,13 @@ export function SmartCollectionsPage({ request }: { request: Request }) {
   </>;
 
   return <>
-    <PageHeading title="Smart Collections" description="Groups that update from your saved pages, notes, topics, and existing analysis." actions={<button className="primary-button" type="button" disabled={loading || busy} onClick={() => void load(true)}>{loading ? 'Refreshing…' : 'Refresh groups'}</button>} />
+    <PageHeading title="Smart Collections" description="Saved folders that update automatically when your library changes." actions={<button className="primary-button" type="button" disabled={loading || busy || refreshPending} onClick={() => void load(true)}>{refreshPending ? 'Updating…' : loading ? 'Loading…' : 'Refresh groups'}</button>} />
+    {refreshPending && <p className="phase2-helper" role="status">{data?.refresh.hasSnapshot ? 'Updating folders in the background. Your saved folders remain available.' : 'Preparing your folders for the first time. They will appear automatically.'}</p>}
+    {data?.refresh?.status === 'failed' && <p className="notice error" role="status">Folder updates are delayed. Your saved folders are still available. You can retry with Refresh groups.</p>}
     <section className="smart-collection-controls"><label className="phase2-check"><input type="checkbox" checked={includeHidden} onChange={(event) => toggleHidden(event.currentTarget.checked)} /><span>Show hidden groups</span></label><p className="phase2-helper">Right-click a folder for options. On touch screens, press and hold. Keyboard: Shift+F10.</p>{data?.truncated && <p className="phase2-helper" role="status">The group suggestions use the latest {(2000).toLocaleString()} saved items.</p>}</section>
     {error && <div className="notice error phase2-retry-notice" role="alert"><span>{error}</span><button className="quiet-button" type="button" onClick={() => void load()}>Try again</button></div>}
-    {loading && !data ? <div className="phase2-state" role="status">Building smart groups…</div> : data?.collections.length ? <div className="smart-collection-groups">{Object.entries(data.collections.reduce<Record<string, SmartCollection[]>>((groups, collection) => { (groups[collection.folderGroup] ??= []).push(collection); return groups; }, {})).map(([group, collections]) => <section className="smart-collection-section" key={group}><h2>{group}</h2><ul className="phase2-collection-grid">{collections.map((collection) => <SmartCollectionCard key={collection.id} collection={collection} busy={busy} renaming={renamingId === collection.id} renameValue={renameValue} onRenameValueChange={setRenameValue} onRename={() => { setRenamingId(collection.id); setRenameValue(collection.name); }} onRenameCancel={() => setRenamingId('')} onRenameSave={(name) => updateCollection(collection, { name })} onPin={() => void updateCollection(collection, { pinned: !collection.pinned })} onColorSave={(color) => updateCollection(collection, { color })} onDelete={() => { if (window.confirm(`Delete “${collection.name}”? Its saved items will remain in your library. You can restore the folder with Show hidden groups.`)) void updateCollection(collection, { hidden: true }); }} onRestore={() => updateCollection(collection, { hidden: false })} />)}</ul></section>)}</div> : !loading && <div className="empty-state"><h2>Your smart groups will appear here.</h2><p>Save more pages, add notes or topics, and Rembr will group related items using rules that work without AI.</p></div>}
-    {data && <p className="phase2-helper">Updated {new Date(data.generatedAt).toLocaleString()} · Groups update when opened or refreshed.</p>}
+    {loading && !data ? <div className="phase2-state" role="status">Loading saved folders…</div> : data?.collections.length ? <div className="smart-collection-groups">{Object.entries(data.collections.reduce<Record<string, SmartCollection[]>>((groups, collection) => { (groups[collection.folderGroup] ??= []).push(collection); return groups; }, {})).map(([group, collections]) => <section className="smart-collection-section" key={group}><h2>{group}</h2><ul className="phase2-collection-grid">{collections.map((collection) => <SmartCollectionCard key={collection.id} collection={collection} busy={busy} renaming={renamingId === collection.id} renameValue={renameValue} onRenameValueChange={setRenameValue} onRename={() => { setRenamingId(collection.id); setRenameValue(collection.name); }} onRenameCancel={() => setRenamingId('')} onRenameSave={(name) => updateCollection(collection, { name })} onPin={() => void updateCollection(collection, { pinned: !collection.pinned })} onColorSave={(color) => updateCollection(collection, { color })} onDelete={() => { if (window.confirm(`Delete “${collection.name}”? Its saved items will remain in your library. You can restore the folder with Show hidden groups.`)) void updateCollection(collection, { hidden: true }); }} onRestore={() => updateCollection(collection, { hidden: false })} />)}</ul></section>)}</div> : !loading && !refreshPending && <div className="empty-state"><h2>Your smart groups will appear here.</h2><p>Save more pages, add notes or topics, and Rembr will group related items using rules that work without AI.</p></div>}
+    {data?.generatedAt && <p className="phase2-helper">Updated {new Date(data.generatedAt).toLocaleString()} · Saved folders update automatically after library changes.</p>}
   </>;
 }
 
