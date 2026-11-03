@@ -228,8 +228,8 @@ a:hover .arrow-mark, button:hover .arrow-mark { transform: translate(3px,-2px); 
 
 /* Features, about, and contact routes */
 .subpage-main { width: min(1200px,100%); margin: 0 auto; padding: 25px clamp(24px,6vw,86px) 120px; }
-.subpage-hero { position: relative; min-height: 540px; padding: clamp(80px,10vw,130px) 0 74px; }
-.subpage-hero h1 { max-width: 930px; font-size: clamp(65px,8.5vw,112px); }
+.subpage-hero { position: relative; min-height: 0; padding: clamp(40px, 5vw, 64px) 0 40px; }
+.subpage-hero h1 { max-width: 930px; font-size: clamp(44px, 6vw, 80px); line-height: 1; }
 .subpage-hero h1 > span { display: inline-block; padding: .01em .08em .05em; background: var(--orange); color: var(--ink); transform: rotate(-1deg); }
 .subpage-hero > p { max-width: 530px; margin: 24px 0 25px; color: var(--muted); font-size: 17px; line-height: 1.65; }
 .subpage-asterisk { position: absolute; top: 26%; right: 10%; color: var(--orange); font-size: clamp(60px,9vw,120px); transform: rotate(17deg); }
@@ -263,8 +263,8 @@ a:hover .arrow-mark, button:hover .arrow-mark { transform: translate(3px,-2px); 
 .about-manifesto .button { margin-top: 30px; }
 
 .contact-main { padding-bottom: 125px; }
-.contact-main .subpage-hero { min-height: 450px; }
-.contact-main .subpage-hero h1 { font-size: clamp(62px,8vw,104px); }
+.contact-main .subpage-hero { min-height: 0; }
+.contact-main .subpage-hero h1 { font-size: clamp(44px, 6vw, 80px); }
 .contact-layout { display: grid; grid-template-columns: .8fr 1.2fr; overflow: hidden; border: 1px solid var(--ink); background: var(--sun); }
 .contact-note { min-height: 490px; padding: 35px; background: var(--orange); }
 .contact-note > span { font-size: 38px; }
@@ -330,7 +330,7 @@ a:hover .arrow-mark, button:hover .arrow-mark { transform: translate(3px,-2px); 
   .footer-main { grid-template-columns: 1fr 1fr; gap: 35px; }.footer-brand-block { grid-column: 1/-1; }
   .footer-bottom { flex-wrap: wrap; }
   .subpage-main { padding: 17px 23px 90px; }
-  .subpage-hero { min-height: 430px; padding-top: 84px; }.subpage-hero h1 { font-size: clamp(61px,11vw,88px); }.subpage-asterisk { top: 17%; right: 2%; font-size: 70px; }
+  .subpage-hero { min-height: 0; padding-top: 40px; }.subpage-hero h1 { font-size: clamp(40px, 7vw, 64px); }.subpage-asterisk { top: 17%; right: 2%; font-size: 70px; }
   .feature-story { min-height: 345px; grid-template-columns: 1fr 140px; gap: 20px; padding: 24px; }
   .feature-story-number { grid-column: 1/-1; }.feature-story-copy { grid-column: 1; }.feature-story h2 { font-size: clamp(37px,7vw,51px); }.feature-story-copy p { font-size: 12px; }
   .feature-story-art { position: absolute; right: 12px; bottom: 18px; width: 150px; height: 150px; opacity: .9; transform: scale(.73); transform-origin: bottom right; }
@@ -338,7 +338,7 @@ a:hover .arrow-mark, button:hover .arrow-mark { transform: translate(3px,-2px); 
   .feature-limit { grid-template-columns: 1fr; gap: 13px; }.feature-limit a { justify-self: start; }
   .about-statement { min-height: 235px; flex-direction: column; align-items: start; gap: 25px; padding: 25px; }.about-statement p { font-size: clamp(31px,6.2vw,45px); }.about-statement > span { position: absolute; right: 22px; bottom: 16px; font-size: 37px; }
   .about-columns { grid-template-columns: 1fr; gap: 35px; padding: 5px 0 75px; }
-  .about-columns h2 { margin-top: 22px; }.contact-main .subpage-hero { min-height: 390px; }
+  .about-columns h2 { margin-top: 22px; }.contact-main .subpage-hero { min-height: 0; }
   .contact-layout { grid-template-columns: 1fr; }.contact-note { min-height: 300px; padding: 26px; }.contact-note h2 { margin: 38px 0 15px; font-size: 43px; }
 }
 
@@ -357,7 +357,7 @@ a:hover .arrow-mark, button:hover .arrow-mark { transform: translate(3px,-2px); 
   .kept-list b { font-size: 14px; }.faq-list summary { min-height: 59px; font-size: 15px; }
   .footer-main { grid-template-columns: 1fr 1fr; gap: 30px 20px; }.footer-brand-block { grid-column: 1/-1; }
   .footer-bottom { font-size: 8px; }
-  .subpage-hero { min-height: 400px; }.subpage-hero h1 { font-size: clamp(56px,12vw,69px); }.subpage-hero > p { font-size: 15px; }
+  .subpage-hero { min-height: 0; }.subpage-hero h1, .contact-main .subpage-hero h1 { font-size: clamp(36px, 10vw, 48px); }.subpage-hero > p { font-size: 15px; }
   .feature-story { min-height: 340px; grid-template-columns: 1fr; }.feature-story-art { right: -3px; bottom: 8px; transform: scale(.62); transform-origin: bottom right; }
   .form-heading { align-items: flex-start; flex-direction: column; }
 }
@@ -506,6 +506,15 @@ a:hover .arrow-mark, button:hover .arrow-mark { transform: translate(3px,-2px); 
 .marketing-site .footer-link-group a:hover, .marketing-site .footer-bottom a:hover { color: var(--sun); }
 .marketing-site .footer-bottom { border-color: rgb(255 255 255 / 14%); }
 .marketing-site .footer-main { grid-template-columns: minmax(180px, 1fr) repeat(3, max-content); gap: clamp(24px, 4vw, 72px); }
+@media (max-width: 900px) {
+  .marketing-site .footer-main { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 28px 16px; }
+  .marketing-site .footer-brand-block { grid-column: 1 / -1; }
+  .marketing-site .footer-link-group { min-width: 0; }
+  .marketing-site .footer-link-group a { overflow-wrap: anywhere; }
+}
+@media (max-width: 480px) {
+  .marketing-site .footer-main { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 
 .marketing-site .subpage-main { color: #f5f7f3; }
 .marketing-site .subpage-hero h1 > span { background: var(--orange); color: #050705; }

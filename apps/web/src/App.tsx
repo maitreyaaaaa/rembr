@@ -168,7 +168,7 @@ function ProtectedShell() {
       {detailBackground && <div className="rembr-detail-underlay" aria-hidden="true" inert><div className="phase2-main">{detailBackground}</div></div>}
       <div className={hasDetailBackground ? 'rembr-detail-route' : isFullScreenSettings ? 'rembr-settings-route' : isSensitiveAccess ? 'rembr-sensitive-route' : undefined}><div className={`phase2-main ${isFullScreenSettings ? 'phase2-main-settings' : isSensitiveAccess ? 'phase2-main-sensitive' : ''}`}><Outlet context={{ session, setSession }} /></div></div>
     </main>
-    <QuickAddDock />
+    {!hasDetailBackground && <QuickAddDock />}
     {tourOpen && <RembrWorkspaceTour
       open
       onClose={() => {
@@ -262,10 +262,9 @@ function SidebarIcon({ name }: { name: string }) {
 function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promise<void> }) {
   const [logoutBusy, setLogoutBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
-  const [hoverExpanded, setHoverExpanded] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const location = useLocation();
-  const sidebarExpanded = expanded || hoverExpanded;
+  const sidebarExpanded = expanded;
   const navItems = [
     { path: '/app', label: 'Saved library', icon: <SidebarIcon name="book-saved" />, exact: true },
     { path: '/app/smart-collections', label: 'Smart collections', icon: <SidebarIcon name="folder-2" /> },
@@ -279,7 +278,7 @@ function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promi
   const handleLogout = () => { setLogoutBusy(true); void onLogout().finally(() => setLogoutBusy(false)); };
   return <>
     <aside className={`iscraper-sidebar hidden h-screen shrink-0 flex-col overflow-hidden border-r border-white/5 bg-black transition-[width] duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] md:flex ${sidebarExpanded ? 'is-expanded w-60' : 'w-[76px]'}`}
-      onMouseEnter={() => { if (!expanded) setHoverExpanded(true); }} onMouseLeave={() => setHoverExpanded(false)} aria-label="Workspace navigation">
+      aria-label="Workspace navigation">
       <div className={`flex border-b border-white/5 p-3 ${sidebarExpanded ? 'items-center gap-2' : 'flex-col items-center gap-2'}`}>
         <Link to="/" aria-label="Back to Rembr home" className={`flex min-h-11 items-center rounded-lg transition hover:bg-white/5 ${sidebarExpanded ? 'min-w-0 flex-1 gap-3 px-2' : 'h-11 w-11 justify-center'}`}>
           <SidebarIcon name="arrow-left-02" />{sidebarExpanded && <img className="rembr-official-logo app-nav-brand" src="/brand/rembr-wordmark.svg?v=20261101" alt="Rembr" />}

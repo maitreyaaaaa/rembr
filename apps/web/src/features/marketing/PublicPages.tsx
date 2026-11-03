@@ -16,7 +16,7 @@ export function PortedHelpPage() {
 
 export function PortedPricingPage() {
   const navigate = useNavigate();
-  return <PricingPage onBack={() => navigate('/')} onOpenHelp={() => navigate('/help')} />;
+  return <PricingPage onBack={() => navigate('/')} onOpenHelp={() => navigate('/contact')} />;
 }
 
 export function PortedLegalPage({ kind }: { kind: 'terms' | 'privacy' | 'security' | 'data-deletion' | 'cookies' }) {

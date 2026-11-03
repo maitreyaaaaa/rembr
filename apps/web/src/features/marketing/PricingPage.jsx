@@ -17,19 +17,19 @@ function PricingPage({ onBack, onOpenHelp }) {
             <ArrowLeft className="h-5 w-5 shrink-0 text-muted-foreground" />
             <BrandLogo className="h-12 w-40 shrink-0" />
           </button>
-          <button type="button" onClick={onOpenHelp} className="inline-flex items-center gap-2 rounded-full border border-white/15 px-5 py-3 text-sm font-semibold text-foreground transition hover:bg-white/5">
+          <button type="button" onClick={onOpenHelp} className="inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-full border border-white/15 px-4 py-3 text-sm font-semibold text-foreground transition hover:bg-white/5">
             <Mail className="h-4 w-4" />
             Contact us
           </button>
         </div>
       </header>
 
-      <main className="relative mx-auto flex min-h-[calc(100vh-6rem)] max-w-6xl flex-col items-center justify-center px-5 py-16 text-center">
+      <main className="relative mx-auto flex min-h-[calc(100dvh-6rem)] max-w-6xl flex-col items-center justify-center px-5 py-10 text-center">
         <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-4 py-2 font-mono text-[11px] uppercase tracking-[0.24em] text-primary">
           <Sparkles className="h-4 w-4" />
           Contact
         </div>
-        <h1 className="mt-8 font-display text-[clamp(5rem,18vw,14rem)] font-black uppercase leading-[0.78] tracking-tight text-white">
+        <h1 className="mt-5 font-display text-5xl font-bold leading-tight tracking-tight text-white md:text-7xl">
           Pricing
         </h1>
         <p className="mt-8 max-w-2xl text-base leading-7 text-muted-foreground md:text-lg md:leading-relaxed">

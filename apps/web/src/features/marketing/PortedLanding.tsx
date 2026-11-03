@@ -12,6 +12,7 @@ export function PortedLanding() {
     onOpenTerms={() => navigate('/terms')}
     onOpenPrivacy={() => navigate('/privacy')}
     onOpenHelp={() => navigate('/help')}
+    onOpenContact={() => navigate('/contact')}
     onOpenSecurity={() => navigate('/security')}
     onOpenDataDeletion={() => navigate('/data-deletion')}
     onOpenCookies={() => navigate('/cookies')}

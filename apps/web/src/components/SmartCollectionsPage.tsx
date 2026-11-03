@@ -1,14 +1,13 @@
-import { useCallback, useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
-import { EllipsisVertical } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
+import { ContextMenu } from '@base-ui/react/context-menu';
+import { Popover } from '@base-ui/react/popover';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
-import { ColorPicker } from './arc/color-picker/color-picker.js';
-import type { ColorSwatch } from './arc/color-picker/color-picker.js';
 import { SavedItemLink } from './SavedItemLink.js';
 import { PortedLibraryGrid } from '../features/library/LibraryCards.js';
-import type { SavedItem } from '../app/contracts.js';
+import { collectionItemToSavedItem, type CollectionItem } from '../features/library/collection-items.js';
 
 type Request = <T>(path: string, init?: RequestInit) => Promise<T>;
-interface SmartItem extends SavedItem { matchConfidence: number; matchReason: string; overrideAction?: 'include' | 'exclude' | null }
+type SmartItem = CollectionItem;
 interface SmartCollection { id: string; slug: string; name: string; description: string; sourceType: string; pinned: boolean; hidden: boolean; color: string | null; folderGroup: string; matchSignals: string[]; itemCount: number; previewItems: SmartItem[] }
 interface SmartCollectionList { collections: SmartCollection[]; truncated: boolean; generatedAt: string }
 interface SmartCollectionItems { collection: { id: string; name: string; description: string; itemCount: number }; items: SmartItem[]; excludedItems: SmartItem[]; excludedHasMore: boolean; nextCursor: string | null; hasMore: boolean; truncated: boolean }
@@ -172,7 +171,7 @@ export function SmartCollectionsPage({ request }: { request: Request }) {
     </section>
     {error && <p className="notice error" role="alert">{error}</p>}
     {loading ? <div className="phase2-state" role="status">Loading smart collection…</div> : detail?.items.length ? <PortedLibraryGrid
-      items={detail.items}
+      items={detail.items.map(collectionItemToSavedItem)}
       searchActive={false}
       feedback={{}}
       onFeedback={() => undefined}
@@ -191,16 +190,16 @@ export function SmartCollectionsPage({ request }: { request: Request }) {
 
   return <>
     <PageHeading title="Smart Collections" description="Groups that update from your saved pages, notes, topics, and existing analysis." actions={<button className="primary-button" type="button" disabled={loading || busy} onClick={() => void load(true)}>{loading ? 'Refreshing…' : 'Refresh groups'}</button>} />
-    <section className="phase2-panel"><label className="phase2-check"><input type="checkbox" checked={includeHidden} onChange={(event) => toggleHidden(event.currentTarget.checked)} /><span>Show hidden groups</span></label><p className="phase2-helper">Generated on this service from existing library data. No provider key is required. Pin favorites or hide groups you do not use.</p>{data?.truncated && <p className="phase2-helper" role="status">The group suggestions use the latest {(2000).toLocaleString()} saved items.</p>}</section>
+    <section className="smart-collection-controls"><label className="phase2-check"><input type="checkbox" checked={includeHidden} onChange={(event) => toggleHidden(event.currentTarget.checked)} /><span>Show hidden groups</span></label><p className="phase2-helper">Right-click a folder for options. On touch screens, press and hold. Keyboard: Shift+F10.</p>{data?.truncated && <p className="phase2-helper" role="status">The group suggestions use the latest {(2000).toLocaleString()} saved items.</p>}</section>
     {error && <div className="notice error phase2-retry-notice" role="alert"><span>{error}</span><button className="quiet-button" type="button" onClick={() => void load()}>Try again</button></div>}
-    {loading && !data ? <div className="phase2-state" role="status">Building smart groups…</div> : data?.collections.length ? <div className="smart-collection-groups">{Object.entries(data.collections.reduce<Record<string, SmartCollection[]>>((groups, collection) => { (groups[collection.folderGroup] ??= []).push(collection); return groups; }, {})).map(([group, collections]) => <section className="phase2-panel" key={group}><h2>{group}</h2><ul className="phase2-collection-grid">{collections.map((collection) => <SmartCollectionCard key={collection.id} collection={collection} busy={busy} renaming={renamingId === collection.id} renameValue={renameValue} onRenameValueChange={setRenameValue} onRename={() => { setRenamingId(collection.id); setRenameValue(collection.name); }} onRenameCancel={() => setRenamingId('')} onRenameSave={(name) => updateCollection(collection, { name })} onPin={() => void updateCollection(collection, { pinned: !collection.pinned })} onColorSave={(color) => updateCollection(collection, { color })} onDelete={() => { if (window.confirm(`Delete “${collection.name}”? Its saved items will remain in your library. You can restore the folder with Show hidden groups.`)) void updateCollection(collection, { hidden: true }); }} onRestore={() => updateCollection(collection, { hidden: false })} />)}</ul></section>)}</div> : !loading && <div className="empty-state"><h2>Your smart groups will appear here.</h2><p>Save more pages, add notes or topics, and Rembr will group related items using rules that work without AI.</p></div>}
+    {loading && !data ? <div className="phase2-state" role="status">Building smart groups…</div> : data?.collections.length ? <div className="smart-collection-groups">{Object.entries(data.collections.reduce<Record<string, SmartCollection[]>>((groups, collection) => { (groups[collection.folderGroup] ??= []).push(collection); return groups; }, {})).map(([group, collections]) => <section className="smart-collection-section" key={group}><h2>{group}</h2><ul className="phase2-collection-grid">{collections.map((collection) => <SmartCollectionCard key={collection.id} collection={collection} busy={busy} renaming={renamingId === collection.id} renameValue={renameValue} onRenameValueChange={setRenameValue} onRename={() => { setRenamingId(collection.id); setRenameValue(collection.name); }} onRenameCancel={() => setRenamingId('')} onRenameSave={(name) => updateCollection(collection, { name })} onPin={() => void updateCollection(collection, { pinned: !collection.pinned })} onColorSave={(color) => updateCollection(collection, { color })} onDelete={() => { if (window.confirm(`Delete “${collection.name}”? Its saved items will remain in your library. You can restore the folder with Show hidden groups.`)) void updateCollection(collection, { hidden: true }); }} onRestore={() => updateCollection(collection, { hidden: false })} />)}</ul></section>)}</div> : !loading && <div className="empty-state"><h2>Your smart groups will appear here.</h2><p>Save more pages, add notes or topics, and Rembr will group related items using rules that work without AI.</p></div>}
     {data && <p className="phase2-helper">Updated {new Date(data.generatedAt).toLocaleString()} · Groups update when opened or refreshed.</p>}
   </>;
 }
 
-const defaultFolderColor = '#adff00';
-const folderColorSwatches: ColorSwatch[] = [
-  { id: 'lime', color: '#ADFF00' }, { id: 'orange', color: '#FF6A00' },
+const defaultFolderColor = '#a5ff18';
+const folderColorSwatches = [
+  { id: 'lime', color: '#A5FF18' }, { id: 'orange', color: '#FF6A00' },
   { id: 'cyan', color: '#27E5C2' }, { id: 'blue', color: '#528BFF' },
   { id: 'purple', color: '#A98AFF' }, { id: 'pink', color: '#FF78B7' },
 ];
@@ -220,26 +219,44 @@ function SmartCollectionCard({ collection, busy, renaming, renameValue, onRename
   onRestore: () => Promise<void>;
 }) {
   const [colorOpen, setColorOpen] = useState(false);
-  const [colorDraft, setColorDraft] = useState(collection.color ?? defaultFolderColor);
-  const folderStyle = { '--smart-folder-color': collection.color ?? defaultFolderColor } as CSSProperties;
+  const [colorDraft, setColorDraft] = useState((collection.color ?? defaultFolderColor).slice(0, 7));
+  const folderRef = useRef<HTMLAnchorElement>(null);
+  const folderStyle = { '--smart-folder-color': (collection.color ?? defaultFolderColor).slice(0, 7) } as CSSProperties;
 
   return <li className="smart-folder-card" style={folderStyle}>
-    <div className="smart-folder-toolbar">
-      <details className="phase2-card-menu smart-folder-menu">
-        <summary aria-label={`Folder options for ${collection.name}`}><EllipsisVertical size={18} aria-hidden="true" /></summary>
-        <div className="phase2-card-menu-items">
-          <button className="smart-folder-menu-action" type="button" disabled={busy} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); setColorDraft(collection.color ?? defaultFolderColor); setColorOpen((open) => !open); }}>Change color</button>
-          <button className="smart-folder-menu-action" type="button" disabled={busy} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); onRename(); }}>Rename</button>
-          <button className="smart-folder-menu-action" type="button" disabled={busy} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); onPin(); }}>{collection.pinned ? 'Unpin folder' : 'Pin folder'}</button>
-          {collection.hidden
-            ? <button className="smart-folder-menu-action" type="button" disabled={busy} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); void onRestore(); }}>Restore folder</button>
-            : <button className="smart-folder-menu-action" type="button" disabled={busy} onClick={(event) => { event.currentTarget.closest('details')?.removeAttribute('open'); onDelete(); }}>Delete folder</button>}
-        </div>
-      </details>
-    </div>
-    {colorOpen && <div className="smart-folder-color-editor"><ColorPicker label="Folder color" value={colorDraft} onValueChange={setColorDraft} background="#090b09" defaultSwatches={folderColorSwatches} className="smart-folder-color-picker" /><div className="smart-folder-color-actions"><button className="primary-button" type="button" disabled={busy} onClick={() => { void onColorSave(colorDraft).then(() => setColorOpen(false)); }}>Save color</button><button className="quiet-button" type="button" disabled={busy} onClick={() => { void onColorSave(null).then(() => setColorOpen(false)); }}>Reset</button></div></div>}
-    <Link className="smart-folder-link" to={`/app/smart-collections/${encodeURIComponent(collection.id)}`} aria-label={`Open ${collection.name}, ${collection.itemCount} saves`}><AnimatedFolderIllustration /></Link>
-    {renaming ? <form className="phase2-form" onSubmit={(event) => { event.preventDefault(); const name = renameValue.trim(); if (name && name !== collection.name) void onRenameSave(name); else onRenameCancel(); }}><label>Folder name<input autoFocus maxLength={80} required value={renameValue} onChange={(event) => onRenameValueChange(event.target.value)} /></label><div className="phase2-card-actions"><button className="quiet-button" type="submit" disabled={busy || !renameValue.trim()}>Save name</button><button className="quiet-button" type="button" disabled={busy} onClick={onRenameCancel}>Cancel</button></div></form> : <h3><Link to={`/app/smart-collections/${encodeURIComponent(collection.id)}`}>{collection.name}</Link></h3>}
+    <ContextMenu.Root>
+      <ContextMenu.Trigger render={<Link ref={folderRef} to={`/app/smart-collections/${encodeURIComponent(collection.id)}`} />} className="smart-folder-link" aria-label={`Open ${collection.name}, ${collection.itemCount} saves`}>
+        <AnimatedFolderIllustration />
+        <span className="smart-folder-name">{collection.name}</span>
+        <span className="smart-folder-count">{collection.itemCount} {collection.itemCount === 1 ? 'save' : 'saves'}{collection.pinned ? ' · Pinned' : ''}</span>
+      </ContextMenu.Trigger>
+      <ContextMenu.Portal>
+        <ContextMenu.Positioner className="smart-folder-overlay" sideOffset={4} collisionPadding={12}>
+          <ContextMenu.Popup className="smart-folder-context-menu" aria-label={`Folder options for ${collection.name}`}>
+            <ContextMenu.Item className="smart-folder-menu-action" disabled={busy} onClick={() => { setColorDraft((collection.color ?? defaultFolderColor).slice(0, 7)); setColorOpen(true); }}>Change color</ContextMenu.Item>
+            <ContextMenu.Item className="smart-folder-menu-action" disabled={busy} onClick={onRename}>Rename</ContextMenu.Item>
+            <ContextMenu.Item className="smart-folder-menu-action" disabled={busy} onClick={onPin}>{collection.pinned ? 'Unpin folder' : 'Pin folder'}</ContextMenu.Item>
+            <ContextMenu.Separator className="smart-folder-menu-separator" />
+            {collection.hidden
+              ? <ContextMenu.Item className="smart-folder-menu-action" disabled={busy} onClick={() => void onRestore()}>Restore folder</ContextMenu.Item>
+              : <ContextMenu.Item className="smart-folder-menu-action is-danger" disabled={busy} onClick={onDelete}>Delete folder</ContextMenu.Item>}
+          </ContextMenu.Popup>
+        </ContextMenu.Positioner>
+      </ContextMenu.Portal>
+    </ContextMenu.Root>
+    <Popover.Root open={colorOpen} onOpenChange={setColorOpen}>
+      <Popover.Portal>
+        <Popover.Positioner className="smart-folder-overlay" anchor={folderRef} side="bottom" align="start" sideOffset={6} collisionPadding={12}>
+          <Popover.Popup className="smart-folder-color-editor">
+            <Popover.Title className="smart-folder-editor-title">Folder color</Popover.Title>
+            <label className="smart-folder-color-field">Choose a solid color<input aria-label="Folder color" type="color" value={colorDraft} onChange={(event) => setColorDraft(event.currentTarget.value)} /><code>{colorDraft.toUpperCase()}</code></label>
+            <div className="smart-folder-swatches" aria-label="Folder color presets">{folderColorSwatches.map((swatch) => <button type="button" key={swatch.id} aria-label={`Use ${swatch.id} folder color`} aria-pressed={colorDraft.toLowerCase() === swatch.color.toLowerCase()} style={{ backgroundColor: swatch.color }} onClick={() => setColorDraft(swatch.color)} />)}</div>
+            <div className="smart-folder-color-actions"><button className="primary-button" type="button" disabled={busy} onClick={() => { void onColorSave(colorDraft).then(() => setColorOpen(false)); }}>Save color</button><button className="quiet-button" type="button" disabled={busy} onClick={() => { void onColorSave(null).then(() => setColorOpen(false)); }}>Reset</button><Popover.Close className="quiet-button">Cancel</Popover.Close></div>
+          </Popover.Popup>
+        </Popover.Positioner>
+      </Popover.Portal>
+    </Popover.Root>
+    {renaming && <form className="phase2-form smart-folder-rename" onSubmit={(event) => { event.preventDefault(); const name = renameValue.trim(); if (name && name !== collection.name) void onRenameSave(name); else onRenameCancel(); }}><label>Folder name<input autoFocus maxLength={80} required value={renameValue} onChange={(event) => onRenameValueChange(event.target.value)} /></label><div className="phase2-card-actions"><button className="quiet-button" type="submit" disabled={busy || !renameValue.trim()}>Save name</button><button className="quiet-button" type="button" disabled={busy} onClick={onRenameCancel}>Cancel</button></div></form>}
   </li>;
 }
 

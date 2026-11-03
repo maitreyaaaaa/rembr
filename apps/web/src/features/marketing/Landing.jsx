@@ -41,7 +41,7 @@ import {
   Zap,
 } from './AppShared.jsx';
 const LIBRARY_STARTED_KEY = 'rembr.libraryStarted';
-function Landing({ onOpenApp, onOpenLogin, onOpenPricing, onOpenHowTo, onOpenTerms, onOpenPrivacy, onOpenHelp, onOpenSecurity, onOpenDataDeletion, onOpenCookies }) {
+function Landing({ onOpenApp, onOpenLogin, onOpenPricing, onOpenHowTo, onOpenTerms, onOpenPrivacy, onOpenHelp, onOpenContact, onOpenSecurity, onOpenDataDeletion, onOpenCookies }) {
   const root = useRef(null);
   const introRef = useRef(null);
   const cursorRef = useRef(null);
@@ -329,7 +329,7 @@ function Landing({ onOpenApp, onOpenLogin, onOpenPricing, onOpenHowTo, onOpenTer
           </button>
           <nav className="pointer-events-auto absolute left-1/2 hidden -translate-x-1/2 rounded-full border border-white/10 bg-black/75 p-1 text-sm font-semibold text-muted-foreground shadow-[0_18px_70px_rgba(0,0,0,0.45)] backdrop-blur-xl md:flex">
             <button type="button" onClick={onOpenPricing} className="nav-item rounded-full px-4 py-2 transition hover:bg-white/10 hover:text-foreground">Pricing</button>
-            <button type="button" onClick={onOpenHelp} className="nav-item rounded-full px-4 py-2 transition hover:bg-white/10 hover:text-foreground">Contact us</button>
+            <button type="button" onClick={onOpenContact} className="nav-item rounded-full px-4 py-2 transition hover:bg-white/10 hover:text-foreground">Contact us</button>
             <button type="button" onClick={onOpenHowTo} className="nav-item rounded-full px-4 py-2 transition hover:bg-white/10 hover:text-foreground">How to use</button>
           </nav>
           <div className="nav-item pointer-events-auto flex items-center gap-2 justify-self-end">
@@ -468,7 +468,7 @@ function Landing({ onOpenApp, onOpenLogin, onOpenPricing, onOpenHowTo, onOpenTer
         </div>
       </section>
 
-      <section id="features" className="feature-section relative overflow-hidden bg-black px-6 py-24 md:py-32">
+      <section id="features" className="feature-section relative overflow-hidden bg-black px-6 py-16 md:py-24">
         <div className="pointer-events-none absolute left-1/2 top-10 h-72 w-72 -translate-x-1/2 rounded-full bg-primary/10 blur-[120px]" />
         <div className="mx-auto max-w-7xl">
           <div data-reveal className="mb-16 flex flex-wrap items-end justify-between gap-8">
@@ -512,7 +512,7 @@ function Landing({ onOpenApp, onOpenLogin, onOpenPricing, onOpenHowTo, onOpenTer
         </div>
       </section>
 
-      <section id="how-it-works" className="relative border-y border-white/10 bg-black px-6 py-24 md:py-32">
+      <section id="how-it-works" className="relative border-y border-white/10 bg-black px-6 py-16 md:py-24">
         <div className="mx-auto max-w-7xl">
           <div data-reveal className="mb-14 max-w-4xl">
             <div className="mb-4 font-mono text-xs uppercase tracking-[0.3em] text-primary">/ 03 - How it works</div>
@@ -544,7 +544,7 @@ function Landing({ onOpenApp, onOpenLogin, onOpenPricing, onOpenHowTo, onOpenTer
         </div>
       </section>
 
-      <section id="extension" className="relative border-y border-white/10 bg-black px-6 py-24 md:py-32">
+      <section id="extension" className="relative border-y border-white/10 bg-black px-6 py-16 md:py-24">
         <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.95fr_1.05fr] lg:items-center">
           <div data-reveal>
             <div className="mb-4 font-mono text-xs uppercase tracking-[0.3em] text-primary">/ 04 - Browser extension</div>
@@ -592,7 +592,7 @@ function Landing({ onOpenApp, onOpenLogin, onOpenPricing, onOpenHowTo, onOpenTer
         </div>
       </section>
 
-      <section id="why" className="index-section relative overflow-hidden bg-black px-6 py-24 md:py-32">
+      <section id="why" className="index-section relative overflow-hidden bg-black px-6 py-16 md:py-24">
         <div className="index-pin mx-auto max-w-7xl">
           <div className="index-heading mb-16">
             <div className="mb-4 font-mono text-xs uppercase tracking-[0.3em] text-primary">/ 05 - What gets easier to find</div>
@@ -618,7 +618,7 @@ function Landing({ onOpenApp, onOpenLogin, onOpenPricing, onOpenHowTo, onOpenTer
         </div>
       </section>
 
-      <section id="feedback" className="bg-black px-6 py-24 md:py-32">
+      <section id="feedback" className="bg-black px-6 py-16 md:py-24">
         <div className="mx-auto grid max-w-7xl gap-10 lg:grid-cols-[0.9fr_1.1fr]">
           <div data-reveal>
             <div className="mb-4 font-mono text-xs uppercase tracking-[0.3em] text-primary">/ 06 - A note to Rembr</div>
@@ -626,7 +626,7 @@ function Landing({ onOpenApp, onOpenLogin, onOpenPricing, onOpenHowTo, onOpenTer
             <p className="mt-6 max-w-xl leading-relaxed text-muted-foreground">
               Have a question or an idea for your library? Get in touch and tell us what you are trying to keep close.
             </p>
-            <button type="button" onClick={onOpenHelp} className="glow-ring mt-8 inline-flex items-center gap-3 rounded-full bg-primary px-7 py-4 font-semibold text-primary-foreground transition hover:scale-[1.03]">
+            <button type="button" onClick={onOpenContact} className="glow-ring mt-8 inline-flex items-center gap-3 rounded-full bg-primary px-7 py-4 font-semibold text-primary-foreground transition hover:scale-[1.03]">
               Get in touch <ArrowRight className="h-4 w-4" />
             </button>
           </div>
@@ -641,7 +641,7 @@ function Landing({ onOpenApp, onOpenLogin, onOpenPricing, onOpenHowTo, onOpenTer
         </div>
       </section>
 
-      <section className="cta-section relative overflow-hidden border-t border-white/5 bg-black px-6 py-32 md:py-40">
+      <section className="cta-section relative overflow-hidden border-t border-white/5 bg-black px-6 py-20 md:py-28">
         <div className="cta-bg radial-fade grid-bg absolute inset-0 opacity-50" />
         <div className="relative mx-auto max-w-5xl text-center">
           <h2 data-reveal className="text-balance font-display text-6xl font-bold tracking-tighter md:text-8xl">

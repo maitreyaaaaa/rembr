@@ -28,6 +28,10 @@ function buttonLabel(button: HTMLElement): string {
   const nativeTitle = button.getAttribute('title')?.trim();
   if (nativeTitle) return nativeTitle;
 
+  // A whole-card action already supplies visible context; repeating its title,
+  // badge, and paragraph in a tooltip obscures the content it explains.
+  if (button.querySelector('h2, h3, p')) return '';
+
   const clone = button.cloneNode(true) as HTMLElement;
   clone.querySelectorAll('[aria-hidden="true"], [hidden], .sr-only, .visually-hidden').forEach((node) => node.remove());
   return (clone.textContent ?? '').replace(/\s+/g, ' ').trim();

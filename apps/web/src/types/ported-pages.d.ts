@@ -9,6 +9,7 @@ declare module '*.jsx' {
     onOpenHowTo?: () => void;
     onOpenTerms?: () => void;
     onOpenPrivacy?: () => void;
+    onOpenContact?: () => void;
     onOpenHelp?: () => void;
     onOpenSecurity?: () => void;
     onOpenDataDeletion?: () => void;

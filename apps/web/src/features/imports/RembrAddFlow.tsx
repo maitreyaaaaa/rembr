@@ -56,14 +56,14 @@ export function RembrAddFlow({
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-6 px-4 pb-10 pt-8 sm:px-6 md:px-10 md:py-12">
+    <div className="rembr-task-page mx-auto w-full max-w-6xl space-y-5">
       <header className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
         <div className="max-w-3xl">
           <p className="mb-3 inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/5 px-3 py-1 font-mono text-[10px] uppercase tracking-[0.2em] text-primary">
             <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden="true" />
             Keep it for later
           </p>
-          <h1 className="font-display text-4xl font-bold tracking-tight md:text-5xl">Add to your library</h1>
+          <h1 className="font-display text-3xl font-bold tracking-tight md:text-4xl">Add to your library</h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">
             Save a public page, write a note, or bring in supported social bookmarks. Rembr keeps the original link with each save.
           </p>

@@ -132,7 +132,7 @@ export function RembrCheckupPanel({
   if (loading && !checkup) return <CheckupSkeleton />;
 
   if (!checkup) {
-    return <div className="mx-auto w-full max-w-6xl space-y-5 px-4 py-8 sm:px-6 md:px-10 md:py-12">
+    return <div className="rembr-task-page mx-auto w-full max-w-6xl space-y-5">
       <section className="rounded-2xl border border-white/10 bg-white/[0.035] p-6 sm:p-8" aria-labelledby="checkup-empty-title">
         <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary"><ShieldCheck className="h-3.5 w-3.5" /> Library checkup</div>
         {error ? <ErrorState error={error} onRetry={onRetry} /> : <>
@@ -155,12 +155,12 @@ export function RembrCheckupPanel({
     || checkup.weeklyRediscovery.length > 0
     || Boolean(checkup.dailyPick);
 
-  return <div className="mx-auto w-full max-w-[1320px] space-y-6 px-4 pb-28 pt-8 sm:px-6 md:px-10 md:py-12">
+  return <div className="rembr-task-page mx-auto w-full max-w-[1320px] space-y-5">
     <header className="mb-6 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.035]">
-      <div className="grid gap-0 lg:grid-cols-[1.1fr_0.9fr]">
+      <div className="grid gap-0 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
         <div className="p-6 md:p-8">
           <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 py-1 text-xs font-semibold text-primary"><ShieldCheck className="h-3.5 w-3.5" /> Library checkup</div>
-          <h1 className="font-display text-4xl font-bold tracking-tight md:text-5xl">Clean up and rediscover</h1>
+          <h1 className="font-display text-3xl font-bold tracking-tight md:text-4xl">Clean up and rediscover</h1>
           <p className="mt-3 max-w-2xl text-sm leading-6 text-muted-foreground">Review link checks, import matches, and saves worth revisiting. Nothing changes in your library automatically.</p>
           <p className="mt-4 text-xs text-muted-foreground">{checkup.generatedAt ? `Updated ${formatDate(checkup.generatedAt)}.` : 'Current library checkup.'} Link checks run only when you ask; reminders are your choice.</p>
         </div>
@@ -185,7 +185,7 @@ export function RembrCheckupPanel({
     {error && <ErrorState error={`${error}${checkup ? ' Previously loaded checkup results are still shown.' : ''}`} onRetry={onRetry} />}
     {!hasLibrary ? <EmptyState title="Your library is ready to grow." copy="Save a page or write a note first. Checkup will show link checks and rediscovery suggestions as your library fills in." /> : !hasAnyFindings && !loading ? <EmptyState title="Your library looks clear for now." copy="There are no current link checks, import matches, reminders, or older saves to review. Run a link check whenever you want." /> : null}
 
-    {hasLibrary && <div className="grid gap-6 xl:grid-cols-[1fr_0.95fr]">
+    {hasLibrary && <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,0.95fr)]">
       <section className="space-y-5" aria-labelledby="checkup-cleanup-heading">
         <SectionHeader icon={<ShieldCheck className="h-3.5 w-3.5" />} title="Clean up your saved links" copy="Review import matches and public links that may not open." />
 
@@ -268,7 +268,7 @@ export function RembrCheckupPanel({
 }
 
 function CheckupSkeleton() {
-  return <div className="mx-auto w-full max-w-[1320px] space-y-6 px-4 py-8 sm:px-6 md:px-10 md:py-12" aria-label="Loading library checkup" role="status">
+  return <div className="rembr-task-page mx-auto w-full max-w-[1320px] space-y-5" aria-label="Loading library checkup" role="status">
     <div className="grid gap-0 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.035] lg:grid-cols-[1.1fr_0.9fr]">
       <div className="space-y-4 p-6 md:p-8"><CheckupSkeletonBlock className="h-6 w-36 rounded-full" /><CheckupSkeletonBlock className="h-12 w-3/4 rounded-lg" /><CheckupSkeletonBlock className="h-4 w-full max-w-xl rounded-full" /><CheckupSkeletonBlock className="h-4 w-2/3 rounded-full" /></div>
       <div className="grid grid-cols-2 gap-3 border-t border-white/10 bg-black/30 p-6 md:p-8 lg:border-l lg:border-t-0"><CheckupSkeletonBlock className="h-20 rounded-xl" /><CheckupSkeletonBlock className="h-20 rounded-xl" /><CheckupSkeletonBlock className="h-20 rounded-xl" /><CheckupSkeletonBlock className="h-20 rounded-xl" /><CheckupSkeletonBlock className="col-span-2 h-11 rounded-full" /></div>

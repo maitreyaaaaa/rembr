@@ -334,11 +334,11 @@ export function RembrKnowledgeGraphPanel({
   }
 
   return (
-    <div className="mx-auto w-full max-w-[1480px] space-y-6 px-4 pb-10 pt-8 sm:px-6 md:px-10 md:py-12">
+    <div className="rembr-task-page mx-auto w-full max-w-[1480px] space-y-5">
       <header className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
         <div className="max-w-3xl">
           <p className="font-mono text-xs uppercase tracking-[0.3em] text-primary">Knowledge graph</p>
-          <h1 className="mt-3 font-display text-4xl font-bold tracking-tight md:text-6xl">Your saved library, connected.</h1>
+          <h1 className="mt-3 font-display text-3xl font-bold tracking-tight md:text-4xl">Your saved library, connected.</h1>
           <p className="mt-4 max-w-2xl text-sm leading-6 text-muted-foreground">See how saved pages and notes connect through analyzed topics, source domains, and entities found in their content.</p>
         </div>
         <label className="grid w-full gap-2 text-xs font-semibold text-muted-foreground sm:max-w-sm">
