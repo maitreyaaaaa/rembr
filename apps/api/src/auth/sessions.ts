@@ -6,6 +6,7 @@ import { config } from '../config.js';
 const COOKIE_NAME = 'rembr_session';
 export const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 export const REMEMBERED_SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const REMEMBERED_SESSION_RENEWAL_WINDOW_MS = 15 * 24 * 60 * 60 * 1000;
 
 export interface AuthenticatedUser {
   id: string;
@@ -71,19 +72,32 @@ export function requireUser(database: DatabaseHandle) {
       return;
     }
     const now = new Date().toISOString();
-    const user = await database.prepare(`SELECT users.id, users.email, users.account_status AS "accountStatus"
+    const session = await database.prepare(`SELECT sessions.id AS "sessionId", sessions.created_at AS "createdAt",
+      sessions.expires_at AS "expiresAt", users.id, users.email, users.account_status AS "accountStatus"
       FROM sessions JOIN users ON users.id = sessions.user_id
       WHERE sessions.token_hash = ? AND sessions.expires_at > ?`)
-      .get(digest(token), now) as AuthenticatedUser | undefined;
-    if (!user) {
+      .get(digest(token), now) as (AuthenticatedUser & { sessionId: string; createdAt: string; expiresAt: string }) | undefined;
+    if (!session) {
       res.status(401).json({ error: { code: 'unauthorized', message: 'Your session expired. Sign in again.', requestId: req.requestId } });
       return;
     }
-    if (user.accountStatus !== 'active') {
+    if (session.accountStatus !== 'active') {
       res.status(403).json({ error: { code: 'account_disabled', message: 'This account is disabled.', requestId: req.requestId } });
       return;
     }
-    req.user = user;
+
+    const expiresAt = Date.parse(session.expiresAt);
+    const createdAt = Date.parse(session.createdAt);
+    const remainingLifetime = expiresAt - Date.now();
+    const remembered = expiresAt - createdAt > SESSION_TTL_MS;
+    if (remembered && remainingLifetime <= REMEMBERED_SESSION_RENEWAL_WINDOW_MS) {
+      const renewedExpiry = new Date(Date.now() + REMEMBERED_SESSION_TTL_MS).toISOString();
+      await database.prepare('UPDATE sessions SET expires_at = ? WHERE id = ? AND token_hash = ?')
+        .run(renewedExpiry, session.sessionId, digest(token));
+      res.cookie(COOKIE_NAME, token, cookieOptions(REMEMBERED_SESSION_TTL_MS));
+    }
+
+    req.user = { id: session.id, email: session.email, accountStatus: session.accountStatus };
     next();
   };
 }
