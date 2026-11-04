@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="520" viewBox="0 0 1440 520" fill="none">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1440" y2="520" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#11140F"/>
+      <stop offset="1" stop-color="#080A09"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="matrix(450 210 -210 450 1130 145)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#D4FF35" stop-opacity=".14"/>
+      <stop offset="1" stop-color="#D4FF35" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="lime" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#E2FF67"/>
+      <stop offset="1" stop-color="#B7F51C"/>
+    </linearGradient>
+    <linearGradient id="mint" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#55F1D0"/>
+      <stop offset="1" stop-color="#26CDB2"/>
+    </linearGradient>
+    <filter id="shadow" x="700" y="20" width="700" height="500" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="18"/>
+      <feOffset dy="14"/>
+      <feComponentTransfer><feFuncA type="linear" slope=".28"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="1440" height="520" rx="28" fill="url(#bg)"/>
+  <rect width="1440" height="520" rx="28" fill="url(#glow)"/>
+  <path d="M0 431C287 344 517 524 810 414c204-77 363-95 630-10" stroke="#FFFFFF" stroke-opacity=".045"/>
+  <path d="M0 464C287 377 517 557 810 447c204-77 363-95 630-10" stroke="#FFFFFF" stroke-opacity=".035"/>
+  <g font-family="Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif">
+    <rect x="72" y="70" width="8" height="8" rx="4" fill="#D4FF35"/>
+    <text x="94" y="78" fill="#B9C0B5" font-size="13" font-weight="650" letter-spacing="2.1">A PERSONAL LIBRARY FOR YOUR INTERNET</text>
+    <text x="72" y="184" fill="#F5F7F1" font-size="67" font-weight="730" letter-spacing="-3.6">Keep the good stuff.</text>
+    <text x="72" y="259" fill="#D4FF35" font-size="67" font-weight="730" letter-spacing="-3.6">Find it when it matters.</text>
+    <text x="75" y="314" fill="#A7ADA4" font-size="20" font-weight="420">Saved posts, links, notes, and the context that makes them useful.</text>
+    <g transform="translate(74 365)">
+      <rect width="168" height="42" rx="21" fill="#D4FF35"/>
+      <text x="84" y="27" text-anchor="middle" fill="#10130C" font-size="14" font-weight="700">One searchable home</text>
+      <rect x="182" width="147" height="42" rx="21" fill="#171B17" stroke="#363D33"/>
+      <text x="255.5" y="27" text-anchor="middle" fill="#D7DDD3" font-size="14" font-weight="600">Built for recall</text>
+    </g>
+  </g>
+  <g filter="url(#shadow)" transform="rotate(-7 1065 250)">
+    <rect x="854" y="91" width="326" height="206" rx="19" fill="#141814" stroke="#353D32" stroke-width="1.5"/>
+    <rect x="870" y="107" width="294" height="105" rx="12" fill="#D4FF35"/>
+    <rect x="885" y="122" width="55" height="15" rx="7.5" fill="#162014" fill-opacity=".12"/>
+    <text x="912.5" y="133" text-anchor="middle" fill="#243019" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="8" font-weight="750" letter-spacing=".7">SAVED POST</text>
+    <text x="885" y="170" fill="#11150F" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="20" font-weight="720">The best ideas</text>
+    <text x="885" y="194" fill="#11150F" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="20" font-weight="720">are worth keeping.</text>
+    <text x="886" y="239" fill="#D4FF35" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="10" font-weight="650" letter-spacing=".7">DESIGN NOTES</text>
+    <text x="886" y="261" fill="#A8AEA5" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="11">A thought worth finding again.</text>
+    <rect x="886" y="277" width="62" height="7" rx="3.5" fill="#30372F"/>
+    <rect x="954" y="277" width="47" height="7" rx="3.5" fill="#30372F"/>
+  </g>
+  <g filter="url(#shadow)" transform="rotate(7 1135 350)">
+    <rect x="1017" y="258" width="316" height="194" rx="19" fill="#121715" stroke="#2A443D" stroke-width="1.5"/>
+    <rect x="1033" y="274" width="284" height="91" rx="12" fill="url(#mint)"/>
+    <rect x="1048" y="289" width="58" height="15" rx="7.5" fill="#0B352E" fill-opacity=".12"/>
+    <text x="1077" y="300" text-anchor="middle" fill="#0B352E" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="8" font-weight="750" letter-spacing=".7">SAVED REEL</text>
+    <text x="1048" y="333" fill="#062B26" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="18" font-weight="720">A new way to</text>
+    <text x="1048" y="353" fill="#062B26" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="18" font-weight="720">make something.</text>
+    <text x="1049" y="393" fill="#50E4C2" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="10" font-weight="650" letter-spacing=".7">TOOLS TO TRY</text>
+    <text x="1049" y="417" fill="#A5AEA9" font-family="Inter, ui-sans-serif, system-ui, sans-serif" font-size="11">The useful bit, kept with the source.</text>
+  </g>
+  <path d="M830 172c-52-19-65 65-20 87 18 9 40 3 48-14" stroke="#D4FF35" stroke-opacity=".45" stroke-width="2" stroke-linecap="round" stroke-dasharray="4 9"/>
+  <circle cx="857" cy="245" r="5" fill="#D4FF35"/>
+  <circle cx="830" cy="171" r="4" fill="#D4FF35" fill-opacity=".68"/>
+</svg>
