@@ -20,7 +20,13 @@ export type VisualSearchPreference = AiPreference;
 export interface SemanticSearchPreference extends AiPreference { indexedItems: number; eligibleItems: number }
 export interface VisualSearchResult { query: string; visualDescription: string; results: SavedItem[]; searchEventId: string | null }
 export interface WebSearchResultView { summary: string; citations: Array<{ title: string; url: string; snippet: string }> }
-export interface AiAnalysisView { status: string; pauseReason: string | null; errorCode: string | null; updatedAt: string | null; result: null | { status: string; model: string; summary: string; visualDescription: string; ocrText: string; transcript: string; keywords: string[]; tags: string[]; brands: string[]; tools: string[]; people: string[]; repositories: string[]; imageCount: number; imageBytes: number; videoCount: number; videoBytes: number; createdAt: string } }
+export interface AiMediaCoverage {
+  expectedVideo?: boolean; pageImagesFound?: number; pageImagesUsed?: number; sourceVideoMime?: string | null;
+  normalizedVideoMime?: string | null; videoDurationSeconds?: number | null; videoTruncated?: boolean;
+  videoAnalyzed?: boolean; sampledFramesSeconds?: number[]; audioTrackDetected?: boolean;
+  audioDurationSeconds?: number; transcriptAvailable?: boolean; warnings?: string[];
+}
+export interface AiAnalysisView { status: string; pauseReason: string | null; errorCode: string | null; updatedAt: string | null; result: null | { status: string; model: string; summary: string; visualDescription: string; ocrText: string; transcript: string; keywords: string[]; tags: string[]; brands: string[]; tools: string[]; people: string[]; repositories: string[]; imageCount: number; imageBytes: number; videoCount: number; videoBytes: number; mediaCoverage?: AiMediaCoverage; createdAt: string } }
 export interface KnowledgeGraphItem { id: string; title: string; status: string; createdAt: string }
 export interface KnowledgeGraphGroup { id: string; type: string; label: string; itemCount: number; items: KnowledgeGraphItem[] }
 export interface KnowledgeGraphNode { id: string; type: string; label: string; itemId?: string; itemCount?: number }

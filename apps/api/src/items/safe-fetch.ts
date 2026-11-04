@@ -256,7 +256,8 @@ export async function checkPublicPage(
 
 export interface MediaResponsePayload { statusCode: number; location: string | undefined; contentType: string; body: Buffer }
 const MEDIA_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'audio/mpeg', 'audio/mp4', 'audio/ogg',
-  'audio/wav', 'audio/webm', 'video/mp4', 'video/webm', 'video/ogg']);
+  'audio/wav', 'audio/webm', 'video/mp4', 'video/webm', 'video/ogg', 'video/quicktime', 'video/x-m4v',
+  'video/x-matroska', 'video/3gpp', 'video/3gpp2', 'application/octet-stream']);
 export const MAX_MEDIA_BYTES = 5 * 1024 * 1024;
 export const MAX_VIDEO_MEDIA_BYTES = 25 * 1024 * 1024;
 const TEMP_MEDIA_PREFIX = 'rembr-media-';
@@ -267,7 +268,7 @@ function requestMediaAtPinnedAddress(target: ValidatedUrl, maxBytes: number): Pr
     const isHttps = target.url.protocol === 'https:'; const requestFn = isHttps ? httpsRequest : httpRequest;
     const hostname = target.url.hostname.replace(/^\[|\]$/g, '');
     const request = requestFn(target.url, {
-      method: 'GET', headers: { accept: 'image/jpeg,image/png,image/webp,image/gif,audio/mpeg,audio/mp4,audio/ogg,audio/wav,audio/webm,video/mp4,video/webm,video/ogg', 'accept-encoding': 'identity', 'user-agent': 'RembrBot/0.1 (+user-requested page capture)' },
+      method: 'GET', headers: { accept: 'image/jpeg,image/png,image/webp,image/gif,audio/mpeg,audio/mp4,audio/ogg,audio/wav,audio/webm,video/mp4,video/webm,video/ogg,video/quicktime,video/x-m4v,video/x-matroska,video/3gpp,video/3gpp2,application/octet-stream', 'accept-encoding': 'identity', 'user-agent': 'RembrBot/0.1 (+user-requested page capture)' },
       lookup: (_host, options, callback) => options.all ? callback(null, [{ address: target.address, family: target.family }]) : callback(null, target.address, target.family),
       ...(isHttps && !isIP(hostname) ? { servername: hostname } : {}), timeout: 10_000, maxHeaderSize: 16_384,
     }, (response) => {
@@ -325,7 +326,7 @@ function streamMediaAtPinnedAddress(target: ValidatedUrl, maxBytes: number, dest
     const isHttps = target.url.protocol === 'https:'; const requestFn = isHttps ? httpsRequest : httpRequest;
     const hostname = target.url.hostname.replace(/^\[|\]$/g, '');
     const request = requestFn(target.url, {
-      method: 'GET', headers: { accept: 'image/jpeg,image/png,image/webp,image/gif,audio/mpeg,audio/mp4,audio/ogg,audio/wav,audio/webm,video/mp4,video/webm,video/ogg', 'accept-encoding': 'identity', 'user-agent': 'RembrBot/0.1 (+user-requested page capture)' },
+      method: 'GET', headers: { accept: 'image/jpeg,image/png,image/webp,image/gif,audio/mpeg,audio/mp4,audio/ogg,audio/wav,audio/webm,video/mp4,video/webm,video/ogg,video/quicktime,video/x-m4v,video/x-matroska,video/3gpp,video/3gpp2,application/octet-stream', 'accept-encoding': 'identity', 'user-agent': 'RembrBot/0.1 (+user-requested page capture)' },
       lookup: (_host, options, callback) => options.all ? callback(null, [{ address: target.address, family: target.family }]) : callback(null, target.address, target.family),
       ...(isHttps && !isIP(hostname) ? { servername: hostname } : {}), timeout: 15_000, maxHeaderSize: 16_384,
     }, (response) => {
