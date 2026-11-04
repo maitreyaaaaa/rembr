@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseHandle } from '../db/database.js';
+import { tokenizeSearchTerms } from '../library/repository.js';
 
 const ITEM_SCAN_LIMIT = 2_000;
 const MIN_MATCHES = 2;
@@ -47,6 +48,12 @@ function searchText(item: SmartItem): string {
   let host = '';
   try { host = new URL(item.url).hostname; } catch { /* Invalid stored URLs do not contribute domain text. */ }
   return [item.title, item.description, item.url, host, item.text, item.note, item.analysisText, item.platform, ...item.tags, ...item.collections, ...item.analysisTags, ...item.keywords].join(' ').toLowerCase();
+}
+function matchesSearch(item: SmartItem, query: string): boolean {
+  const terms = tokenizeSearchTerms(query);
+  if (!terms.length) return true;
+  const text = searchText(item);
+  return terms.every((term) => text.includes(term));
 }
 
 function candidatesFrom(items: SmartItem[]): Candidate[] {
@@ -212,7 +219,7 @@ export function createSmartCollectionService(database: DatabaseHandle) {
       const expected = { owner: ownerId, collection: collectionId, search: fingerprint };
       const offset = rawCursor ? decodeCursor(rawCursor, expected) : 0;
       if (offset === null) throw new SmartCollectionError('invalid_cursor', 'Restart this smart collection after changing its search.');
-      const filtered = collection.matchedItems.filter(({ item }) => !fingerprint || searchText(item).includes(fingerprint));
+      const filtered = collection.matchedItems.filter(({ item }) => matchesSearch(item, fingerprint));
       const page = filtered.slice(offset, offset + limit);
       const nextCursor = offset + page.length < filtered.length ? encodeCursor({ ...expected, offset: offset + page.length }) : null;
       return { collection: { id: collection.id, name: collection.name, description: collection.description, itemCount: filtered.length }, items: page.map(({ item, confidence, reason }) => ({ ...item, matchConfidence: confidence, matchReason: reason })), nextCursor, hasMore: nextCursor !== null, truncated };

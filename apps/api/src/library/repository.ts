@@ -29,11 +29,13 @@ const SEARCH_CONCEPTS: Record<string, string[]> = {
   skill: ['skills','skill','agent','mcp'], skills: ['skills','skill','agent','mcp'], agent: ['skills','skill','agent','mcp'],
   memory: ['memory','openspace'],
 };
-function queryGroups(value: string): string[][] {
+export function tokenizeSearchTerms(value: string): string[] {
   const tokens = [...new Set(value.toLowerCase().normalize('NFKC').match(/[a-z0-9]+/g) ?? [])];
   const meaningful = tokens.filter((token) => !SEARCH_STOP_WORDS.has(token));
-  const selected = meaningful.length ? meaningful : tokens.length ? tokens : [value.trim()];
-  return selected.map((token) => SEARCH_CONCEPTS[token] ?? [token]);
+  return meaningful.length ? meaningful : tokens.length ? tokens : [value.trim()].filter(Boolean);
+}
+function queryGroups(value: string): string[][] {
+  return tokenizeSearchTerms(value).map((token) => SEARCH_CONCEPTS[token] ?? [token]);
 }
 const TERM_SCORE_FIELDS: Array<{ points: number; placeholders: number; sql: (count: number) => string }> = [
   { points: 30, placeholders: 1, sql: (count) => Array.from({ length: count }, () => `lower(COALESCE(saved_items.title_override,saved_items.title)) LIKE lower(?) ESCAPE '!'`).join(' OR ') },
