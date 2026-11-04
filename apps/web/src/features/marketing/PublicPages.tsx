@@ -6,12 +6,12 @@ import PricingPage from './PricingPage.jsx';
 
 export function PortedHowToPage() {
   const navigate = useNavigate();
-  return <HowToUsePage onBack={() => navigate('/')} onOpenApp={() => navigate('/app')} onStartTour={() => navigate('/app?tour=1')} />;
+  return <HowToUsePage onBack={() => navigate('/')} onOpenApp={() => window.open('/app', '_blank', 'noopener,noreferrer')} onStartTour={() => window.open('/app?tour=1', '_blank', 'noopener,noreferrer')} />;
 }
 
 export function PortedHelpPage() {
   const navigate = useNavigate();
-  return <HelpCenterPage onBack={() => navigate('/')} onOpenApp={() => navigate('/app')} onOpenHowTo={() => navigate('/how-to-use')} />;
+  return <HelpCenterPage onBack={() => navigate('/')} onOpenApp={() => window.open('/app', '_blank', 'noopener,noreferrer')} onOpenHowTo={() => navigate('/how-to-use')} />;
 }
 
 export function PortedPricingPage() {

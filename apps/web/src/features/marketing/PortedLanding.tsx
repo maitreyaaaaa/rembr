@@ -5,7 +5,7 @@ export function PortedLanding() {
   const navigate = useNavigate();
 
   return <Landing
-    onOpenApp={() => navigate('/app')}
+    onOpenApp={() => window.open('/app', '_blank', 'noopener,noreferrer')}
     onOpenLogin={() => navigate('/login')}
     onOpenPricing={() => navigate('/pricing')}
     onOpenHowTo={() => navigate('/how-to-use')}

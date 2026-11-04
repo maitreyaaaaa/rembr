@@ -87,6 +87,7 @@ export function LibraryPage() {
   async function searchWebAndLibrary(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (visualImage) { await searchByImage(event); return; }
+    if (webSearchBusy) return;
     const queryText = search.trim();
     if (!queryText) return;
     if (searchMode !== 'web') return;
@@ -124,20 +125,18 @@ export function LibraryPage() {
     <section className="library-search-composer" aria-label="Search your library or the web">
       <form onSubmit={submitComposer}>
         <label className="visually-hidden" htmlFor="library-search-composer-input">Search your saved posts, links, and notes</label>
-        <textarea id="library-search-composer-input" rows={1} maxLength={120} placeholder={searchMode === 'web' ? 'Search the web…' : 'Search your saved posts, links, and notes…'} value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
+        <textarea id="library-search-composer-input" rows={1} maxLength={120} placeholder={searchMode === 'web' ? 'Search the web…' : 'Search your saved posts, links, and notes…'} value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && ((event.ctrlKey || event.metaKey) || (searchMode === 'web' && !event.shiftKey))) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
         <div className="library-search-composer-controls">
           <input ref={visualSearchInputRef} className="visually-hidden visual-search-input" id="visual-search-image" type="file" accept="image/png,image/jpeg,image/webp" aria-label="Choose an image to search your saved library" aria-describedby="visual-search-file-help" disabled={visualBusy} onChange={(event) => { const file = event.currentTarget.files?.[0]; chooseVisualImage(file); event.currentTarget.value = ''; if (file) { const next = new URLSearchParams(searchParams); next.delete('mode'); setSearchParams(next); } }} />
-          <label className="library-search-add" htmlFor="visual-search-image" title="Add an image to search your saved library" aria-label="Add an image to search your saved library"><Plus size={20} aria-hidden="true" /></label>
+          <label className="library-search-add" htmlFor="visual-search-image" aria-label="Add an image to search your saved library"><Plus size={20} aria-hidden="true" /></label>
           <div className="library-search-mode" role="group" aria-label="Choose search mode">
             <button type="button" className={searchMode === 'saved' ? 'active' : ''} aria-pressed={searchMode === 'saved'} onClick={() => selectSearchMode('saved')}>Saved</button>
-            <button type="button" className={searchMode === 'web' ? 'active' : ''} aria-pressed={searchMode === 'web'} onClick={() => { selectSearchMode('web'); setVisualResult(null); }}>Web + library</button>
+            <button type="button" className={searchMode === 'web' ? 'active' : ''} aria-pressed={searchMode === 'web'} onClick={() => { selectSearchMode('web'); setVisualResult(null); }}>AI + saved</button>
           </div>
-          {searchMode === 'web' && <button className="primary-button library-search-submit" type="submit" disabled={webSearchBusy || !search.trim()}>{webSearchBusy ? 'Searching…' : 'Search both'}</button>}
           {searchMode === 'saved' && visualImage && <button className="primary-button library-search-submit" type="submit" disabled={visualBusy}>{visualBusy ? 'Searching…' : 'Find similar saves'}</button>}
           {searchMode === 'saved' && !visualImage && <span className="library-search-hint">Searches your library by keywords only</span>}
         </div>
       </form>
-      {searchMode === 'web' && <p className="library-search-disclosure">Searches public sources and your saved library separately. Your query goes to public search; saved content is only used for a grounded AI answer when enabled in Settings. Otherwise, you’ll see saved excerpts.</p>}
       {visualImage && <div className="visual-search-preview library-composer-preview"><img src={visualPreview ?? ''} alt="Selected image for private library search" /><div><span>{visualImage.name}</span><button className="phase2-text-button" type="button" disabled={visualBusy} onClick={() => chooseVisualImage(undefined)}>Remove image</button></div></div>}
       {visualSearchPreference && !visualSearchPreference.enabled && <p className="library-search-disclosure">Image search is off. <Link to="/app/settings/preferences">Review image-search consent</Link> to enable it.</p>}
       {visualSearchPreference?.enabled && !visualSearchPreference.providerAvailable && <p className="library-search-disclosure">Image search is temporarily unavailable; keyword search still works.</p>}

@@ -62,7 +62,7 @@ function SiteHeader({ page }: { page: Page }) {
         <a href="/pricing" onClick={() => setMenuOpen(false)}>Pricing</a>
         <a aria-current={page === 'contact' ? 'page' : undefined} href="/contact" onClick={() => setMenuOpen(false)}>Contact us</a>
         <a href="/how-to-use" onClick={() => setMenuOpen(false)}>How to use</a>
-        <a className="nav-cta" href="/app" onClick={() => setMenuOpen(false)}>Open Rembr <Arrow diagonal/></a>
+        <a className="nav-cta" href="/app" target="_blank" rel="noopener noreferrer" onClick={() => setMenuOpen(false)}>Open Rembr <Arrow diagonal/></a>
       </nav>
     </div>
   </header>;
@@ -73,7 +73,7 @@ function SiteFooter() {
     <div className="footer-main">
       <div className="footer-brand-block"><Brand/><p>A little more room for what matters.</p></div>
       <div className="footer-link-group"><span>EXPLORE</span><a href="/features">The library</a><a href="/how-to-use">How to use</a><a href="/help">Help</a><a href="/pricing">Pricing</a></div>
-      <div className="footer-link-group"><span>REMBR</span><a href="/about">About</a><a href="/contact">Contact us</a><a href="/app">Open Rembr</a><a href="/app/settings/profile">Account settings</a></div>
+      <div className="footer-link-group"><span>REMBR</span><a href="/about">About</a><a href="/contact">Contact us</a><a href="/app" target="_blank" rel="noopener noreferrer">Open Rembr</a><a href="/app/settings/profile" target="_blank" rel="noopener noreferrer">Account settings</a></div>
       <div className="footer-link-group"><span>POLICIES</span><a href="/terms">Terms</a><a href="/privacy">Privacy</a><a href="/security">Security</a><a href="/data-deletion">Data deletion</a><a href="/cookies">Cookies</a></div>
     </div>
     <div className="footer-bottom"><span>© {new Date().getFullYear()} Rembr</span><span>Keep what catches you. Find it when it matters.</span><a href="#top">Back to top ↑</a></div>
@@ -110,7 +110,7 @@ function HomePage() {
           <h1 data-hero-copy><span className="hero-wordline">Never <span className="hero-word-ring">Lose</span></span><span className="hero-wordline hero-post-line"><span className="hero-highlight">a Post</span></span><span className="hero-wordline hero-saved-line">Saved on <RotatingPlatformLogo/></span></h1>
           <p className="hero-lede" data-hero-copy>Bring saved posts from Instagram, Pinterest, and X into one library. Save links from Facebook, LinkedIn, or anywhere on the web. Keep the source, add a note, and find it again.</p>
           <div className="hero-actions" data-hero-copy>
-            <a className="button button-ink" href="/app">Keep your saved posts <Arrow diagonal/></a>
+            <a className="button button-ink" href="/app" target="_blank" rel="noopener noreferrer">Keep your saved posts <Arrow diagonal/></a>
             <a className="underlined-link" href="#the-idea">See how it works <span aria-hidden="true">↓</span></a>
           </div>
         </div>
@@ -183,12 +183,12 @@ function HomePage() {
       </div>
     </section>
 
-    <section className="final-call" data-reveal><div className="final-call-sun" aria-hidden="true"/><h2>Keep the spark.<br/><span>Find the thread.</span></h2><a className="button button-ink" href="/app">Start your library <Arrow diagonal/></a></section>
+    <section className="final-call" data-reveal><div className="final-call-sun" aria-hidden="true"/><h2>Keep the spark.<br/><span>Find the thread.</span></h2><a className="button button-ink" href="/app" target="_blank" rel="noopener noreferrer">Start your library <Arrow diagonal/></a></section>
   </main>;
 }
 
 function PageHero({ title, accent, description }: { title: ReactNode; accent?: string; description: string }) {
-  return <section className="subpage-hero" data-reveal><h1>{title}{accent && <><br/><span>{accent}</span></>}</h1><p>{description}</p><a className="button button-ink" href="/app">Open Rembr <Arrow diagonal/></a><span className="subpage-asterisk" aria-hidden="true">✳</span></section>;
+  return <section className="subpage-hero" data-reveal><h1>{title}{accent && <><br/><span>{accent}</span></>}</h1><p>{description}</p><a className="button button-ink" href="/app" target="_blank" rel="noopener noreferrer">Open Rembr <Arrow diagonal/></a><span className="subpage-asterisk" aria-hidden="true">✳</span></section>;
 }
 
 function FeaturesPage() {
@@ -207,7 +207,7 @@ function AboutPage() {
     <PageHero title={<>We save the post.<br/>We remember</>} accent="why it mattered." description="A home for saved posts, useful links, and the context you want to keep."/>
     <section className="about-statement" data-reveal><p>“Later” should be a place you can return to.</p><span aria-hidden="true">✳</span></section>
     <section className="about-columns"><article data-reveal><h2>Keep what caught your attention.</h2><p>Bring in posts from Instagram, Pinterest, or X. Save a public link from anywhere else.</p></article><article data-reveal><h2>Come back with the context.</h2><p>Keep the original source. Add your own notes, organize related finds, and search your library when you need them.</p></article></section>
-    <section className="about-manifesto" data-reveal><h2>Keep the source.<br/>Keep your context.</h2><a className="button button-yellow" href="/app">Open your library <Arrow diagonal/></a></section>
+    <section className="about-manifesto" data-reveal><h2>Keep the source.<br/>Keep your context.</h2><a className="button button-yellow" href="/app" target="_blank" rel="noopener noreferrer">Open your library <Arrow diagonal/></a></section>
   </main>;
 }
 
@@ -226,7 +226,7 @@ function ContactPage() {
 
   return <main id="top" className="subpage-main contact-main">
     <PageHero title={<>A note can<br/>start a</>} accent="good thing." description="Questions or feedback about Rembr? Send us a note."/>
-    <section className="contact-layout" data-reveal><div className="contact-note"><span>✳</span><h2>What were you trying to do?</h2><p>This opens a draft in your email app. Rembr does not send or store your message.</p><a className="text-link" href="/app">Account help <Arrow diagonal/></a></div>
+    <section className="contact-layout" data-reveal><div className="contact-note"><span>✳</span><h2>What were you trying to do?</h2><p>This opens a draft in your email app. Rembr does not send or store your message.</p><a className="text-link" href="/app" target="_blank" rel="noopener noreferrer">Account help <Arrow diagonal/></a></div>
       <form onSubmit={submit} className="contact-form"><div className="form-heading"><span>Write to Rembr</span></div><label htmlFor="contact-email">Your email</label><input id="contact-email" name="email" type="email" autoComplete="email" required maxLength={254} placeholder="you@example.com"/><label htmlFor="contact-subject">What is this about?</label><select id="contact-subject" name="subject" defaultValue="Feedback"><option>Feedback</option><option>Account help</option><option>Something is not working</option><option>Other</option></select><label htmlFor="contact-message">Your message</label><textarea id="contact-message" name="message" required minLength={10} maxLength={3000} rows={5} placeholder="What happened?"/><button className="button button-ink" type="submit" disabled={!contactEmail}>{sent ? 'Draft opened' : 'Open email draft'} <Arrow diagonal/></button>{!contactEmail && <p className="contact-config-note">Contact email is not set up yet.</p>}</form>
     </section>
   </main>;

@@ -12,7 +12,7 @@ function PublicFrame({ children, current }: { children: ReactNode; current?: 'he
         <a href="/how-to-use">How to use</a>
         <a aria-current={current === 'help' ? 'page' : undefined} href="/help">Help</a>
         <a aria-current={current === 'pricing' ? 'page' : undefined} href="/pricing">Pricing</a>
-        <a className="rg-header-cta" href="/app">Open Rembr <span aria-hidden="true">↗</span></a>
+        <a className="rg-header-cta" href="/app" target="_blank" rel="noopener noreferrer">Open Rembr <span aria-hidden="true">↗</span></a>
       </nav>
     </header>
     <main className="rg-main" id="main-content">{children}</main>
@@ -51,9 +51,9 @@ export function HelpPage() {
 
     <section className="rg-help-grid" aria-label="Help topics">
       <article className="rg-help-card"><span className="rg-card-index">01</span><h2>Import and save</h2><p>Use the guides for platform exports. For a one-off save, add a public page URL in your library.</p><a className="rg-text-link" href="/how-to-use">Open the guides <span aria-hidden="true">→</span></a></article>
-      <article className="rg-help-card"><span className="rg-card-index">02</span><h2>Search your library</h2><p>Try a title, source, or phrase from the saved page. Meaning-based search is a separate preference and may depend on server availability.</p><a className="rg-text-link" href="/app/settings/preferences">Review preferences <span aria-hidden="true">→</span></a></article>
-      <article className="rg-help-card"><span className="rg-card-index">03</span><h2>AI and media analysis</h2><p>AI options are separate and off by default. Each setting explains what text or media is sent and which provider processes it.</p><a className="rg-text-link" href="/app/settings/preferences">See AI settings <span aria-hidden="true">→</span></a></article>
-      <article className="rg-help-card"><span className="rg-card-index">04</span><h2>Profile and account</h2><p>Update your username, profile image, and saving preferences in account settings.</p><a className="rg-text-link" href="/app/settings/profile">Open profile settings <span aria-hidden="true">→</span></a></article>
+      <article className="rg-help-card"><span className="rg-card-index">02</span><h2>Search your library</h2><p>Try a title, source, or phrase from the saved page. Meaning-based search is a separate preference and may depend on server availability.</p><a className="rg-text-link" href="/app/settings/preferences" target="_blank" rel="noopener noreferrer">Review preferences <span aria-hidden="true">→</span></a></article>
+      <article className="rg-help-card"><span className="rg-card-index">03</span><h2>AI and media analysis</h2><p>AI options are separate and off by default. Each setting explains what text or media is sent and which provider processes it.</p><a className="rg-text-link" href="/app/settings/preferences" target="_blank" rel="noopener noreferrer">See AI settings <span aria-hidden="true">→</span></a></article>
+      <article className="rg-help-card"><span className="rg-card-index">04</span><h2>Profile and account</h2><p>Update your username, profile image, and saving preferences in account settings.</p><a className="rg-text-link" href="/app/settings/profile" target="_blank" rel="noopener noreferrer">Open profile settings <span aria-hidden="true">→</span></a></article>
     </section>
 
     <section className="rg-support-section" aria-labelledby="rg-support-heading">

@@ -96,7 +96,7 @@ function PublicHeader() {
       <a href="/features">The library</a>
       <a aria-current="page" href="/how-to-use">How to use</a>
       <a href="/help">Help</a>
-      <a className="rg-header-cta" href="/app">Open Rembr <span aria-hidden="true">↗</span></a>
+      <a className="rg-header-cta" href="/app" target="_blank" rel="noopener noreferrer">Open Rembr <span aria-hidden="true">↗</span></a>
     </nav>
   </header>;
 }
@@ -142,7 +142,7 @@ export function HowToUsePage() {
           {activeGuide ? activeGuide.steps.length ? <>
             <div className="rg-detail-heading">
               <div><p className="rg-kicker">{activeGuide.status} <span aria-hidden="true">/</span> {activeGuide.steps.length} steps</p><h2>{activeGuide.label}</h2></div>
-              <a className="rg-button rg-button-primary" href="/app/add">Open Add <span aria-hidden="true">↗</span></a>
+              <a className="rg-button rg-button-primary" href="/app/add" target="_blank" rel="noopener noreferrer">Open Add <span aria-hidden="true">↗</span></a>
             </div>
             <ol className="rg-step-list" aria-label={`${activeGuide.label} steps`}>
               {activeGuide.steps.map((step, index) => <li className="rg-step" key={step.title}>
@@ -154,24 +154,24 @@ export function HowToUsePage() {
               </li>)}
             </ol>
             {activeGuide.id !== 'link' && <p className="rg-note">Rembr imports files you choose. It does not ask for your social account password.</p>}
-            <a className="rg-text-link" href="/app/imports">View import history <span aria-hidden="true">→</span></a>
+            <a className="rg-text-link" href="/app/imports" target="_blank" rel="noopener noreferrer">View import history <span aria-hidden="true">→</span></a>
           </> : <div className="rg-guide-unavailable">
             <p className="rg-kicker">{activeGuide.status}</p>
             <h2>{activeGuide.label}</h2>
             <p>{activeGuide.unavailableCopy}</p>
-            {activeGuide.id === 'extension' && <a className="rg-button rg-button-primary" href="/app/add">Save a link in Rembr <span aria-hidden="true">↗</span></a>}
+            {activeGuide.id === 'extension' && <a className="rg-button rg-button-primary" href="/app/add" target="_blank" rel="noopener noreferrer">Save a link in Rembr <span aria-hidden="true">↗</span></a>}
           </div> : <div className="rg-guide-prompt">
             <span className="rg-prompt-mark" aria-hidden="true">↘</span>
             <h2>Choose a guide to see the steps.</h2>
             <p>The guides show what Rembr supports today and which capture options are unavailable.</p>
-            <a className="rg-text-link" href="/app/imports">Open import history <span aria-hidden="true">→</span></a>
+            <a className="rg-text-link" href="/app/imports" target="_blank" rel="noopener noreferrer">Open import history <span aria-hidden="true">→</span></a>
           </div>}
         </div>
       </section>
 
       <section className="rg-tour-callout">
         <div><p className="rg-kicker">YOUR LIBRARY</p><h2>Save a page or bring in an export.</h2><p>Use the Add screen to save public links and import supported platform files.</p></div>
-        <a className="rg-button rg-button-secondary" href="/app/add">Open Add <span aria-hidden="true">↗</span></a>
+        <a className="rg-button rg-button-secondary" href="/app/add" target="_blank" rel="noopener noreferrer">Open Add <span aria-hidden="true">↗</span></a>
       </section>
     </main>
     <PublicFooter />

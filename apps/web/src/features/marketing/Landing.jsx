@@ -339,7 +339,6 @@ function Landing({ onOpenApp, onOpenLogin, onOpenPricing, onOpenHowTo, onOpenTer
                 onClick={onOpenApp}
                 className="inline-flex h-11 w-11 items-center justify-center overflow-hidden rounded-full border border-white/15 bg-black/75 text-sm font-bold text-foreground shadow-[0_16px_55px_rgba(0,0,0,0.22)] backdrop-blur transition hover:scale-[1.04] hover:bg-white/10"
                 aria-label="Open Rembr library"
-                title={landingProfile?.username ? `@${landingProfile.username}` : 'Open Rembr library'}
               >
                 {landingAvatarUrl ? (
                   <img src={landingAvatarUrl} alt="" className="h-full w-full object-cover" />

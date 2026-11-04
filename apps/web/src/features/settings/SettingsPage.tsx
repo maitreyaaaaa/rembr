@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { ArrowUpRight, Check, Code2, Network, RefreshCw, ShieldCheck, SlidersHorizontal, Upload, UserRound } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { ArrowUpRight, Check, Code2, ImagePlus, Network, RefreshCw, ShieldCheck, SlidersHorizontal, Upload, UserRound } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import type { AiPreference, AiSearchPreference, Onboarding, Profile, SemanticSearchPreference, VisualSearchPreference } from '../../app/contracts.js';
 import { AI_DISCLOSURE_VERSION, AI_SEARCH_DISCLOSURE_VERSION, SEMANTIC_SEARCH_DISCLOSURE_VERSION, VISUAL_SEARCH_DISCLOSURE_VERSION } from '../../app/contracts.js';
@@ -7,7 +7,6 @@ import { api } from '../../app/api.js';
 import { messageOf } from '../../app/helpers.js';
 import { useShell } from '../../app/shell-context.js';
 import { contentOptions, referralOptions } from '../../app/onboarding-options.js';
-import { MagneticDropZone } from '../../components/MagneticDropZone.js';
 
 type SettingsSection = 'profile' | 'preferences' | 'privacy' | 'advanced';
 const sectionItems: Array<{ id: SettingsSection; label: string; icon: typeof UserRound }> = [
@@ -30,6 +29,9 @@ export function SettingsPage() {
   const [username, setUsername] = useState(session.profile?.username ?? '');
   const [avatarUrl, setAvatarUrl] = useState(session.profile?.avatarUrl ?? '');
   const [avatar, setAvatar] = useState<File | null>(null);
+  const [avatarPreviewUrl, setAvatarPreviewUrl] = useState('');
+  const [avatarCleared, setAvatarCleared] = useState(false);
+  const avatarPreviewRef = useRef('');
   const [contentTypes, setContentTypes] = useState<string[]>([]);
   const [referralSource, setReferralSource] = useState('');
   const [busy, setBusy] = useState(false);
@@ -38,7 +40,10 @@ export function SettingsPage() {
   const [message, setMessage] = useState('');
   const [activeSection, setActiveSection] = useState<SettingsSection>(location.pathname.endsWith('/preferences') ? 'preferences' : location.pathname.endsWith('/advanced') ? 'advanced' : 'profile');
   const contentRef = useRef<HTMLDivElement>(null);
-  const navButtonRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  useEffect(() => () => {
+    if (avatarPreviewRef.current) URL.revokeObjectURL(avatarPreviewRef.current);
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -70,7 +75,7 @@ export function SettingsPage() {
   }, []);
 
   const profileDirty = Boolean(profile && (
-    username !== profile.username || avatarUrl !== (profile.avatarUrl ?? '') || avatar !== null
+    username !== profile.username || avatarUrl !== (profile.avatarUrl ?? '') || avatar !== null || avatarCleared
   ));
   const savedContentTypes = onboarding?.contentTypes ?? [];
   const contentTypesDirty = [...new Set(contentTypes)].sort().join('|') !== [...new Set(savedContentTypes)].sort().join('|');
@@ -78,9 +83,34 @@ export function SettingsPage() {
   const dirtyCount = Number(Boolean(profile && username !== profile.username))
     + Number(Boolean(profile && avatarUrl !== (profile.avatarUrl ?? '')))
     + Number(avatar !== null)
+    + Number(avatarCleared)
     + Number(contentTypesDirty)
     + Number(referralSource !== (onboarding?.referralSource ?? ''));
-  const activeIndex = sectionItems.findIndex((item) => item.id === activeSection);
+  const clearAvatarPreview = useCallback(() => {
+    if (avatarPreviewRef.current) URL.revokeObjectURL(avatarPreviewRef.current);
+    avatarPreviewRef.current = '';
+    setAvatarPreviewUrl('');
+  }, []);
+
+  function selectAvatar(file: File | undefined) {
+    if (!file) return;
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+      setError('Choose a PNG, JPG, or WebP image.');
+      return;
+    }
+    if (file.size < 1 || file.size > 250 * 1024) {
+      setError('Choose an image no larger than 250 KB.');
+      return;
+    }
+    clearAvatarPreview();
+    const preview = URL.createObjectURL(file);
+    avatarPreviewRef.current = preview;
+    setAvatarPreviewUrl(preview);
+    setAvatar(file);
+    setAvatarUrl('');
+    setAvatarCleared(false);
+    setError('');
+  }
 
   const saveChanges = useCallback(async () => {
     if (!dirtyCount || busy) return;
@@ -98,7 +128,7 @@ export function SettingsPage() {
     const saved: string[] = [];
     try {
       if (profileDirty) {
-        const body = avatar ? new FormData() : JSON.stringify({ username, avatarUrl });
+        const body = avatar ? new FormData() : JSON.stringify({ username, avatarUrl: avatarCleared ? '' : avatarUrl });
         if (avatar && body instanceof FormData) {
           body.set('username', username);
           body.set('avatar', avatar);
@@ -108,6 +138,8 @@ export function SettingsPage() {
         setUsername(result.profile.username);
         setAvatarUrl(result.profile.avatarUrl ?? '');
         setAvatar(null);
+        clearAvatarPreview();
+        setAvatarCleared(false);
         setSession({ ...session, profile: result.profile, profileComplete: true });
         saved.push('Profile');
       }
@@ -128,12 +160,14 @@ export function SettingsPage() {
     } finally {
       setBusy(false);
     }
-  }, [avatar, avatarUrl, busy, contentTypes, dirtyCount, onboarding, preferencesDirty, profile, profileDirty, referralSource, session, setSession, username]);
+  }, [avatar, avatarCleared, avatarUrl, busy, clearAvatarPreview, contentTypes, dirtyCount, onboarding, preferencesDirty, profile, profileDirty, referralSource, session, setSession, username]);
 
   const resetChanges = () => {
     setUsername(profile?.username ?? '');
     setAvatarUrl(profile?.avatarUrl ?? '');
     setAvatar(null);
+    clearAvatarPreview();
+    setAvatarCleared(false);
     setContentTypes(onboarding?.contentTypes ?? []);
     setReferralSource(onboarding?.referralSource ?? '');
     setError('');
@@ -170,29 +204,6 @@ export function SettingsPage() {
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [dirtyCount, saveChanges]);
-
-  function openSection(id: SettingsSection) {
-    setActiveSection(id);
-    contentRef.current?.querySelector(`#settings-${id}`)?.scrollIntoView({
-      behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
-      block: 'start',
-    });
-  }
-
-  function handleSectionNavKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
-    const currentIndex = navButtonRefs.current.findIndex((button) => button === document.activeElement);
-    let nextIndex = currentIndex;
-    if (event.key === 'ArrowDown' || event.key === 'ArrowRight') nextIndex = (currentIndex + 1) % sectionItems.length;
-    else if (event.key === 'ArrowUp' || event.key === 'ArrowLeft') nextIndex = (currentIndex - 1 + sectionItems.length) % sectionItems.length;
-    else if (event.key === 'Home') nextIndex = 0;
-    else if (event.key === 'End') nextIndex = sectionItems.length - 1;
-    else return;
-    event.preventDefault();
-    const nextSection = sectionItems[nextIndex];
-    if (!nextSection) return;
-    navButtonRefs.current[nextIndex]?.focus();
-    openSection(nextSection.id);
-  }
 
   async function updateAiPreference<T extends AiPreference>(
     endpoint: string,
@@ -246,41 +257,39 @@ export function SettingsPage() {
     }
   }
 
-  return <main className="rembr-settings-page" aria-labelledby="rembr-settings-title">
-    <header className="rembr-settings-header">
-      <div><p className="rg-kicker">ACCOUNT / SETTINGS</p><h1 id="rembr-settings-title">Settings</h1><p>Manage your profile, library preferences, and privacy controls.</p></div>
-      <div className="rembr-settings-account"><span>{session.user.email}</span><span className="rembr-settings-account-state"><i /> Account active</span></div>
-    </header>
-    {(error || message) && <div className="rembr-settings-feedback">{error && <p className="notice error" role="alert">{error}</p>}{message && <p className="notice success" role="status">{message}</p>}</div>}
+  const currentAvatarUrl = avatarPreviewUrl || (avatarCleared ? '' : avatarUrl !== (profile?.avatarUrl ?? '') ? avatarUrl : profile?.avatarAssetUrl || profile?.avatarUrl || avatarUrl);
+
+  return <section className="rembr-settings-page" aria-labelledby="rembr-settings-title">
     <div className="rembr-settings-layout">
       <aside className="rembr-settings-rail" aria-label="Settings navigation">
-        <p className="rembr-settings-rail-label">PREFERENCES</p>
-        <div className="rembr-settings-section-nav" onKeyDown={handleSectionNavKeyDown} style={{ '--settings-active-index': activeIndex } as CSSProperties}>
-          <span className="rembr-settings-glider" aria-hidden="true" />
-          {sectionItems.map(({ id, label, icon: Icon }, index) => <button key={id} ref={(element) => { navButtonRefs.current[index] = element; }} type="button" aria-current={activeSection === id ? 'location' : undefined} aria-controls={`settings-${id}`} className={`rembr-settings-nav-item ${activeSection === id ? 'is-active' : ''}`} onClick={() => openSection(id)}>
+        <div className="rembr-settings-rail-heading"><h1 id="rembr-settings-title">Settings</h1><p>Account and library</p></div>
+        <nav className="rembr-settings-section-nav" aria-label="Settings sections">
+          {sectionItems.map(({ id, label, icon: Icon }) => <a key={id} href={`#settings-${id}`} aria-current={activeSection === id ? 'location' : undefined} className={`rembr-settings-nav-item ${activeSection === id ? 'is-active' : ''}`}>
             <Icon size={17} aria-hidden="true" /><span>{label}</span>
-          </button>)}
-        </div>
+          </a>)}
+        </nav>
         <p className="rembr-settings-rail-label rembr-settings-tools-label">TOOLS</p>
         <nav className="rembr-settings-quick-links" aria-label="More settings">
           <Link to="/app/imports"><Upload size={16} aria-hidden="true" /><span>Imports</span><ArrowUpRight size={13} aria-hidden="true" /></Link>
           <Link to="/app/settings/developer-access"><Code2 size={16} aria-hidden="true" /><span>Developer access</span><ArrowUpRight size={13} aria-hidden="true" /></Link>
+          <Link to="/app/settings/mcp-access"><Network size={16} aria-hidden="true" /><span>MCP access</span><ArrowUpRight size={13} aria-hidden="true" /></Link>
         </nav>
-        <p className="rembr-settings-rail-footnote">Changes to AI permissions are saved immediately. Profile and preference edits wait for Save changes.</p>
+        <div className="rembr-settings-account"><span className="rembr-settings-account-avatar">{(session.profile?.username?.[0] ?? session.user.email[0] ?? 'R').toUpperCase()}</span><span><strong>{session.profile?.username ? `@${session.profile.username}` : 'Your account'}</strong><small>{session.user.email}</small></span></div>
       </aside>
 
       <div className="rembr-settings-content" ref={contentRef}>
+        {(error || message) && <div className="rembr-settings-feedback">{error && <p className="notice error" role="alert">{error}</p>}{message && <p className="notice success" role="status">{message}</p>}</div>}
         {!settingsLoaded ? <div className="rembr-settings-loading" role="status"><span className="rembr-settings-spinner" />Loading your settings…</div> : <>
           <section id="settings-profile" className="rembr-settings-section" data-settings-section aria-labelledby="settings-profile-title">
-            <div className="rembr-settings-section-heading"><div><p className="rg-kicker">YOUR ACCOUNT</p><h2 id="settings-profile-title">Profile</h2><p>How you appear in your Rembr library.</p></div></div>
+            <div className="rembr-settings-section-heading"><div><h2 id="settings-profile-title">Profile</h2><p>How you appear in your Rembr library.</p></div></div>
             <div className="rembr-settings-panel rembr-settings-profile-panel">
-              <div className="rembr-settings-profile-summary"><div className="rembr-settings-avatar">{username.trim().charAt(0).toUpperCase() || 'R'}</div><div><strong>{username || 'Your profile'}</strong><span>{session.user.email}</span></div><span className="rembr-settings-readonly"><Check size={13} aria-hidden="true" /> Signed in</span></div>
+              <div className="rembr-settings-profile-summary"><div className="rembr-settings-avatar">{currentAvatarUrl ? <img src={currentAvatarUrl} alt="" /> : (username.trim().charAt(0).toUpperCase() || 'R')}</div><div><strong>{username || 'Your profile'}</strong><span>{session.user.email}</span></div><div className="rembr-settings-photo-actions"><label className="rembr-settings-photo-change"><ImagePlus size={14} aria-hidden="true" /> Change photo<input type="file" accept="image/png,image/jpeg,image/webp" disabled={busy} onChange={(event) => { selectAvatar(event.currentTarget.files?.[0]); event.currentTarget.value = ''; }} /></label>{(currentAvatarUrl || avatar) && <button type="button" className="rembr-settings-photo-remove" onClick={() => { setAvatar(null); setAvatarUrl(''); setAvatarCleared(true); clearAvatarPreview(); }}>Remove</button>}</div></div>
               <div className="rembr-settings-fields">
                 <label htmlFor="settings-username">Username<input id="settings-username" autoComplete="username" required minLength={3} maxLength={24} pattern="[A-Za-z0-9_]{3,24}" value={username} onChange={(event) => setUsername(event.currentTarget.value)} /></label>
                 <label htmlFor="settings-email">Email address<input id="settings-email" value={session.user.email} readOnly aria-describedby="settings-email-note" /></label>
                 <p id="settings-email-note" className="rembr-settings-field-note">Email is used to sign in and can’t be changed here.</p>
-                <label htmlFor="settings-avatar-url">Avatar image URL<input id="settings-avatar-url" type="url" placeholder="https://…" value={avatarUrl} onChange={(event) => { setAvatarUrl(event.currentTarget.value); setAvatar(null); }} /></label>
-                <div className="rembr-settings-upload"><MagneticDropZone accept="image/png,image/jpeg,image/webp" maxSize={250 * 1024} selectedFiles={avatar ? [avatar] : []} label="Drop your profile photo here" hint="or browse · PNG, JPG, or WebP · up to 250 KB" onFilesChange={(files) => { setError(''); setAvatar(files[0] ?? null); }} disabled={busy} /></div>
+                <label htmlFor="settings-avatar-url">Or use an HTTPS photo URL<input id="settings-avatar-url" type="url" placeholder="https://example.com/photo.jpg" value={avatarUrl} onChange={(event) => { setAvatarUrl(event.currentTarget.value); setAvatar(null); setAvatarCleared(false); clearAvatarPreview(); }} /></label>
+                <p className="rembr-settings-field-note">PNG, JPG, or WebP uploads are limited to 250 KB.</p>
               </div>
             </div>
           </section>
@@ -311,7 +320,7 @@ export function SettingsPage() {
                 <div className="rembr-settings-privacy-action"><label className="rembr-settings-switch"><input type="checkbox" role="switch" aria-label="Allow meaning-based search to process my saved library text" checked={Boolean(semanticSearchPreference?.enabled)} disabled={aiBusy || !semanticSearchPreference} onChange={(event) => void updateAiPreference<SemanticSearchPreference>('/api/semantic/preferences', event.currentTarget.checked, SEMANTIC_SEARCH_DISCLOSURE_VERSION, event.currentTarget.checked ? 'Meaning-based search consent enabled. Indexing will not start until you request it.' : 'Meaning-based search turned off and local vectors removed.', 'Could not update meaning-based search consent.', setSemanticSearchPreference)} /><span /></label></div>
                 {semanticSearchPreference?.enabled && <div className="rembr-settings-index-action"><button className="quiet-button" type="button" disabled={aiBusy || !semanticSearchPreference.providerAvailable} onClick={() => void indexSemanticLibrary()}><RefreshCw size={14} aria-hidden="true" />{aiBusy ? 'Indexing…' : 'Index or refresh library'}</button><small>Indexing runs in batches and can be resumed.</small></div>}
               </div>
-              <p className="rembr-settings-privacy-footnote">Third-party services process only the information described above when you use the enabled feature. Their own retention terms may apply.</p>
+              <p className="rembr-settings-privacy-footnote">When you submit a live web search, Rembr sends your query to OpenRouter and its web-search provider. Their processing and retention terms may apply. Other third-party services process only the information described above when you use the enabled feature.</p>
             </div>
           </section>
 
@@ -329,7 +338,7 @@ export function SettingsPage() {
       <div className="rembr-settings-save-status"><span className="rembr-settings-unsaved-dot" /><span aria-live="polite">{dirtyCount} unsaved {dirtyCount === 1 ? 'change' : 'changes'}</span><small>Saved to your account when you choose Save changes.</small></div>
       <div className="rembr-settings-save-actions"><button className="rembr-settings-discard" type="button" disabled={busy} onClick={resetChanges}>Discard</button><button className="rembr-settings-save" type="button" disabled={busy || !settingsLoaded} onClick={() => void saveChanges()}>{busy ? 'Saving…' : 'Save changes'}</button></div>
     </div>}
-  </main>;
+  </section>;
 }
 
 function PrivacySetting({ title, description, details, enabled, providerAvailable, busy, onChange }: {
@@ -345,6 +354,6 @@ function PrivacySetting({ title, description, details, enabled, providerAvailabl
     <div className="rembr-settings-privacy-copy"><div><h3>{title}</h3><span className={`rembr-settings-state ${enabled ? 'is-on' : ''}`}><i />{enabled ? 'Enabled' : 'Off'}</span></div><p>{description}</p>{details && <p className="rembr-settings-privacy-detail">{details}</p>}
       <span className="rembr-settings-provider">{providerAvailable ? 'Service available' : 'Service not configured yet'}</span>
     </div>
-    <div className="rembr-settings-privacy-action"><label className="rembr-settings-switch"><input type="checkbox" role="switch" checked={enabled} disabled={busy || providerAvailable === undefined} onChange={(event) => onChange(event.currentTarget.checked)} /><span /></label></div>
+    <div className="rembr-settings-privacy-action"><label className="rembr-settings-switch"><input type="checkbox" role="switch" aria-label={`Allow ${title.toLocaleLowerCase()}`} checked={enabled} disabled={busy || providerAvailable === undefined} onChange={(event) => onChange(event.currentTarget.checked)} /><span /></label></div>
   </div>;
 }

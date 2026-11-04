@@ -19,22 +19,9 @@ function resolveButton(target: EventTarget | null): HTMLElement | null {
 }
 
 function buttonLabel(button: HTMLElement): string {
-  const explicit = button.dataset.tooltip?.trim();
-  if (explicit) return explicit;
-
-  const accessibleLabel = button.getAttribute('aria-label')?.trim();
-  if (accessibleLabel) return accessibleLabel;
-
-  const nativeTitle = button.getAttribute('title')?.trim();
-  if (nativeTitle) return nativeTitle;
-
-  // A whole-card action already supplies visible context; repeating its title,
-  // badge, and paragraph in a tooltip obscures the content it explains.
-  if (button.querySelector('h2, h3, p')) return '';
-
-  const clone = button.cloneNode(true) as HTMLElement;
-  clone.querySelectorAll('[aria-hidden="true"], [hidden], .sr-only, .visually-hidden').forEach((node) => node.remove());
-  return (clone.textContent ?? '').replace(/\s+/g, ' ').trim();
+  // Accessible names serve assistive technology. They should not automatically
+  // become hover tooltips; add data-tooltip only when extra visible help is useful.
+  return button.dataset.tooltip?.trim() ?? '';
 }
 
 export function GlobalButtonTooltips() {

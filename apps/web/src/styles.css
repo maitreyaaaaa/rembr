@@ -1655,8 +1655,7 @@ body .phase2-main.phase2-main-settings { width: 100%; height: 100%; min-height: 
 .rembr-settings-layout { display: grid; min-height: 0; flex: 1; grid-template-columns: 226px minmax(0, 1fr); }
 .rembr-settings-rail { display: flex; min-height: 0; flex-direction: column; overflow-y: auto; padding: 24px 16px 18px 22px; border-right: 1px solid #202320; background: #080908; }
 .rembr-settings-rail-label { margin: 0 0 12px 11px; color: #747b72; font-family: var(--font-mono, monospace); font-size: 11px; font-weight: 700; letter-spacing: .13em; }
-.rembr-settings-section-nav { --settings-active-index: 0; position: relative; display: grid; gap: 4px; }
-.rembr-settings-glider { position: absolute; z-index: 0; top: 0; left: 0; width: 100%; height: 42px; transform: translateY(calc(var(--settings-active-index) * 46px)); border: 1px solid rgb(165 255 24 / 18%); border-radius: 9px; background: rgb(165 255 24 / 8%); transition: transform 360ms cubic-bezier(.2, .8, .2, 1); pointer-events: none; }
+.rembr-settings-section-nav { display: grid; gap: 4px; }
 .rembr-settings-nav-item { position: relative; z-index: 1; display: flex; min-height: 42px; align-items: center; gap: 10px; padding: 0 12px; border: 0; border-radius: 9px; background: transparent; color: #92988f; font: inherit; font-size: 12px; text-align: left; cursor: pointer; transition: color 180ms ease; }
 .rembr-settings-nav-item:hover, .rembr-settings-nav-item.is-active { color: #eff2eb; }
 .rembr-settings-nav-item.is-active svg { color: var(--primary); }
@@ -1758,7 +1757,6 @@ body .phase2-main.phase2-main-settings { width: 100%; height: 100%; min-height: 
   .rembr-settings-rail-label, .rembr-settings-tools-label, .rembr-settings-rail-footnote { display: none; }
   .rembr-settings-section-nav { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
   .rembr-settings-section-nav::-webkit-scrollbar { display: none; }
-  .rembr-settings-glider { top: 0; left: 0; width: var(--settings-nav-width, 110px); height: 38px; transform: translateX(calc(var(--settings-active-index) * (var(--settings-nav-width, 110px) + 4px))); }
   .rembr-settings-nav-item { min-height: 38px; flex: 0 0 auto; padding: 0 12px; }
   .rembr-settings-nav-item { width: 110px; }
   .rembr-settings-nav-item span { white-space: nowrap; }
@@ -1780,8 +1778,6 @@ body .phase2-main.phase2-main-settings { width: 100%; height: 100%; min-height: 
   .rembr-settings-feedback { top: 143px; }
   .rembr-settings-account { width: 100%; align-items: flex-start; flex-direction: row; justify-content: space-between; }
   .rembr-settings-rail { padding-inline: 12px; }
-  .rembr-settings-section-nav { --settings-nav-width: 0px; }
-  .rembr-settings-glider { display: none; }
   .rembr-settings-nav-item { min-height: 36px; gap: 7px; padding: 0 10px; font-size: 12px; }
   .rembr-settings-nav-item.is-active { border: 1px solid rgb(165 255 24 / 22%); background: rgb(165 255 24 / 8%); }
   .rembr-settings-content { padding: 0 15px 34px; }
@@ -1802,7 +1798,133 @@ body .phase2-main.phase2-main-settings { width: 100%; height: 100%; min-height: 
   .rembr-settings-discard, .rembr-settings-save { min-height: 34px; padding-inline: 10px; font-size: 11px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .rembr-settings-glider, .rembr-settings-nav-item, .rembr-settings-choice, .rembr-settings-switch > span, .rembr-settings-switch > span::after { transition: none; }
+  .rembr-settings-nav-item, .rembr-settings-choice, .rembr-settings-switch > span, .rembr-settings-switch > span::after { transition: none; }
   .rembr-settings-savebar { animation: none; }
+  .rembr-settings-spinner { animation-duration: 2s; }
+}
+
+/* Account settings share the compact, neutral treatment used for sensitive access. */
+.rembr-settings-page { border: 1px solid #242628; border-radius: 12px; background: #090a0b; color: #e9edf1; font-family: Arial, sans-serif; }
+.rembr-settings-layout { grid-template-columns: 188px minmax(0, 1fr); background: #090a0b; }
+.rembr-settings-rail { padding: 16px 12px; border-color: #242628; background: #101112; }
+.rembr-settings-rail-heading { margin: 0 0 15px; padding: 2px 8px 13px; border-bottom: 1px solid #242628; }
+.rembr-settings-rail-heading h1 { margin: 0; color: #f0f2f4; font-family: Arial, sans-serif; font-size: 14px; font-weight: 600; letter-spacing: 0; }
+.rembr-settings-rail-heading p { margin: 4px 0 0; color: #aeb5be; font-size: 11px; }
+.rembr-settings-section-nav { gap: 3px; }
+.rembr-settings-nav-item { min-height: 36px; gap: 9px; padding: 0 9px; border: 1px solid transparent; border-radius: 6px; color: #adb4bd; font-size: 12px; transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease; }
+.rembr-settings-nav-item:hover { background: #17191b; color: #f2f4f6; }
+.rembr-settings-nav-item.is-active { border-color: #303438; background: #1a1c1f; color: #f3f4f5; }
+.rembr-settings-nav-item.is-active svg { color: #d3d9e0; }
+.rembr-settings-tools-label { margin: 24px 8px 7px; color: #8b929b; font-family: Arial, sans-serif; font-size: 10px; letter-spacing: .06em; }
+.rembr-settings-quick-links { gap: 2px; }
+.rembr-settings-quick-links a { min-height: 34px; gap: 8px; border-radius: 6px; color: #adb4bd; font-size: 11px; transition: background-color 140ms ease, color 140ms ease; }
+.rembr-settings-quick-links a > svg:last-child { display: none; }
+.rembr-settings-quick-links a:hover { background: #17191b; color: #f2f4f6; }
+.rembr-settings-account { min-width: 0; align-items: center; flex-direction: row; gap: 9px; margin-top: auto; padding: 13px 7px 2px; border-top: 1px solid #242628; color: #e5e8ec; font-size: 11px; }
+.rembr-settings-account-avatar { display: grid; width: 30px; height: 30px; flex: 0 0 auto; place-items: center; border: 1px solid #41464c; border-radius: 50%; background: #202327; color: #e2e6ea; font-size: 11px; font-weight: 600; }
+.rembr-settings-account > span:last-child { display: grid; min-width: 0; gap: 3px; }
+.rembr-settings-account strong { overflow: hidden; color: #e7eaed; font-size: 11px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.rembr-settings-account small { overflow: hidden; color: #9da5af; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.rembr-settings-content { padding: 24px clamp(18px, 3vw, 34px) 32px; background: #090a0b; scrollbar-color: #34383d transparent; }
+.rembr-settings-content > * { width: min(860px, 100%); }
+.rembr-settings-feedback { position: sticky; top: 0; left: auto; width: 100%; margin: 0 auto 12px; transform: none; pointer-events: auto; }
+.rembr-settings-section { padding: 0 0 23px; margin: 0 0 22px; border-bottom-color: #242628; scroll-margin-top: 18px; }
+.rembr-settings-section-heading { margin-bottom: 15px; }
+.rembr-settings-section-heading .rg-kicker { display: none; }
+.rembr-settings-section-heading h2 { color: #f0f2f4; font-family: Arial, sans-serif; font-size: 19px; font-weight: 600; letter-spacing: -.025em; }
+.rembr-settings-section-heading > div > p:last-child { margin-top: 4px; color: #aeb5be; font-size: 12px; line-height: 1.5; }
+.rembr-settings-panel { border-color: #242628; border-radius: 9px; background: #0d0f11; }
+.rembr-settings-profile-panel { padding: 16px; }
+.rembr-settings-profile-summary { min-height: 56px; gap: 11px; padding-bottom: 15px; border-bottom-color: #242628; }
+.rembr-settings-avatar { width: 42px; height: 42px; overflow: hidden; border-color: #3a3f45; background: #1b1e22; color: #d5dbe2; font-size: 15px; }
+.rembr-settings-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.rembr-settings-profile-summary > div:nth-child(2) { gap: 3px; }
+.rembr-settings-profile-summary strong { color: #edf0f3; font-size: 12px; font-weight: 600; }
+.rembr-settings-profile-summary > div:nth-child(2) span { color: #aab2bc; font-size: 11px; }
+.rembr-settings-photo-actions { display: flex; align-items: center; gap: 10px; margin-left: 2px; }
+.rembr-settings-photo-change { position: relative; display: inline-flex; min-height: 30px; align-items: center; gap: 6px; overflow: hidden; border: 1px solid #34383d; border-radius: 6px; padding: 0 9px; background: #111315; color: #dce1e7; font-size: 11px; font-weight: 600; cursor: pointer; }
+.rembr-settings-photo-change:hover { background: #1a1c1f; }
+.rembr-settings-photo-change input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+.rembr-settings-photo-change:focus-within, .rembr-settings-photo-remove:focus-visible { outline: 2px solid #82b8ff; outline-offset: 2px; }
+.rembr-settings-photo-remove { min-height: 30px; border: 0; padding: 0 3px; background: transparent; color: #b9c0c8; font: inherit; font-size: 11px; cursor: pointer; }
+.rembr-settings-photo-remove:hover { color: #fff; text-decoration: underline; text-underline-offset: 3px; }
+.rembr-settings-fields { gap: 12px; padding-top: 15px; }
+.rembr-settings-fields > label, .rembr-settings-select-label { gap: 6px; color: #d7dce1; font-size: 11px; font-weight: 600; }
+.rembr-settings-fields input, .rembr-settings-select-label select { min-height: 35px; border-color: #34383d; border-radius: 6px; padding-inline: 10px; background: #101214; color: #eceff2; font-family: Arial, sans-serif; font-size: 12px; }
+.rembr-settings-fields input:focus-visible, .rembr-settings-select-label select:focus-visible { outline-color: #82b8ff; }
+.rembr-settings-fields input:read-only { color: #a9b0b9; }
+.rembr-settings-field-note { color: #8e97a1; font-size: 10px; }
+.rembr-settings-content-types { padding: 15px; border-bottom-color: #242628; }
+.rembr-settings-content-types legend { color: #e2e6ea; font-size: 12px; }
+.rembr-settings-content-types > p { color: #a5adb7; font-size: 11px; }
+.rembr-settings-choice-grid { gap: 7px; }
+.rembr-settings-choice { min-height: 38px; border-color: #303439; border-radius: 6px; background: #0b0d0f; color: #bbc2cb; font-size: 11px; }
+.rembr-settings-choice::before { border-color: #626a74; }
+.rembr-settings-choice.is-selected { border-color: #536477; background: #14181d; color: #edf0f3; }
+.rembr-settings-choice.is-selected::before { border-color: #c5d8f0; background: #c5d8f0; }
+.rembr-settings-choice.is-selected > i { color: #16181a; }
+.rembr-settings-choice:focus-within { outline-color: #82b8ff; }
+.rembr-settings-select-label { max-width: none; padding: 15px; }
+.rembr-settings-privacy-list { border-color: #242628; border-radius: 9px; background: #0d0f11; }
+.rembr-settings-privacy-item { gap: 15px; padding: 15px 16px; border-bottom-color: #242628; }
+.rembr-settings-privacy-copy h3 { color: #e6e9ed; font-size: 12px; font-weight: 600; }
+.rembr-settings-privacy-copy p { color: #b2bac4; font-size: 11px; line-height: 1.55; }
+.rembr-settings-privacy-copy .rembr-settings-privacy-detail { color: #929ba5; }
+.rembr-settings-state { color: #9da5af; font-size: 10px; }
+.rembr-settings-state.is-on { color: #d5dce4; }
+.rembr-settings-state.is-on i { background: #c5d8f0; }
+.rembr-settings-provider, .rembr-settings-index-status { color: #99a2ad; font-size: 10px; }
+.rembr-settings-switch > span { border-color: #4b5158; background: #1a1d20; }
+.rembr-settings-switch > span::after { background: #b8c0ca; }
+.rembr-settings-switch input:checked + span { border-color: #d8dde3; background: #d8dde3; }
+.rembr-settings-switch input:checked + span::after { background: #17191b; }
+.rembr-settings-switch input:focus-visible + span { outline-color: #82b8ff; }
+.rembr-settings-index-action .quiet-button { border-color: #3a4047; background: #14171a; color: #d5dce4; }
+.rembr-settings-index-action small, .rembr-settings-privacy-footnote { color: #929ba5; }
+.rembr-settings-privacy-footnote { border-top-color: #242628; }
+.rembr-settings-advanced-links { gap: 8px; }
+.rembr-settings-advanced-links a { min-height: 72px; padding: 13px; border-color: #2a2e33; border-radius: 7px; background: #0d0f11; color: #b8c0ca; transition: border-color 140ms ease, background-color 140ms ease; }
+.rembr-settings-advanced-links a:hover { transform: none; border-color: #4a5058; background: #14171a; }
+.rembr-settings-advanced-links strong { color: #e7ebef; font-size: 12px; }
+.rembr-settings-advanced-links small { color: #a5adb7; font-size: 11px; }
+.rembr-settings-advanced-links a > svg { color: #c5d8f0; }
+.rembr-settings-loading { min-height: 220px; color: #b2bac4; }
+.rembr-settings-spinner { border-color: #34383d; border-top-color: #c5d8f0; }
+.rembr-settings-savebar { position: sticky; z-index: 5; bottom: 0; min-height: 54px; gap: 12px; padding: 8px 18px; border: 1px solid #292d32; border-radius: 8px; background: rgb(12 14 16 / 97%); box-shadow: 0 -8px 28px rgb(0 0 0 / 25%); backdrop-filter: blur(10px); animation: none; }
+.rembr-settings-save-status { color: #e5e9ed; font-size: 11px; }
+.rembr-settings-save-status small { color: #9da5af; font-size: 10px; }
+.rembr-settings-unsaved-dot { background: #c5d8f0; box-shadow: none; }
+.rembr-settings-discard, .rembr-settings-save { min-height: 32px; border-color: #3b4148; border-radius: 6px; color: #d0d6dd; font-family: Arial, sans-serif; font-size: 11px; }
+.rembr-settings-save { border-color: #c5c8cb; background: #f1f2f3; color: #16181a; }
+.rembr-settings-discard:hover { background: #191c1f; color: #f2f4f6; }
+.rembr-settings-save:hover { background: #fff; filter: none; }
+.rembr-settings-discard:focus-visible, .rembr-settings-save:focus-visible { outline-color: #82b8ff; }
+.rembr-settings-discard:disabled, .rembr-settings-save:disabled { cursor: not-allowed; }
+@media (max-width: 640px) {
+  .rembr-settings-layout { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+  .rembr-settings-rail { max-height: none; padding: 12px 12px 10px; border-right: 0; border-bottom: 1px solid #242628; }
+  .rembr-settings-rail-heading { margin-bottom: 9px; padding: 0 4px; border-bottom: 0; }
+  .rembr-settings-rail-heading p, .rembr-settings-account { display: none; }
+  .rembr-settings-section-nav { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+  .rembr-settings-section-nav::-webkit-scrollbar { display: none; }
+  .rembr-settings-nav-item { min-height: 34px; flex: 0 0 auto; gap: 6px; padding: 0 9px; font-size: 10px; }
+  .rembr-settings-tools-label, .rembr-settings-quick-links { display: none; }
+  .rembr-settings-content { padding: 17px 13px 84px; }
+  .rembr-settings-section { padding-bottom: 18px; margin-bottom: 18px; }
+  .rembr-settings-profile-panel { padding: 13px; }
+  .rembr-settings-profile-summary { flex-wrap: wrap; }
+  .rembr-settings-photo-actions { width: 100%; margin-left: 53px; }
+  .rembr-settings-fields { grid-template-columns: 1fr; }
+  .rembr-settings-field-note { grid-column: 1; margin-top: -6px; }
+  .rembr-settings-content-types, .rembr-settings-select-label { padding: 13px; }
+  .rembr-settings-privacy-item { grid-template-columns: minmax(0, 1fr) 38px; gap: 10px; padding: 13px; }
+  .rembr-settings-advanced-links { grid-template-columns: 1fr; }
+  .rembr-settings-savebar { align-items: flex-start; flex-direction: column; padding: 10px 12px; }
+  .rembr-settings-save-status { flex-wrap: wrap; }
+  .rembr-settings-save-status small { display: none; }
+  .rembr-settings-save-actions { width: 100%; justify-content: flex-end; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .rembr-settings-nav-item, .rembr-settings-choice, .rembr-settings-switch > span, .rembr-settings-switch > span::after { transition: none; }
   .rembr-settings-spinner { animation-duration: 2s; }
 }
