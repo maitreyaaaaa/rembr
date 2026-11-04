@@ -8,7 +8,7 @@ const database = await createDatabase();
 const { assets: assetStorage, imports: importStorage, media: mediaStorage } = createStorageAdapters();
 await Promise.all([assetStorage.initialize(), importStorage.initialize(), mediaStorage.initialize()]);
 await recoverAssets(database, assetStorage);
-const app = createApp(database, { assetStorage, importStorage, mediaStorage });
+const app = createApp(database, { assetStorage, importStorage, mediaStorage, demoOwnerId: config.REMBR_DEMO_OWNER_ID });
 const server = app.listen(config.API_PORT, '0.0.0.0', () => {
   console.info('rembr_api_started', { port: config.API_PORT, environment: config.NODE_ENV });
 });

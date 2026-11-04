@@ -43,11 +43,12 @@ function errorResponse(code: string, message: string, requestId?: string) {
   return { error: { code, message, ...(requestId ? { requestId } : {}) } };
 }
 
-export function createApp(database: DatabaseHandle, options: { validateUrl?: typeof validatePublicUrl; checkLink?: typeof checkPublicPage; assetDirectory?: string; assetStorage?: AssetStorage; importDirectory?: string; importStorage?: ImportStorage; mediaDirectory?: string; mediaStorage?: MediaStorage; answerModel?: { countTextInputTokens(prompt: string, outputSchema?: MetaJsonSchema): Promise<number>; analyzeText(prompt: string, outputSchema?: MetaJsonSchema): Promise<{ text: string; inputTokens: number; outputTokens: number }> }; imageSearchModel?: VisualSearchModel; providerAvailable?: () => Promise<boolean>; semanticEmbeddingProvider?: EmbeddingProvider } = {}) {
+export function createApp(database: DatabaseHandle, options: { validateUrl?: typeof validatePublicUrl; checkLink?: typeof checkPublicPage; assetDirectory?: string; assetStorage?: AssetStorage; importDirectory?: string; importStorage?: ImportStorage; mediaDirectory?: string; mediaStorage?: MediaStorage; demoOwnerId?: string; answerModel?: { countTextInputTokens(prompt: string, outputSchema?: MetaJsonSchema): Promise<number>; analyzeText(prompt: string, outputSchema?: MetaJsonSchema): Promise<{ text: string; inputTokens: number; outputTokens: number }> }; imageSearchModel?: VisualSearchModel; providerAvailable?: () => Promise<boolean>; semanticEmbeddingProvider?: EmbeddingProvider } = {}) {
   const app = express();
   const assetStorage = options.assetStorage ?? new LocalAssetStorage(options.assetDirectory ?? config.assetDirectory);
   const importStorage = options.importStorage ?? new LocalImportStorage(options.importDirectory ?? config.importDirectory);
   const mediaStorage = options.mediaStorage ?? new LocalMediaStorage(options.mediaDirectory ?? config.mediaDirectory);
+  const demoOwnerId = options.demoOwnerId ?? config.REMBR_DEMO_OWNER_ID;
   const library = createLibraryService(database, assetStorage, mediaStorage);
   const integrations = createIntegrationRouters(database, assetStorage, mediaStorage, options.validateUrl);
   const semanticEmbeddingProvider = options.semanticEmbeddingProvider
@@ -151,6 +152,15 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
     } catch (error) {
       next(error);
     }
+  });
+
+  const demoAuthLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false });
+  app.post('/api/auth/demo', demoAuthLimiter, async (_req, res) => {
+    if (!demoOwnerId) return res.status(404).json(errorResponse('demo_unavailable', 'The demo workspace is not configured.', _req.requestId));
+    const account = await database.prepare('SELECT account_status FROM users WHERE id=?').get(demoOwnerId) as { account_status: string } | undefined;
+    if (!account || account.account_status !== 'active') return res.status(503).json(errorResponse('demo_unavailable', 'The demo workspace is temporarily unavailable.', _req.requestId));
+    await createSession(database, demoOwnerId, res, true);
+    return res.json({ demo: true });
   });
 
   app.post('/api/auth/logout', async (req, res) => {

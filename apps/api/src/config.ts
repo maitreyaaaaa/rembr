@@ -31,6 +31,7 @@ const environmentSchema = z.object({
   SUPABASE_IMPORT_BUCKET: z.string().regex(/^[a-z0-9][a-z0-9_-]{1,61}[a-z0-9]$/).default('rembr-imports'),
   SUPABASE_MEDIA_BUCKET: z.string().regex(/^[a-z0-9][a-z0-9_-]{1,61}[a-z0-9]$/).default('rembr-media'),
   WEB_BUILD_DIRECTORY: z.string().default('apps/web/dist'),
+  REMBR_DEMO_OWNER_ID: z.preprocess((value) => value === '' ? undefined : value, z.string().uuid().optional()),
   ASSET_DIRECTORY: z.string().default('./data/assets'),
   IMPORT_DIRECTORY: z.string().default('./data/imports'),
   MEDIA_DIRECTORY: z.string().default('./data/media'),

@@ -6,7 +6,7 @@ export function PortedLanding() {
 
   return <Landing
     onOpenApp={() => window.open('/app', '_blank', 'noopener,noreferrer')}
-    onOpenLogin={() => navigate('/login')}
+    onOpenLogin={() => navigate('/login?demo=1')}
     onOpenPricing={() => navigate('/pricing')}
     onOpenHowTo={() => navigate('/how-to-use')}
     onOpenTerms={() => navigate('/terms')}
