@@ -8,12 +8,6 @@ export interface ItemListQuery {
 }
 export interface ItemCursorKey { key: string; id: string }
 type Row = Record<string, unknown>;
-function sourceMetadata(value: unknown) {
-  if (typeof value !== 'string') return {} as Record<string, unknown>;
-  try { const parsed: unknown = JSON.parse(value); return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}; }
-  catch { return {}; }
-}
-function firstText(...values: unknown[]) { return values.find((value) => typeof value === 'string' && value.trim())?.toString().trim() ?? ''; }
 const SEARCH_FIELDS = `COALESCE(saved_items.title_override,saved_items.title) ~* ?
   OR COALESCE(saved_items.description_override,saved_items.description,'') ~* ?
   OR saved_items.original_url ~* ?
@@ -87,21 +81,13 @@ function termScoreParams(group: string[]): string[] {
 function toItem(row: Row) {
   const jobStatus = String(row.job_status ?? '');
   const status = row.pause_cause ? 'paused' : jobStatus === 'cancel_requested' ? 'cancel_requested' : jobStatus === 'cancelled' ? 'cancelled' : jobStatus === 'partial' ? 'partial' : jobStatus === 'retry_wait' ? 'retry_wait' : String(row.status);
-  const metadata = sourceMetadata(row.source_metadata_json);
-  const postedRaw = firstText(metadata.createdAt, metadata.created_at, metadata.postedAt, metadata.posted_at, metadata.date);
-  const postedDate = postedRaw && Number.isFinite(Date.parse(postedRaw)) ? new Date(postedRaw).toISOString() : null;
-  const creator = firstText(metadata.author, metadata.username, metadata.creator, metadata.owner);
-  const platform = firstText(row.source_platform);
   return {
     id: String(row.id), url: String(row.original_url), title: String(row.effective_title ?? row.title),
     description: String(row.effective_description ?? row.description ?? ''),
     titleOverride: row.title_override == null ? null : String(row.title_override),
     descriptionOverride: row.description_override == null ? null : String(row.description_override),
-    summaryOverride: row.summary_override == null ? null : String(row.summary_override),
-    whySaved: row.why_saved == null ? null : String(row.why_saved), originalCaption: String(row.description ?? ''),
     kind: String(row.item_kind ?? 'page'), status, errorCode: row.error_code ? String(row.error_code) : null,
     createdAt: String(row.created_at), updatedAt: String(row.updated_at), textPreview: String(row.text_preview || row.text_content || row.note_preview || '').slice(0, 240),
-    creator: creator || null, source: platform || null, postedAt: postedDate,
     remembering: row.memory_item_id ? {
       reason: String(row.memory_reason ?? ''),
       nextDueAt: String(row.memory_next_due_at),
@@ -132,19 +118,6 @@ export function createLibraryRepository(database: DatabaseHandle) {
     const itemIds = rows.map((row) => String(row.id));
     const relationships = await related(ownerId, itemIds);
     const covers = new Map<string, { url: string; mime: string; byteSize: number }>();
-    const mediaByItem = new Map<string, Array<{ id: string; mime: string | null; byteSize: number; status: string; errorCode: string | null }>>();
-    const analyses = new Map<string, Record<string, unknown>>();
-    if (itemIds.length) {
-      const marks = itemIds.map(() => '?').join(',');
-      const mediaRows = await database.prepare(`SELECT item_id AS "itemId",id,detected_mime AS mime,byte_size AS "byteSize",status,error_code AS "errorCode"
-        FROM media_artifacts WHERE owner_id=? AND item_id IN (${marks}) AND active=1 ORDER BY created_at,id`)
-        .all(ownerId, ...itemIds) as Array<{ itemId: string; id: string; mime: string | null; byteSize: number; status: string; errorCode: string | null }>;
-      for (const asset of mediaRows) mediaByItem.set(asset.itemId, [...(mediaByItem.get(asset.itemId) ?? []), asset]);
-      const analysisRows = await database.prepare(`SELECT DISTINCT ON (item_id) item_id AS "itemId",summary,visual_description AS "visualDescription",ocr_text AS "ocrText",transcript
-        FROM ai_analysis_results WHERE owner_id=? AND item_id IN (${marks}) ORDER BY item_id,generation DESC`)
-        .all(ownerId, ...itemIds) as Array<Record<string, unknown> & { itemId: string }>;
-      for (const analysis of analysisRows) analyses.set(analysis.itemId, analysis);
-    }
     if (!includeDetail && itemIds.length) {
       const marks = itemIds.map(() => '?').join(',');
       const mediaCovers = await database.prepare(`SELECT item_id AS "itemId",id,detected_mime AS mime,byte_size AS "byteSize"
@@ -164,14 +137,13 @@ export function createLibraryRepository(database: DatabaseHandle) {
     }
     return Promise.all(rows.map(async (row) => {
       const id = String(row.id);
-      const rawTags = relationships.tags.get(id) ?? [];
-      const uniqueTags = [...new Map((rawTags as Array<{ id: string; name: string }>).map((tag) => [tag.name.normalize('NFKC').replace(/[^\p{L}\p{N}]+/gu, '').toLocaleLowerCase(), tag])).values()];
-      const analysis = analyses.get(id);
-      const dto = { ...toItem(row), tags: uniqueTags, summary: analysis?.summary ? String(analysis.summary) : '', visualDescription: analysis?.visualDescription ? String(analysis.visualDescription) : '', ocrText: analysis?.ocrText ? String(analysis.ocrText) : '', transcript: analysis?.transcript ? String(analysis.transcript) : '' };
-      const media = (mediaByItem.get(id) ?? []).map((asset) => ({ ...asset, url: asset.status === 'ready' ? `/api/media/${asset.id}` : null }));
-      if (!includeDetail) return { ...dto, cover: covers.get(id) ?? null, media };
+      const dto = { ...toItem(row), tags: relationships.tags.get(id) ?? [] };
+      if (!includeDetail) return { ...dto, cover: covers.get(id) ?? null };
       if (row.item_kind !== 'note') {
-        return { ...dto, media };
+        const media = await database.prepare(`SELECT id,detected_mime AS mime,byte_size AS "byteSize",status,error_code AS "errorCode"
+          FROM media_artifacts WHERE owner_id=? AND item_id=? AND active=1 ORDER BY created_at,id`)
+          .all(ownerId, id) as Array<{ id: string; mime: string | null; byteSize: number; status: string; errorCode: string | null }>;
+        return { ...dto, media: media.map((asset) => ({ ...asset, url: asset.status === 'ready' ? `/api/media/${asset.id}` : null })) };
       }
       const note = await database.prepare('SELECT body FROM notes WHERE owner_id=? AND item_id=?').get(ownerId, id) as { body: string } | undefined;
       const links = await database.prepare('SELECT url FROM note_links WHERE owner_id=? AND item_id=? ORDER BY position').all(ownerId, id) as Array<{ url: string }>;
@@ -306,12 +278,10 @@ export function createLibraryRepository(database: DatabaseHandle) {
       const row = await rowById(ownerId, itemId);
       return row ? (await decorate(ownerId, [row], true))[0] : undefined;
     },
-    async update(ownerId: string, itemId: string, changes: { titleOverride?: string | null; descriptionOverride?: string | null; summaryOverride?: string | null; whySaved?: string | null }) {
+    async update(ownerId: string, itemId: string, changes: { titleOverride?: string | null; descriptionOverride?: string | null }) {
       const fields: string[] = []; const values: unknown[] = [];
       if (changes.titleOverride !== undefined) { fields.push('title_override=?'); values.push(changes.titleOverride?.trim() || null); }
       if (changes.descriptionOverride !== undefined) { fields.push('description_override=?'); values.push(changes.descriptionOverride?.trim() || null); }
-      if (changes.summaryOverride !== undefined) { fields.push('summary_override=?'); values.push(changes.summaryOverride?.trim() || null); }
-      if (changes.whySaved !== undefined) { fields.push('why_saved=?'); values.push(changes.whySaved?.trim() || null); }
       fields.push('updated_at=?'); values.push(new Date().toISOString(), ownerId, itemId);
       const result = await database.prepare(`UPDATE saved_items SET ${fields.join(',')} WHERE owner_id=? AND id=?`).run(...values);
       return result.changes ? this.get(ownerId, itemId) : undefined;

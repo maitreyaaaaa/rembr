@@ -7,7 +7,7 @@ export interface MediaAsset { id: string; url: string | null; mime: string | nul
 export interface Note { body: string; links: string[]; assets: Asset[] }
 export interface SavedItem {
   id: string; url: string; title: string; description: string; titleOverride?: string | null;
-  descriptionOverride?: string | null; summaryOverride?: string | null; whySaved?: string | null; originalCaption?: string; creator?: string | null; source?: string | null; postedAt?: string | null; summary?: string; visualDescription?: string; ocrText?: string; transcript?: string; kind: 'page' | 'note'; status: Status; errorCode: string | null;
+  descriptionOverride?: string | null; kind: 'page' | 'note'; status: Status; errorCode: string | null;
   createdAt: string; updatedAt: string; textPreview: string; text?: string; fetchedAt?: string;
   remembering?: { reason: string; nextDueAt: string; intervalDays: number; successfulRecalls: number } | null;
   tags: Tag[]; note?: Note; media?: MediaAsset[];
