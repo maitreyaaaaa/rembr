@@ -114,7 +114,7 @@ function setApiAccessToken() {}
 function resetPageScroll() { window.scrollTo({ top: 0, left: 0, behavior: 'auto' }); }
 function scrollToSection(event, id) { event.preventDefault(); document.querySelector(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }
 
-const FEEDBACK_FEATURE_OPTIONS = ['Library', 'Search', 'Imports', 'Connections', 'Other'];
+const FEEDBACK_FEATURE_OPTIONS = ['Library', 'Search', 'Imports', 'Graph', 'Other'];
 const SAVE_SOURCE_LABELS = ['instagram', 'pinterest', 'x', 'web', 'note'];
 
 export {

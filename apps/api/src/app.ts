@@ -14,11 +14,14 @@ import { createImportRouter } from './imports/routes.js';
 import { LocalImportStorage, type ImportStorage } from './imports/storage.js';
 import { createJobRouter } from './jobs/routes.js';
 import { createAiRouter } from './ai/routes.js';
+import { AI_DISCLOSURE_VERSION } from './ai/preferences.js';
 import { createMetaModelClient, type MetaJsonSchema } from './ai/meta-client.js';
 import { createVisualSearchRouter, type VisualSearchModel } from './ai/visual-search-routes.js';
+import { VISUAL_SEARCH_DISCLOSURE_VERSION } from './ai/visual-search.js';
 import { createOpenRouterWebSearchModel } from './ai/openrouter-web-search.js';
 import { createWebSearchRouter } from './ai/web-search-routes.js';
 import { createKnowledgeRouter } from './knowledge/routes.js';
+import { AI_SEARCH_DISCLOSURE_VERSION } from './knowledge/ai-search-preferences.js';
 import { createSmartCollectionRouter } from './smart-collections/routes.js';
 import { LocalAssetStorage, type AssetStorage } from './assets/storage.js';
 import { LocalMediaStorage, type MediaStorage } from './media/storage.js';
@@ -32,10 +35,12 @@ import { countPasswordCodePoints, hashNewPassword, validateNewPassword, verifyPa
 import { createIntegrationRouters } from './integrations/api-v1.js';
 import { createWorkOSMcpAuthRouter } from './auth/workos-mcp.js';
 import { createWorkOSMcpApp } from './mcp/routes.js';
+import { SEMANTIC_DISCLOSURE_VERSION } from './library/semantic-routes.js';
 
 const emailSchema = z.string().trim().email().max(254).transform((email) => email.toLowerCase());
 const passwordSchema = z.string().refine((password) => countPasswordCodePoints(password) <= 128);
-const registerSchema = z.object({ email: emailSchema, password: passwordSchema, rememberMe: z.boolean().default(false) }).strict();
+export const TERMS_VERSION = '2026-11-05-v1';
+const registerSchema = z.object({ email: emailSchema, password: passwordSchema, rememberMe: z.boolean().default(false), acceptedTerms: z.literal(true) }).strict();
 const loginSchema = z.object({ email: emailSchema, password: passwordSchema.refine((password) => countPasswordCodePoints(password) > 0), rememberMe: z.boolean().default(false) }).strict();
 const captureSchema = z.object({ url: z.string().trim().min(8).max(2048) }).strict();
 
@@ -100,7 +105,7 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
   app.post('/api/auth/register', authLimiter, async (req, res, next) => {
     const parsed = registerSchema.safeParse(req.body);
     if (!parsed.success) {
-      res.status(400).json(errorResponse('invalid_input', 'Use a valid email and a password of up to 128 characters.', req.requestId));
+      res.status(400).json(errorResponse('invalid_input', 'Use a valid email and password, and accept the Terms and Conditions.', req.requestId));
       return;
     }
     const passwordValidation = validateNewPassword(parsed.data.password, parsed.data.email);
@@ -116,8 +121,19 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
     try {
       const userId = randomUUID();
       const passwordHash = await hashNewPassword(parsed.data.password);
-      await database.prepare('INSERT INTO users (id, email, password_hash, created_at) VALUES (?, ?, ?, ?)')
-        .run(userId, parsed.data.email, passwordHash, new Date().toISOString());
+      const now = new Date().toISOString();
+      await database.transaction(async () => {
+        await database.prepare('INSERT INTO users (id, email, password_hash, created_at, terms_version, terms_accepted_at) VALUES (?, ?, ?, ?, ?, ?)')
+          .run(userId, parsed.data.email, passwordHash, now, TERMS_VERSION, now);
+        await database.prepare(`INSERT INTO ai_analysis_preferences (owner_id,enabled,consent_version,consented_at,updated_at)
+          VALUES (?,TRUE,?,?,?)`).run(userId, AI_DISCLOSURE_VERSION, now, now);
+        await database.prepare(`INSERT INTO ai_search_preferences (owner_id,enabled,consent_version,consented_at,updated_at)
+          VALUES (?,TRUE,?,?,?)`).run(userId, AI_SEARCH_DISCLOSURE_VERSION, now, now);
+        await database.prepare(`INSERT INTO ai_visual_search_preferences (owner_id,enabled,consent_version,consented_at,updated_at)
+          VALUES (?,TRUE,?,?,?)`).run(userId, VISUAL_SEARCH_DISCLOSURE_VERSION, now, now);
+        await database.prepare(`INSERT INTO semantic_search_preferences (owner_id,enabled,disclosure_version,consented_at,updated_at)
+          VALUES (?,TRUE,?,?,?)`).run(userId, SEMANTIC_DISCLOSURE_VERSION, now, now);
+      })();
       await createSession(database, userId, res, parsed.data.rememberMe);
       res.status(201).json({ user: { id: userId, email: parsed.data.email } });
     } catch (error) {

@@ -42,7 +42,7 @@ async function withApi(
 async function register(baseUrl: string, email: string) {
   const response = await fetch(`${baseUrl}/api/auth/register`, {
     method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, acceptedTerms: true }),
   });
   assert.equal(response.status, 201);
   const cookie = (response.headers.get('set-cookie') ?? '').split(';')[0]!;
@@ -104,7 +104,7 @@ function mockImageModel(mode: { value: 'success' | 'uncertain' | 'rejected' } = 
   };
 }
 
-test('visual search requires authentication, a complete profile, current separate consent, and a bounded valid image', async () => {
+test('visual search requires authentication, a complete profile, and a bounded valid image', async () => {
   const model = mockImageModel();
   await withApi(async (baseUrl) => {
     const anonymous = await fetch(`${baseUrl}/api/ai/visual-search-preferences`);
@@ -112,7 +112,7 @@ test('visual search requires authentication, a complete profile, current separat
     const user = await register(baseUrl, 'visual-consent@example.test');
     const initial = await fetch(`${baseUrl}/api/ai/visual-search-preferences`, { headers: { Cookie: user.cookie } });
     const initialPreference = await initial.json() as { preference: { enabled: boolean; providerAvailable: boolean } };
-    assert.equal(initialPreference.preference.enabled, false);
+    assert.equal(initialPreference.preference.enabled, true);
     assert.equal(initialPreference.preference.providerAvailable, true);
 
     const incompleteProfile = await fetch(`${baseUrl}/api/visual-search`, { method: 'POST', headers: { Cookie: user.cookie }, body: imageForm() });
@@ -121,11 +121,6 @@ test('visual search requires authentication, a complete profile, current separat
 
     const outdatedConsent = await setConsent(baseUrl, user.cookie, true, '2026-10-29-v0');
     assert.equal(outdatedConsent.status, 400);
-    const consentMissing = await fetch(`${baseUrl}/api/visual-search`, { method: 'POST', headers: { Cookie: user.cookie }, body: imageForm() });
-    assert.equal(consentMissing.status, 403);
-    assert.equal(model.countCalls, 0);
-
-    assert.equal((await setConsent(baseUrl, user.cookie, true)).status, 200);
     const invalidSignature = await fetch(`${baseUrl}/api/visual-search`, { method: 'POST', headers: { Cookie: user.cookie }, body: imageForm(Buffer.from('not an image'), 'image/png') });
     assert.equal(invalidSignature.status, 400);
     assert.equal((await invalidSignature.json() as { error: { code: string } }).error.code, 'invalid_visual_search_image');

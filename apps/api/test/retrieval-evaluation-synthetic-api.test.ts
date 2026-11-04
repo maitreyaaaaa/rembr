@@ -16,7 +16,7 @@ async function register(baseUrl: string) {
   const response = await fetch(`${baseUrl}/api/auth/register`, {
     method: 'POST',
     headers: { Origin: origin, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email: 'synthetic-eval@example.test', password: 'correct-horse-battery-staple' }),
+    body: JSON.stringify({ email: 'synthetic-eval@example.test', password: 'correct-horse-battery-staple', acceptedTerms: true }),
   });
   assert.equal(response.status, 201);
   return (response.headers.get('set-cookie') ?? '').split(';')[0]!;

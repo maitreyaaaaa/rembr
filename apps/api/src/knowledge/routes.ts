@@ -15,6 +15,7 @@ import { createAiSearchPreferenceRepository, AI_SEARCH_DISCLOSURE_VERSION } from
 import { createAiUsageRepository, sparkCostMicroUsd, AiBudgetExceededError } from '../ai/usage.js';
 import { MAX_OUTPUT_TOKENS, MetaApiError, MUSE_SPARK_MODEL, type MetaJsonSchema } from '../ai/meta-client.js';
 import { createSavedItemSummaryRepository, type SavedItemSummaryContext } from './summaries.js';
+import { createMemoryRecallRepository } from './memory-recall.js';
 import { z } from 'zod';
 
 type TextAnswerModel = {
@@ -33,6 +34,7 @@ const SAVED_ITEM_SUMMARY_OUTPUT_SCHEMA: MetaJsonSchema = {
 const questionSchema = z.object({
   question: z.string().trim().min(1).max(120),
   messages: z.array(z.object({ role: z.enum(['user', 'assistant']), content: z.string().max(1_200) }).strict()).max(8).default([]),
+  sourceIds: z.array(z.string().uuid()).min(1).max(8).optional(),
 }).strict();
 const preferenceSchema = z.object({ enabled: z.boolean(), disclosureVersion: z.string().optional() }).strict();
 const questionFillers = new Set(['about', 'anything', 'did', 'find', 'from', 'have', 'help', 'how', 'into', 'library', 'please', 'save', 'saved', 'show', 'tell', 'that', 'the', 'these', 'this', 'what', 'when', 'where', 'which', 'with', 'would']);
@@ -66,6 +68,7 @@ export function createKnowledgeRouter(database: DatabaseHandle, storage: AssetSt
   const aiSearchPreferences = createAiSearchPreferenceRepository(database);
   const aiUsage = createAiUsageRepository(database);
   const savedItemSummaries = createSavedItemSummaryRepository(database);
+  const memoryRecall = createMemoryRecallRepository(database);
   const answerLimit = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false });
   const summaryLimit = rateLimit({ windowMs: 15 * 60 * 1000, limit: 5, standardHeaders: 'draft-8', legacyHeaders: false });
   const providerAvailable = options.providerAvailable ?? (async () => false);
@@ -100,6 +103,40 @@ export function createKnowledgeRouter(database: DatabaseHandle, storage: AssetSt
     const ownerId = req.user!.id;
     const [summary, health] = await Promise.all([checkup.get(ownerId), linkHealth.get(ownerId)]);
     return res.json({ checkup: { ...summary, linkHealth: health } });
+  });
+
+  router.patch('/knowledge/items/:id/memory', signedIn, profile, async (req, res) => {
+    const parsed = z.object({ enabled: z.boolean(), reason: z.string().trim().max(240).default('') }).strict().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: { code: 'invalid_memory_preference', message: 'Choose whether to remember this item and an optional reason up to 240 characters.', requestId: req.requestId } });
+    const itemIdValue = req.params.id;
+    const itemId = Array.isArray(itemIdValue) ? itemIdValue[0] ?? '' : itemIdValue ?? '';
+    const updated = await memoryRecall.updatePreference(req.user!.id, itemId, parsed.data.enabled, parsed.data.reason);
+    if (!updated) return res.status(404).json({ error: { code: 'not_found', message: 'Saved item not found.', requestId: req.requestId } });
+    return res.json({ enabled: parsed.data.enabled, reason: parsed.data.enabled ? parsed.data.reason : '' });
+  });
+
+  router.post('/knowledge/recall/next', signedIn, profile, async (req, res) => {
+    return res.json(await memoryRecall.next(req.user!.id));
+  });
+
+  router.post('/knowledge/recall/prompts/:id/reveal', signedIn, profile, async (req, res) => {
+    const promptIdValue = req.params.id;
+    const promptId = Array.isArray(promptIdValue) ? promptIdValue[0] ?? '' : promptIdValue ?? '';
+    const itemId = await memoryRecall.reveal(req.user!.id, promptId);
+    if (!itemId) return res.status(404).json({ error: { code: 'not_found', message: 'Recall prompt not found.', requestId: req.requestId } });
+    const item = await library.get(req.user!.id, itemId);
+    if (!item) return res.status(404).json({ error: { code: 'not_found', message: 'Saved item not found.', requestId: req.requestId } });
+    return res.json({ item });
+  });
+
+  router.post('/knowledge/recall/prompts/:id/respond', signedIn, profile, async (req, res) => {
+    const parsed = z.object({ outcome: z.enum(['remembered', 'partial', 'forgot', 'skipped']) }).strict().safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: { code: 'invalid_recall_response', message: 'Choose remembered, partly remembered, forgotten, or skipped.', requestId: req.requestId } });
+    const promptIdValue = req.params.id;
+    const promptId = Array.isArray(promptIdValue) ? promptIdValue[0] ?? '' : promptIdValue ?? '';
+    const recorded = await memoryRecall.respond(req.user!.id, promptId, parsed.data.outcome);
+    if (!recorded) return res.status(409).json({ error: { code: 'recall_prompt_unavailable', message: 'This recall prompt is no longer available. Load the next prompt and try again.', requestId: req.requestId } });
+    return res.json({ outcome: parsed.data.outcome });
   });
 
   router.post('/knowledge/links/check', signedIn, profile, linkCheckLimit, async (req, res) => {
@@ -137,14 +174,25 @@ export function createKnowledgeRouter(database: DatabaseHandle, storage: AssetSt
       .filter((term) => !questionFillers.has(term));
     const searchTerms = keywords.length >= 2 ? keywords : [...keywords, ...contextTerms];
     const search = [...new Set(searchTerms)].slice(0, 6).join(' ');
-    const result = search ? await library.list(ownerId, { search, sort: 'relevance', matchMode: 'terms', limit: 8 }) : null;
-    const retrievedItems = result?.items ?? [];
+    if (parsed.data.sourceIds && new Set(parsed.data.sourceIds).size !== parsed.data.sourceIds.length) {
+      return res.status(400).json({ error: { code: 'invalid_question_sources', message: 'Choose each saved item only once.', requestId: req.requestId } });
+    }
+    const result = parsed.data.sourceIds
+      ? null
+      : search ? await library.list(ownerId, { search, sort: 'relevance', matchMode: 'terms', limit: 8 }) : null;
+    const retrievedItems = parsed.data.sourceIds
+      ? (await Promise.all(parsed.data.sourceIds.map((id) => library.get(ownerId, id))))
+      : result?.items ?? [];
+    if (retrievedItems.some((item) => !item)) {
+      return res.status(404).json({ error: { code: 'not_found', message: 'One or more selected saved items were not found.', requestId: req.requestId } });
+    }
+    const sourceItems = retrievedItems.filter((item): item is NonNullable<typeof item> => item !== null);
     const analysisByItem = new Map<string, Record<string, unknown>>();
-    if (retrievedItems.length) {
-      const marks = retrievedItems.map(() => '?').join(',');
+    if (sourceItems.length) {
+      const marks = sourceItems.map(() => '?').join(',');
       const analyses = await database.prepare(`SELECT DISTINCT ON (item_id) item_id,summary,visual_description,ocr_text,transcript,keywords_json,tags_json,brands_json,tools_json,people_json,repositories_json
         FROM ai_analysis_results WHERE owner_id=? AND item_id IN (${marks}) ORDER BY item_id,generation DESC`)
-        .all(ownerId, ...retrievedItems.map((item) => item.id)) as Array<Record<string, unknown>>;
+        .all(ownerId, ...sourceItems.map((item) => item.id)) as Array<Record<string, unknown>>;
       for (const analysis of analyses) analysisByItem.set(String(analysis.item_id), analysis);
     }
     const analysisExcerpt = (analysis: Record<string, unknown> | undefined) => {
@@ -165,8 +213,11 @@ export function createKnowledgeRouter(database: DatabaseHandle, storage: AssetSt
       const matching = fields.filter(([, value]) => value && (search.split(/\s+/).filter(Boolean).some((term) => value.toLowerCase().includes(term))));
       return matching.map(([label, value]) => `${label}: ${value}`).join(' · ').slice(0, 420);
     };
-    const citations = retrievedItems.map((item) => {
-      const savedText = item.textPreview || item.description || '';
+    const citations = sourceItems.map((item) => {
+      const fullText = (item as typeof item & { text?: string; note?: { body?: string } }).kind === 'note'
+        ? (item as typeof item & { note?: { body?: string } }).note?.body
+        : (item as typeof item & { text?: string }).text;
+      const savedText = fullText || item.textPreview || item.description || '';
       const mediaText = analysisExcerpt(analysisByItem.get(item.id));
       const snippet = [savedText, mediaText].filter(Boolean).join(' · ').slice(0, 500) || item.title;
       return { id: item.id, title: item.title, snippet };

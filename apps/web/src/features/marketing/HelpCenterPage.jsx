@@ -23,7 +23,7 @@ function HelpCenterPage({ onBack, onOpenApp, onOpenHowTo }) {
   });
   const helpTopics = [
     [Upload, 'Import and save help', 'Use the Instagram or Pinterest guides for exports, or paste a single link from the Add saves tab.'],
-    [ShieldCheck, 'AI processing', 'Rembr keeps AI preferences in Settings. Review consent before a provider receives saved content.'],
+    [ShieldCheck, 'AI processing', 'Review the Terms and Conditions to see how Rembr uses AI providers when you import content or use AI-assisted features.'],
     [Search, 'Search and Lens problems', 'If results feel wrong, make sure saves were approved and indexed. Search improves after summaries, OCR, tags, and Lens analysis exist.'],
     [LifeBuoy, 'Account support', 'Email us if login, usernames, profile setup, or imports are not working.'],
   ];

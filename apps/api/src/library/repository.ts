@@ -8,11 +8,18 @@ export interface ItemListQuery {
 }
 export interface ItemCursorKey { key: string; id: string }
 type Row = Record<string, unknown>;
+function sourceMetadata(value: unknown) {
+  if (typeof value !== 'string') return {} as Record<string, unknown>;
+  try { const parsed: unknown = JSON.parse(value); return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed as Record<string, unknown> : {}; }
+  catch { return {}; }
+}
+function firstText(...values: unknown[]) { return values.find((value) => typeof value === 'string' && value.trim())?.toString().trim() ?? ''; }
 const SEARCH_FIELDS = `COALESCE(saved_items.title_override,saved_items.title) ~* ?
   OR COALESCE(saved_items.description_override,saved_items.description,'') ~* ?
   OR saved_items.original_url ~* ?
   OR COALESCE(extracted_artifacts.text_content,'') ~* ?
   OR EXISTS (SELECT 1 FROM notes WHERE notes.owner_id=saved_items.owner_id AND notes.item_id=saved_items.id AND notes.body ~* ?)
+  OR EXISTS (SELECT 1 FROM item_memory_settings memory WHERE memory.owner_id=saved_items.owner_id AND memory.item_id=saved_items.id AND memory.reason ~* ?)
   OR EXISTS (SELECT 1 FROM ai_analysis_results analysis WHERE analysis.owner_id=saved_items.owner_id
     AND analysis.item_id=saved_items.id AND (analysis.summary ~* ? OR analysis.visual_description ~* ?
       OR analysis.ocr_text ~* ? OR analysis.transcript ~* ?
@@ -55,12 +62,14 @@ function searchPattern(value: string, allowInflection = false): string {
   if (isCjk) return literal.join('|');
   return `(^|[^[:alnum:]])(${literal.join('|')})([^[:alnum:]]|$)`;
 }
+const SEARCH_FIELD_PLACEHOLDERS = 16;
 const TERM_SCORE_FIELDS: Array<{ points: number; placeholders: number; sql: (count: number) => string }> = [
   { points: 30, placeholders: 1, sql: (count) => Array.from({ length: count }, () => 'COALESCE(saved_items.title_override,saved_items.title) ~* ?').join(' OR ') },
   { points: 18, placeholders: 1, sql: (count) => Array.from({ length: count }, () => "COALESCE(saved_items.description_override,saved_items.description,'') ~* ?").join(' OR ') },
   { points: 12, placeholders: 1, sql: (count) => Array.from({ length: count }, () => 'saved_items.original_url ~* ?').join(' OR ') },
   { points: 10, placeholders: 1, sql: (count) => Array.from({ length: count }, () => "COALESCE(extracted_artifacts.text_content,'') ~* ?").join(' OR ') },
   { points: 10, placeholders: 1, sql: (count) => Array.from({ length: count }, () => 'EXISTS (SELECT 1 FROM notes WHERE notes.owner_id=saved_items.owner_id AND notes.item_id=saved_items.id AND notes.body ~* ?)').join(' OR ') },
+  { points: 12, placeholders: 1, sql: (count) => Array.from({ length: count }, () => 'EXISTS (SELECT 1 FROM item_memory_settings memory WHERE memory.owner_id=saved_items.owner_id AND memory.item_id=saved_items.id AND memory.reason ~* ?)').join(' OR ') },
   { points: 8, placeholders: 10, sql: (count) => Array.from({ length: count }, () => `EXISTS (SELECT 1 FROM ai_analysis_results analysis WHERE analysis.owner_id=saved_items.owner_id AND analysis.item_id=saved_items.id
     AND (analysis.summary ~* ? OR analysis.visual_description ~* ?
       OR analysis.ocr_text ~* ? OR analysis.transcript ~* ?
@@ -78,13 +87,27 @@ function termScoreParams(group: string[]): string[] {
 function toItem(row: Row) {
   const jobStatus = String(row.job_status ?? '');
   const status = row.pause_cause ? 'paused' : jobStatus === 'cancel_requested' ? 'cancel_requested' : jobStatus === 'cancelled' ? 'cancelled' : jobStatus === 'partial' ? 'partial' : jobStatus === 'retry_wait' ? 'retry_wait' : String(row.status);
+  const metadata = sourceMetadata(row.source_metadata_json);
+  const postedRaw = firstText(metadata.createdAt, metadata.created_at, metadata.postedAt, metadata.posted_at, metadata.date);
+  const postedDate = postedRaw && Number.isFinite(Date.parse(postedRaw)) ? new Date(postedRaw).toISOString() : null;
+  const creator = firstText(metadata.author, metadata.username, metadata.creator, metadata.owner);
+  const platform = firstText(row.source_platform);
   return {
     id: String(row.id), url: String(row.original_url), title: String(row.effective_title ?? row.title),
     description: String(row.effective_description ?? row.description ?? ''),
     titleOverride: row.title_override == null ? null : String(row.title_override),
     descriptionOverride: row.description_override == null ? null : String(row.description_override),
+    summaryOverride: row.summary_override == null ? null : String(row.summary_override),
+    whySaved: row.why_saved == null ? null : String(row.why_saved), originalCaption: String(row.description ?? ''),
     kind: String(row.item_kind ?? 'page'), status, errorCode: row.error_code ? String(row.error_code) : null,
     createdAt: String(row.created_at), updatedAt: String(row.updated_at), textPreview: String(row.text_preview || row.text_content || row.note_preview || '').slice(0, 240),
+    creator: creator || null, source: platform || null, postedAt: postedDate,
+    remembering: row.memory_item_id ? {
+      reason: String(row.memory_reason ?? ''),
+      nextDueAt: String(row.memory_next_due_at),
+      intervalDays: Number(row.memory_interval_days ?? 1),
+      successfulRecalls: Number(row.memory_successful_recalls ?? 0),
+    } : null,
     ...(row.include_text ? { text: String(row.text_content ?? ''), fetchedAt: row.fetched_at ? String(row.fetched_at) : null } : {}),
   };
 }
@@ -109,6 +132,19 @@ export function createLibraryRepository(database: DatabaseHandle) {
     const itemIds = rows.map((row) => String(row.id));
     const relationships = await related(ownerId, itemIds);
     const covers = new Map<string, { url: string; mime: string; byteSize: number }>();
+    const mediaByItem = new Map<string, Array<{ id: string; mime: string | null; byteSize: number; status: string; errorCode: string | null }>>();
+    const analyses = new Map<string, Record<string, unknown>>();
+    if (itemIds.length) {
+      const marks = itemIds.map(() => '?').join(',');
+      const mediaRows = await database.prepare(`SELECT item_id AS "itemId",id,detected_mime AS mime,byte_size AS "byteSize",status,error_code AS "errorCode"
+        FROM media_artifacts WHERE owner_id=? AND item_id IN (${marks}) AND active=1 ORDER BY created_at,id`)
+        .all(ownerId, ...itemIds) as Array<{ itemId: string; id: string; mime: string | null; byteSize: number; status: string; errorCode: string | null }>;
+      for (const asset of mediaRows) mediaByItem.set(asset.itemId, [...(mediaByItem.get(asset.itemId) ?? []), asset]);
+      const analysisRows = await database.prepare(`SELECT DISTINCT ON (item_id) item_id AS "itemId",summary,visual_description AS "visualDescription",ocr_text AS "ocrText",transcript
+        FROM ai_analysis_results WHERE owner_id=? AND item_id IN (${marks}) ORDER BY item_id,generation DESC`)
+        .all(ownerId, ...itemIds) as Array<Record<string, unknown> & { itemId: string }>;
+      for (const analysis of analysisRows) analyses.set(analysis.itemId, analysis);
+    }
     if (!includeDetail && itemIds.length) {
       const marks = itemIds.map(() => '?').join(',');
       const mediaCovers = await database.prepare(`SELECT item_id AS "itemId",id,detected_mime AS mime,byte_size AS "byteSize"
@@ -127,14 +163,15 @@ export function createLibraryRepository(database: DatabaseHandle) {
       }
     }
     return Promise.all(rows.map(async (row) => {
-      const dto = { ...toItem(row), tags: relationships.tags.get(String(row.id)) ?? [] };
-      if (!includeDetail) return { ...dto, cover: covers.get(String(row.id)) ?? null };
       const id = String(row.id);
+      const rawTags = relationships.tags.get(id) ?? [];
+      const uniqueTags = [...new Map((rawTags as Array<{ id: string; name: string }>).map((tag) => [tag.name.normalize('NFKC').replace(/[^\p{L}\p{N}]+/gu, '').toLocaleLowerCase(), tag])).values()];
+      const analysis = analyses.get(id);
+      const dto = { ...toItem(row), tags: uniqueTags, summary: analysis?.summary ? String(analysis.summary) : '', visualDescription: analysis?.visualDescription ? String(analysis.visualDescription) : '', ocrText: analysis?.ocrText ? String(analysis.ocrText) : '', transcript: analysis?.transcript ? String(analysis.transcript) : '' };
+      const media = (mediaByItem.get(id) ?? []).map((asset) => ({ ...asset, url: asset.status === 'ready' ? `/api/media/${asset.id}` : null }));
+      if (!includeDetail) return { ...dto, cover: covers.get(id) ?? null, media };
       if (row.item_kind !== 'note') {
-        const media = await database.prepare(`SELECT id,detected_mime AS mime,byte_size AS "byteSize",status,error_code AS "errorCode"
-          FROM media_artifacts WHERE owner_id=? AND item_id=? AND active=1 ORDER BY created_at,id`)
-          .all(ownerId, id) as Array<{ id: string; mime: string | null; byteSize: number; status: string; errorCode: string | null }>;
-        return { ...dto, media: media.map((asset) => ({ ...asset, url: asset.status === 'ready' ? `/api/media/${asset.id}` : null })) };
+        return { ...dto, media };
       }
       const note = await database.prepare('SELECT body FROM notes WHERE owner_id=? AND item_id=?').get(ownerId, id) as { body: string } | undefined;
       const links = await database.prepare('SELECT url FROM note_links WHERE owner_id=? AND item_id=? ORDER BY position').all(ownerId, id) as Array<{ url: string }>;
@@ -152,10 +189,14 @@ export function createLibraryRepository(database: DatabaseHandle) {
     return await database.prepare(`SELECT saved_items.*, COALESCE(saved_items.title_override,saved_items.title) AS effective_title,
         COALESCE(saved_items.description_override,saved_items.description) AS effective_description,
         extracted_artifacts.text_content, extracted_artifacts.fetched_at, 1 AS include_text,
-        processing_jobs.status AS job_status, job_pause_states.pause_cause
+        processing_jobs.status AS job_status, job_pause_states.pause_cause,
+        memory_setting.item_id AS memory_item_id,memory_setting.reason AS memory_reason,
+        memory_setting.next_due_at AS memory_next_due_at,memory_setting.interval_days AS memory_interval_days,
+        memory_setting.successful_recalls AS memory_successful_recalls
       FROM saved_items LEFT JOIN extracted_artifacts ON extracted_artifacts.item_id=saved_items.id AND extracted_artifacts.owner_id=saved_items.owner_id
       LEFT JOIN processing_jobs ON processing_jobs.item_id=saved_items.id AND processing_jobs.owner_id=saved_items.owner_id
       LEFT JOIN job_pause_states ON job_pause_states.job_id=processing_jobs.id AND job_pause_states.owner_id=processing_jobs.owner_id
+      LEFT JOIN item_memory_settings memory_setting ON memory_setting.item_id=saved_items.id AND memory_setting.owner_id=saved_items.owner_id
       WHERE saved_items.owner_id=? AND saved_items.id=?`).get(ownerId, itemId) as Row | undefined;
   }
 
@@ -187,13 +228,13 @@ export function createLibraryRepository(database: DatabaseHandle) {
       if (query.search) {
         if (query.matchMode === 'phrase') {
           clauses.push(`(${SEARCH_FIELDS})`);
-          params.push(...Array.from({ length: 15 }, () => safeSearch));
+          params.push(...Array.from({ length: SEARCH_FIELD_PLACEHOLDERS }, () => safeSearch));
         } else {
           for (const group of queryGroups(query.search)) {
             clauses.push(`(${group.map(() => `(${SEARCH_FIELDS})`).join(' OR ')})`);
             for (const term of group) {
               const pattern = searchPattern(term, true);
-              params.push(...Array.from({ length: 15 }, () => pattern));
+              params.push(...Array.from({ length: SEARCH_FIELD_PLACEHOLDERS }, () => pattern));
             }
           }
         }
@@ -227,6 +268,7 @@ export function createLibraryRepository(database: DatabaseHandle) {
         + CASE WHEN saved_items.original_url ~* ? THEN 30 ELSE 0 END
         + CASE WHEN COALESCE(extracted_artifacts.text_content,'') ~* ? THEN 20 ELSE 0 END
         + CASE WHEN EXISTS (SELECT 1 FROM notes WHERE notes.owner_id=saved_items.owner_id AND notes.item_id=saved_items.id AND notes.body ~* ?) THEN 20 ELSE 0 END
+        + CASE WHEN EXISTS (SELECT 1 FROM item_memory_settings memory WHERE memory.owner_id=saved_items.owner_id AND memory.item_id=saved_items.id AND memory.reason ~* ?) THEN 20 ELSE 0 END
         + CASE WHEN EXISTS (SELECT 1 FROM ai_analysis_results analysis WHERE analysis.owner_id=saved_items.owner_id AND analysis.item_id=saved_items.id
             AND (analysis.summary ~* ? OR analysis.visual_description ~* ?
               OR analysis.ocr_text ~* ? OR analysis.transcript ~* ?
@@ -235,19 +277,23 @@ export function createLibraryRepository(database: DatabaseHandle) {
             OR analysis.people_json ~* ? OR analysis.repositories_json ~* ?)) THEN 15 ELSE 0 END
         ${query.matchMode === 'phrase' ? '' : queryGroups(query.search).map((group) => termScoreSql(group)).join(' ')}
         )` : 'NULL';
-      const scoreParams = query.sort === 'relevance' && query.search.trim() ? [query.search, ...Array.from({ length: 15 }, () => safeSearch),
+      const scoreParams = query.sort === 'relevance' && query.search.trim() ? [query.search, ...Array.from({ length: SEARCH_FIELD_PLACEHOLDERS }, () => safeSearch),
         ...(query.matchMode === 'phrase' ? [] : queryGroups(query.search).flatMap((group) => termScoreParams(group)))] : [];
       const rows = await database.prepare(`WITH ranked_items AS (
           SELECT saved_items.*, COALESCE(saved_items.title_override,saved_items.title) AS effective_title,
             COALESCE(saved_items.description_override,saved_items.description) AS effective_description,
             LEFT(extracted_artifacts.text_content,240) AS text_preview,
             (SELECT LEFT(notes.body,240) FROM notes WHERE notes.owner_id=saved_items.owner_id AND notes.item_id=saved_items.id) AS note_preview,
+            memory_setting.item_id AS memory_item_id,memory_setting.reason AS memory_reason,
+            memory_setting.next_due_at AS memory_next_due_at,memory_setting.interval_days AS memory_interval_days,
+            memory_setting.successful_recalls AS memory_successful_recalls,
             processing_jobs.status AS job_status, job_pause_states.pause_cause,
             ${scoreExpression} AS search_score
           FROM saved_items
           LEFT JOIN extracted_artifacts ON extracted_artifacts.item_id=saved_items.id AND extracted_artifacts.owner_id=saved_items.owner_id
           LEFT JOIN processing_jobs ON processing_jobs.item_id=saved_items.id AND processing_jobs.owner_id=saved_items.owner_id
           LEFT JOIN job_pause_states ON job_pause_states.job_id=processing_jobs.id AND job_pause_states.owner_id=processing_jobs.owner_id
+          LEFT JOIN item_memory_settings memory_setting ON memory_setting.item_id=saved_items.id AND memory_setting.owner_id=saved_items.owner_id
           WHERE ${clauses.join(' AND ')}
         )
         SELECT * FROM ranked_items ${cursorWhere} ORDER BY ${orderings[query.sort]} LIMIT ?`)
@@ -260,10 +306,12 @@ export function createLibraryRepository(database: DatabaseHandle) {
       const row = await rowById(ownerId, itemId);
       return row ? (await decorate(ownerId, [row], true))[0] : undefined;
     },
-    async update(ownerId: string, itemId: string, changes: { titleOverride?: string | null; descriptionOverride?: string | null }) {
+    async update(ownerId: string, itemId: string, changes: { titleOverride?: string | null; descriptionOverride?: string | null; summaryOverride?: string | null; whySaved?: string | null }) {
       const fields: string[] = []; const values: unknown[] = [];
       if (changes.titleOverride !== undefined) { fields.push('title_override=?'); values.push(changes.titleOverride?.trim() || null); }
       if (changes.descriptionOverride !== undefined) { fields.push('description_override=?'); values.push(changes.descriptionOverride?.trim() || null); }
+      if (changes.summaryOverride !== undefined) { fields.push('summary_override=?'); values.push(changes.summaryOverride?.trim() || null); }
+      if (changes.whySaved !== undefined) { fields.push('why_saved=?'); values.push(changes.whySaved?.trim() || null); }
       fields.push('updated_at=?'); values.push(new Date().toISOString(), ownerId, itemId);
       const result = await database.prepare(`UPDATE saved_items SET ${fields.join(',')} WHERE owner_id=? AND id=?`).run(...values);
       return result.changes ? this.get(ownerId, itemId) : undefined;

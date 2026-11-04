@@ -145,7 +145,7 @@ function HomePage() {
     </section>
 
     <section className="constellation-section">
-      <div className="constellation-copy" data-reveal><h2>Good ideas<br/>have <span>neighbors.</span></h2><p>Connections bring related finds together through the topics and entities in each source.</p><a className="button button-yellow" href="/features">Meet your library <Arrow diagonal/></a></div>
+      <div className="constellation-copy" data-reveal><h2>Good ideas<br/>have <span>neighbors.</span></h2><p>The Graph brings related finds together through the topics and entities in each source.</p><a className="button button-yellow" href="/features">Meet your library <Arrow diagonal/></a></div>
       <div className="constellation-art" data-parallax="constellation" aria-label="An abstract map connecting saved ideas" role="img">
         <svg viewBox="0 0 520 460" aria-hidden="true"><path className="constellation-line" d="M75 104C143 107 158 169 221 173S329 88 411 126M81 315c77-9 84-81 149-91s103 93 193 83M221 173c-9 49 5 89 9 131m-9-131c79 13 100 24 161 60"/><circle cx="75" cy="104" r="9"/><circle cx="411" cy="126" r="9"/><circle cx="81" cy="315" r="9"/><circle cx="423" cy="307" r="9"/><circle cx="221" cy="173" r="18"/><circle cx="230" cy="304" r="12"/><circle cx="382" cy="233" r="12"/></svg>
         <div className="constellation-note note-center"><span>ONE IDEA</span><b>Making room<br/>to think</b><small>3 saved things nearby</small></div>

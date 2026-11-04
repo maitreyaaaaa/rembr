@@ -7,7 +7,6 @@ import { once } from 'node:events';
 import test from 'node:test';
 import { createApp } from '../src/app.js';
 import { createTestDatabase } from '../src/db/database.js';
-import { SEMANTIC_DISCLOSURE_VERSION } from '../src/library/semantic-routes.js';
 import type { EmbeddingProvider, EmbeddingPurpose, EmbeddingVector } from '../src/library/semantic-embeddings.js';
 
 const origin = 'http://127.0.0.1:5173';
@@ -43,7 +42,7 @@ async function withApi(run: (baseUrl: string, database: Awaited<ReturnType<typeo
 async function register(baseUrl: string, email: string) {
   const response = await fetch(`${baseUrl}/api/auth/register`, {
     method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, acceptedTerms: true }),
   });
   assert.equal(response.status, 201);
   return (response.headers.get('set-cookie') ?? '').split(';')[0]!;
@@ -65,14 +64,7 @@ async function seedReadyItem(database: Awaited<ReturnType<typeof createTestDatab
     VALUES (?,?,?,?,?,?,?,?)`).run(`artifact-${id}`, ownerId, id, 'Weekend garden plan', 'Ideas for a small garden', 'Tomatoes, herbs, raised beds and sunlight.', now, now);
 }
 
-async function enableConsent(baseUrl: string, cookie: string) {
-  return fetch(`${baseUrl}/api/semantic/preferences`, {
-    method: 'PUT', headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ enabled: true, disclosureVersion: SEMANTIC_DISCLOSURE_VERSION }),
-  });
-}
-
-test('semantic routes are off by default and never call the provider before separate consent', async () => {
+test('Terms acceptance enables semantic indexing and hybrid search', async () => {
   const provider = new FakeEmbeddingProvider();
   await withApi(async (baseUrl, database) => {
     const cookie = await register(baseUrl, 'semantic-off@example.test');
@@ -82,17 +74,18 @@ test('semantic routes are off by default and never call the provider before sepa
 
     const preferenceResponse = await fetch(`${baseUrl}/api/semantic/preferences`, { headers: { Cookie: cookie } });
     const preference = await preferenceResponse.json() as { preference: { enabled: boolean; providerAvailable: boolean } };
-    assert.equal(preference.preference.enabled, false);
+    assert.equal(preference.preference.enabled, true);
     assert.equal(preference.preference.providerAvailable, true);
 
     const index = await fetch(`${baseUrl}/api/semantic/index`, { method: 'POST', headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' }, body: '{}' });
-    assert.equal(index.status, 403);
+    assert.equal(index.status, 200);
+    assert.equal((await index.json() as { indexed: number }).indexed, 1);
     const search = await fetch(`${baseUrl}/api/semantic/search?q=garden`, { headers: { Cookie: cookie } });
     assert.equal(search.status, 200);
-    const result = await search.json() as { mode: string; items: Array<{ id: string }>; fallbackReason: string };
-    assert.equal(result.mode, 'keyword_fallback');
-    assert.equal(result.fallbackReason, 'consent_required');
-    assert.deepEqual(provider.calls, []);
+    const result = await search.json() as { mode: string; items: Array<{ id: string }> };
+    assert.equal(result.mode, 'semantic_hybrid');
+    assert.deepEqual(result.items.map(({ id }) => id), ['semantic-off-item']);
+    assert.equal(provider.calls.length, 2);
   }, provider);
 });
 
@@ -107,8 +100,6 @@ test('semantic indexing and hybrid search are owner-scoped, metered, and delete 
     const userB = await database.prepare('SELECT id FROM users WHERE email=?').get('semantic-b@example.test') as { id: string };
     await seedReadyItem(database, userA.id, 'semantic-a-item');
     await seedReadyItem(database, userB.id, 'semantic-b-item');
-    assert.equal((await enableConsent(baseUrl, cookieA)).status, 200);
-
     const index = await fetch(`${baseUrl}/api/semantic/index`, { method: 'POST', headers: { Cookie: cookieA, Origin: origin, 'Content-Type': 'application/json' }, body: '{}' });
     assert.equal(index.status, 200);
     assert.equal((await index.json() as { indexed: number }).indexed, 1);
@@ -118,10 +109,11 @@ test('semantic indexing and hybrid search are owner-scoped, metered, and delete 
     const resultA = await searchA.json() as { mode: string; items: Array<{ id: string }> };
     assert.equal(resultA.mode, 'semantic_hybrid');
     assert.deepEqual(resultA.items.map((item) => item.id), ['semantic-a-item']);
+    const indexB = await fetch(`${baseUrl}/api/semantic/index`, { method: 'POST', headers: { Cookie: cookieB, Origin: origin, 'Content-Type': 'application/json' }, body: '{}' });
+    assert.equal(indexB.status, 200);
     const searchB = await fetch(`${baseUrl}/api/semantic/search?q=garden`, { headers: { Cookie: cookieB } });
     const resultB = await searchB.json() as { mode: string; items: Array<{ id: string }>; fallbackReason: string };
-    assert.equal(resultB.mode, 'keyword_fallback');
-    assert.equal(resultB.fallbackReason, 'consent_required');
+    assert.equal(resultB.mode, 'semantic_hybrid');
     assert.deepEqual(resultB.items.map((item) => item.id), ['semantic-b-item']);
 
     const disabled = await fetch(`${baseUrl}/api/semantic/preferences`, {

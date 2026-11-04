@@ -58,6 +58,16 @@ export interface RembrDetailItem {
   description: string;
   titleOverride?: string | null;
   descriptionOverride?: string | null;
+  summaryOverride?: string | null;
+  whySaved?: string | null;
+  originalCaption?: string;
+  creator?: string | null;
+  source?: string | null;
+  postedAt?: string | null;
+  summary?: string;
+  visualDescription?: string;
+  ocrText?: string;
+  transcript?: string;
   kind: 'page' | 'note';
   status: RembrDetailStatus;
   errorCode: string | null;
@@ -66,6 +76,7 @@ export interface RembrDetailItem {
   textPreview: string;
   text?: string;
   fetchedAt?: string;
+  remembering?: { reason: string; nextDueAt: string; intervalDays: number; successfulRecalls: number } | null;
   tags: RembrDetailTag[];
   note?: {
     body: string;
@@ -114,20 +125,11 @@ export interface RembrDetailDrawerProps {
   onRetryProcessing: (item: RembrDetailItem) => void;
   onReprocess: (item: RembrDetailItem) => void;
   onToggleTag?: (tag: RembrDetailTag, add: boolean) => void;
+  busyMemory?: boolean;
+  onUpdateMemoryPreference?: (enabled: boolean, reason: string) => void;
 }
 
-const statusText: Record<RembrDetailStatus, string> = {
-  queued: 'Waiting to process',
-  processing: 'Saving page content',
-  retry_wait: 'Retry scheduled',
-  cancel_requested: 'Canceling',
-  cancelled: 'Canceled',
-  paused: 'Paused',
-  partial: 'Partially ready',
-  ready: 'Ready to read',
-  failed: 'Could not process',
-};
-const MAX_ITEM_TAGS = 5;
+const MAX_ITEM_TAGS = 3;
 
 function formatDate(value?: string | null) {
   if (!value) return '';
@@ -163,19 +165,35 @@ export function RembrDetailDrawer({
   onRetryProcessing,
   onReprocess,
   onToggleTag,
+  busyMemory = false,
+  onUpdateMemoryPreference,
 }: RembrDetailDrawerProps) {
   const panelRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const [preview, setPreview] = useState<{ url: string; label: string } | null>(null);
   const [tagSearch, setTagSearch] = useState('');
   const [tagPickerOpen, setTagPickerOpen] = useState(false);
+  const [memoryEnabled, setMemoryEnabled] = useState(Boolean(item.remembering));
+  const [memoryReason, setMemoryReason] = useState(item.remembering?.reason ?? '');
   const isNote = item.kind === 'note';
   const readyMedia = (item.media ?? []).filter((asset) => asset.status === 'ready' && asset.url);
   const noteAssets = item.note?.assets ?? [];
   const canRetry = item.status === 'failed';
   const canReprocess = item.status === 'ready' || item.status === 'partial';
-  const displayTitle = item.titleOverride || item.title || 'Untitled save';
+  const generatedSummary = analysis?.result?.summary || item.summary || '';
+  const sourceTitle = (item.titleOverride || item.title || '').replace(/#[\p{L}\p{N}_-]+/gu, '').replace(/\s+/g, ' ').trim();
+  const summaryTitle = (item.summaryOverride || generatedSummary).split(/[.!?\n]/, 1)[0]?.slice(0, 100).trim() || '';
+  const displayTitle = item.titleOverride || ((/#/u.test(item.title || '') || sourceTitle.length > 110 || item.title.trim() === (item.originalCaption || item.description).trim()) && summaryTitle ? summaryTitle : sourceTitle) || 'Untitled save';
   const savedText = item.text || item.textPreview;
+  const caption = item.originalCaption !== undefined ? item.originalCaption : item.description;
+  const whySaved = item.whySaved || item.remembering?.reason || '';
+  const hasReadableContent = Boolean(savedText || caption || item.summaryOverride || generatedSummary || analysis?.result?.ocrText || analysis?.result?.transcript);
+  const hasVideo = readyMedia.some((asset) => asset.mime?.startsWith('video/'));
+  const accurateStatus = ['queued', 'processing', 'retry_wait', 'cancel_requested'].includes(item.status) ? 'Processing'
+    : item.status === 'failed' ? 'Couldn’t process' : hasReadableContent ? 'Content ready' : hasVideo ? 'Transcript unavailable' : 'Couldn’t process';
+  const topics = [...new Map([...(analysis?.result?.tags ?? []), ...(analysis?.result?.keywords ?? []), ...item.tags.map((tag) => tag.name)]
+    .filter(Boolean).map((topic) => [topic.normalize('NFKC').replace(/[^\p{L}\p{N}]+/gu, '').toLocaleLowerCase(), topic])).values()];
+  const sourceLabel = item.source ? ({ instagram: 'Instagram', pinterest: 'Pinterest', x: 'X', unknown: 'Website' } as Record<string, string>)[item.source] ?? item.source : (item.url ? (() => { try { return new URL(item.url).hostname.replace(/^www\./, ''); } catch { return 'Saved source'; } })() : 'Saved source');
   const attachedTagIds = new Set(item.tags.map((tag) => tag.id));
   const normalizedTagSearch = tagSearch.trim().toLocaleLowerCase();
   const matchingTags = normalizedTagSearch.length >= 2
@@ -190,6 +208,11 @@ export function RembrDetailDrawer({
     if (!reducedMotion) gsap.fromTo(panel, { x: '100%' }, { x: 0, duration: 0.5, ease: 'power3.out' });
     return () => { gsap.killTweensOf(panel); };
   }, []);
+
+  useEffect(() => {
+    setMemoryEnabled(Boolean(item.remembering));
+    setMemoryReason(item.remembering?.reason ?? '');
+  }, [item.id, item.remembering?.reason, item.remembering?.nextDueAt]);
 
   function onDialogKeyDown(event: KeyboardEvent<HTMLElement>) {
     if (event.key === 'Escape') {
@@ -246,20 +269,22 @@ export function RembrDetailDrawer({
           {error && <div role="alert" className="flex items-start gap-3 rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /><p>{error}</p></div>}
           <section aria-labelledby="rembr-detail-title">
             <div className="mb-3 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xs text-primary">
-              <span>{isNote ? 'Personal note' : 'Saved page'}</span>
-              {formatDate(item.createdAt) && <span className="text-muted-foreground">/ Saved {formatDate(item.createdAt)}</span>}
-              {!isNote && <span className={`inline-flex items-center gap-1.5 rounded-full border border-white/10 px-2.5 py-1 ${item.status === 'failed' ? 'text-destructive' : item.status === 'ready' ? 'text-primary' : 'text-muted-foreground'}`}>
+              <span>{isNote ? 'Personal note' : sourceLabel}</span>
+              {item.creator && <span className="text-muted-foreground">· {item.creator}</span>}
+              {item.postedAt && <span className="text-muted-foreground">· Posted {formatDate(item.postedAt)}</span>}
+              {formatDate(item.createdAt) && <span className="text-muted-foreground">· Saved {formatDate(item.createdAt)}</span>}
+              {!isNote && <span className={`inline-flex items-center gap-1.5 rounded-full border border-white/10 px-2.5 py-1 ${accurateStatus === 'Couldn’t process' ? 'text-destructive' : accurateStatus === 'Content ready' ? 'text-primary' : 'text-muted-foreground'}`}>
                 {['queued', 'processing', 'retry_wait', 'cancel_requested'].includes(item.status)
                   ? <LoaderCircle className="h-3 w-3 animate-spin" />
-                  : item.status === 'ready' ? <CheckCircle2 className="h-3 w-3" /> : <CircleHelp className="h-3 w-3" />}
-                {statusText[item.status]}
+                  : accurateStatus === 'Content ready' ? <CheckCircle2 className="h-3 w-3" /> : <CircleHelp className="h-3 w-3" />}
+                {accurateStatus}
               </span>}
             </div>
 
             <h2 id="rembr-detail-title" className="mb-2 break-words font-display text-2xl font-bold leading-tight tracking-tight sm:text-3xl">
               {displayTitle}
             </h2>
-            {(item.descriptionOverride || item.description) && <p className="mb-4 max-w-2xl text-sm leading-relaxed text-muted-foreground">{item.descriptionOverride || item.description}</p>}
+            {item.summaryOverride || generatedSummary ? <div className="mb-4 max-w-2xl"><p className="mb-1 font-mono text-[10px] uppercase tracking-widest text-primary">What this is</p><p className="text-sm leading-relaxed text-muted-foreground">{item.summaryOverride || generatedSummary}</p><p className="mt-1 text-[10px] text-muted-foreground">{item.summaryOverride ? 'Your edited summary' : 'AI summary from saved content'} · <button type="button" className="underline underline-offset-2 hover:text-primary" onClick={() => onEdit(item)}>Edit title or summary</button></p></div> : null}
 
             <div className="flex flex-wrap gap-2">
               {!isNote && item.url && <button type="button" onClick={() => onOpenOriginal(item)} className="inline-flex min-h-10 items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-xs font-semibold text-muted-foreground transition hover:border-primary hover:text-primary">
@@ -277,22 +302,46 @@ export function RembrDetailDrawer({
             </div>
           </section>
 
-          {!isNote && item.status === 'failed' && <div role="status" className="flex gap-3 rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+          {!isNote && accurateStatus === 'Couldn’t process' && <div role="status" className="flex gap-3 rounded-xl border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
             <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
             <p>Rembr could not make a readable copy. The source link is still available{item.errorCode ? ` (${item.errorCode.replaceAll('_', ' ')}).` : '.'}</p>
           </div>}
+          {whySaved && <p className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-foreground"><strong className="mr-1 text-primary">Why I saved this:</strong>{whySaved}</p>}
+
+          {!isNote && caption && <details className="rounded-xl border border-white/10 bg-white/[0.025]"><summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-muted-foreground">Original caption</summary><div className="whitespace-pre-wrap break-words border-t border-white/10 p-4 text-sm leading-relaxed text-muted-foreground">{caption}</div></details>}
+          {analysis?.result?.transcript && <details className="rounded-xl border border-white/10 bg-white/[0.025]"><summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-muted-foreground">Transcript</summary><div className="whitespace-pre-wrap border-t border-white/10 p-4 text-sm leading-relaxed text-muted-foreground">{analysis.result.transcript}</div></details>}
+          {analysis?.result?.ocrText && <details className="rounded-xl border border-white/10 bg-white/[0.025]"><summary className="cursor-pointer px-4 py-3 text-sm font-semibold text-muted-foreground">Text found in media (OCR)</summary><div className="whitespace-pre-wrap border-t border-white/10 p-4 text-sm leading-relaxed text-muted-foreground">{analysis.result.ocrText}</div></details>}
+          {hasVideo && !analysis?.result?.transcript && accurateStatus !== 'Processing' && <p className="text-xs text-muted-foreground">Transcript unavailable for this video.</p>}
 
           {isNote ? <section aria-labelledby="rembr-note-heading">
             <SectionHeading icon={<FileText className="h-3.5 w-3.5" />} label="Note" />
             <h3 id="rembr-note-heading" className="sr-only">Note contents</h3>
             <div className="whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground">{item.note?.body || 'This note is empty.'}</div>
-          </section> : <section aria-labelledby="rembr-copy-heading">
+          </section> : <details aria-labelledby="rembr-copy-heading" className="rounded-2xl border border-white/10 bg-white/[0.025]">
+            <summary className="flex min-h-12 cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-semibold text-muted-foreground outline-none hover:text-primary focus-visible:ring-2 focus-visible:ring-primary [&::-webkit-details-marker]:hidden"><BookOpen className="h-4 w-4 text-primary" /> Saved page text{item.fetchedAt && <span className="ml-auto text-xs font-normal">Processed {formatDate(item.fetchedAt)}</span>}</summary>
             <SectionHeading icon={<BookOpen className="h-3.5 w-3.5" />} label="Saved copy" />
             <h3 id="rembr-copy-heading" className="sr-only">Saved page copy</h3>
             {item.status === 'processing' || item.status === 'queued' ? <div role="status" className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.025] px-4 py-3 text-sm text-muted-foreground"><LoaderCircle className="h-4 w-4 animate-spin text-primary" /> The readable copy will appear when processing finishes.</div>
               : savedText ? <div className="max-h-[28rem] overflow-y-auto whitespace-pre-wrap break-words rounded-xl border border-white/10 bg-white/[0.025] p-4 text-sm leading-relaxed text-muted-foreground">{savedText}</div>
                 : <p className="rounded-xl border border-white/10 bg-white/[0.025] p-4 text-sm leading-relaxed text-muted-foreground">{item.status === 'failed' ? 'No readable copy is available for this save.' : 'There is no readable text for this save yet.'}</p>}
-          </section>}
+          </details>}
+
+          <section className="rounded-2xl border border-white/10 bg-white/[0.025] p-4" aria-labelledby="remember-item-heading">
+            <div className="mb-3 flex items-center gap-2"><Brain className="h-4 w-4 text-primary" /><h3 id="remember-item-heading" className="font-semibold">Remember this later</h3></div>
+            <label className="flex min-h-10 cursor-pointer items-center gap-3 text-sm text-foreground">
+              <input type="checkbox" checked={memoryEnabled} onChange={(event) => setMemoryEnabled(event.currentTarget.checked)} />
+              <span>I want to remember this</span>
+            </label>
+            {memoryEnabled && <div className="mt-3 space-y-3">
+              <p className="text-xs text-muted-foreground">You can review up to three saved items a week in Remember. Turn this off anytime.</p>
+              <label htmlFor="remember-item-reason" className="block text-xs font-semibold text-muted-foreground">Why did you save it? <span className="font-normal">(optional)</span></label>
+              <input id="remember-item-reason" maxLength={240} value={memoryReason} onChange={(event) => setMemoryReason(event.currentTarget.value)} placeholder="A project, idea, or person…" className="w-full rounded-xl border border-white/10 bg-black/40 px-3 py-2.5 text-sm text-foreground outline-none focus:border-primary" />
+              <div className="flex flex-wrap gap-2">{['For this project', 'Try this', 'Show someone', 'Inspiration'].map((reason) => <button key={reason} type="button" onClick={() => setMemoryReason(reason)} className="min-h-9 rounded-full border border-white/10 px-3 py-1.5 text-xs text-muted-foreground transition hover:border-primary hover:text-primary">{reason}</button>)}</div>
+            </div>}
+            <button type="button" disabled={busyMemory} onClick={() => onUpdateMemoryPreference?.(memoryEnabled, memoryEnabled ? memoryReason : '')} className="mt-3 inline-flex min-h-10 items-center rounded-full bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-60">
+              {busyMemory ? 'Saving…' : memoryEnabled ? 'Save memory preference' : item.remembering ? 'Turn off recall' : 'Save preference'}
+            </button>
+          </section>
 
           {analysis && analysis.status !== 'not_requested' && <details className="group rounded-2xl border border-white/10 bg-white/[0.025]">
             <summary className="flex min-h-12 cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-semibold text-muted-foreground outline-none marker:hidden hover:text-primary focus-visible:ring-2 focus-visible:ring-primary [&::-webkit-details-marker]:hidden">
@@ -302,12 +351,9 @@ export function RembrDetailDrawer({
               <h3 id="rembr-analysis-heading" className="font-mono text-xs uppercase tracking-widest text-muted-foreground">AI media notes</h3>
               <p className="text-sm text-muted-foreground">{analysisStatusText(analysis)}</p>
               {analysis.result && <div className="space-y-3 text-sm leading-relaxed">
-              {analysis.result.summary && <p className="font-semibold text-foreground">{analysis.result.summary}</p>}
               {analysis.result.visualDescription && <DetailText label="Visual notes">{analysis.result.visualDescription}</DetailText>}
-              {analysis.result.ocrText && <DetailText label="Text in media" preserve>{analysis.result.ocrText}</DetailText>}
-              {analysis.result.transcript && <DetailText label="Speech transcript" preserve>{analysis.result.transcript}</DetailText>}
               {analysis.result.keywords.length > 0 && <DetailText label="Keywords">{analysis.result.keywords.join(', ')}</DetailText>}
-              {analysis.result.tags.length > 0 && <DetailText label="AI topics">{analysis.result.tags.join(', ')}</DetailText>}
+              {topics.length > 0 && <div><p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Useful topics</p><div className="flex flex-wrap gap-2">{topics.slice(0, 4).map((topic) => <span key={topic} className="rounded-full border border-white/10 px-3 py-1 text-xs text-muted-foreground">{topic}</span>)}</div>{topics.length > 4 && <details className="mt-2"><summary className="cursor-pointer text-xs text-primary">Show {topics.length - 4} more topics</summary><div className="mt-2 flex flex-wrap gap-2">{topics.slice(4).map((topic) => <span key={topic} className="rounded-full border border-white/10 px-3 py-1 text-xs text-muted-foreground">{topic}</span>)}</div></details>}</div>}
               {analysis.result.brands.length > 0 && <DetailText label="Brand labels">{analysis.result.brands.join(', ')}</DetailText>}
               {analysis.result.tools.length > 0 && <DetailText label="Tool labels">{analysis.result.tools.join(', ')}</DetailText>}
               {analysis.result.people.length > 0 && <DetailText label="People named in text">{analysis.result.people.join(', ')}</DetailText>}
@@ -349,7 +395,8 @@ export function RembrDetailDrawer({
                 {matchingTags.length > 0 && <div className="mt-2 flex max-h-36 flex-wrap gap-2 overflow-y-auto">{matchingTags.map((tag) => <button key={tag.id} type="button" onClick={() => { onToggleTag?.(tag, true); setTagSearch(''); }} className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-muted-foreground transition hover:border-primary hover:text-primary">{tag.name}</button>)}</div>}
                 {normalizedTagSearch.length >= 2 && matchingTags.length === 0 && <p className="mt-2 text-xs text-muted-foreground">No matching tags.</p>}
               </div>}
-              {item.tags.length >= MAX_ITEM_TAGS && <p className="mt-2 text-xs text-muted-foreground">Five tags maximum. Remove one to add another.</p>}
+              {item.tags.length > MAX_ITEM_TAGS && <details className="mt-2"><summary className="cursor-pointer text-xs text-primary">Show {item.tags.length - MAX_ITEM_TAGS} more tags</summary><div className="mt-2 flex flex-wrap gap-2">{item.tags.slice(MAX_ITEM_TAGS).map((tag) => <span key={tag.id} className="rounded-full border border-white/10 px-3 py-1.5 text-xs text-muted-foreground">{tag.name}</span>)}</div></details>}
+              {item.tags.length >= MAX_ITEM_TAGS && <p className="mt-2 text-xs text-muted-foreground">Three topics shown first. Use tag search to add another.</p>}
             </div>}
           </section>}
 

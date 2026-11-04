@@ -37,7 +37,7 @@ async function register(baseUrl: string, email: string) {
   const response = await fetch(`${baseUrl}/api/auth/register`, {
     method: 'POST',
     headers: { Origin: origin, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, acceptedTerms: true }),
   });
   const setCookie = response.headers.get('set-cookie') ?? '';
   const cookie = setCookie.split(';')[0];
@@ -65,6 +65,27 @@ test('API denies private library access without a verified session', async () =>
       body: JSON.stringify({ email: 'foreign@example.test', password }),
     });
     assert.equal(foreignOrigin.status, 403);
+  });
+});
+
+test('registration requires Terms acceptance and records it while enabling AI features', async () => {
+  await withApi(async (baseUrl, database) => {
+    const missingAcceptance = await fetch(`${baseUrl}/api/auth/register`, {
+      method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: 'terms-missing@example.test', password, acceptedTerms: false }),
+    });
+    assert.equal(missingAcceptance.status, 400);
+
+    const accepted = await register(baseUrl, 'terms-accepted@example.test');
+    const terms = await database.prepare('SELECT terms_version,terms_accepted_at FROM users WHERE id=?').get(accepted.user.user.id) as { terms_version: string; terms_accepted_at: string };
+    assert.equal(terms.terms_version, '2026-11-05-v1');
+    assert.ok(terms.terms_accepted_at);
+    const preferences = await database.prepare(`SELECT (SELECT enabled FROM ai_analysis_preferences WHERE owner_id=?) AS media,
+      (SELECT enabled FROM ai_search_preferences WHERE owner_id=?) AS answers,
+      (SELECT enabled FROM ai_visual_search_preferences WHERE owner_id=?) AS image,
+      (SELECT enabled FROM semantic_search_preferences WHERE owner_id=?) AS semantic`)
+      .get(accepted.user.user.id, accepted.user.user.id, accepted.user.user.id, accepted.user.user.id) as { media: boolean; answers: boolean; image: boolean; semantic: boolean };
+    assert.deepEqual(preferences, { media: true, answers: true, image: true, semantic: true });
   });
 });
 
@@ -99,7 +120,7 @@ test('registration uses the 15-code-point policy, blocks common/contextual passw
     const registerRaw = (email: string, value: string) => fetch(`${baseUrl}/api/auth/register`, {
       method: 'POST',
       headers: { Origin: origin, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password: value }),
+      body: JSON.stringify({ email, password: value, acceptedTerms: true }),
     });
 
     const short = await registerRaw('short@example.test', 'Cedar river!!!');

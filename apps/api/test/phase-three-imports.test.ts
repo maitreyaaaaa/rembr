@@ -31,7 +31,7 @@ async function withApi(run: (baseUrl: string, database: Awaited<ReturnType<typeo
 }
 
 async function register(baseUrl: string, email: string, username: string) {
-  const response = await fetch(`${baseUrl}/api/auth/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
+  const response = await fetch(`${baseUrl}/api/auth/register`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password, acceptedTerms: true }) });
   assert.equal(response.status, 201);
   const cookie = (response.headers.get('set-cookie') ?? '').split(';')[0]!;
   const profile = await fetch(`${baseUrl}/api/profile`, { method: 'PATCH', headers: { Cookie: cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ username }) });
@@ -130,14 +130,10 @@ test('Phase 3 import manifests precede chunks, auto-queue parsed items, deduplic
   });
 });
 
-test('Instagram import acceptance queues opted-in AI analysis and import failures clear leases', async () => {
+test('Instagram import acceptance queues AI analysis and import failures clear leases', async () => {
   await withApi(async (_baseUrl, database) => {
     await register(_baseUrl, 'instagram-ai-import@example.test', 'instagram_ai_import');
     const account = await database.prepare('SELECT id FROM users WHERE email=?').get('instagram-ai-import@example.test') as { id: string };
-    const now = new Date().toISOString();
-    await database.prepare(`INSERT INTO ai_analysis_preferences (owner_id,enabled,consent_version,consented_at,updated_at)
-      VALUES (?,TRUE,'test-consent',?,?)`).run(account.id, now, now);
-
     const repository = createImportRepository(database);
     const manifest = await repository.create(account.id, 'instagram-ai-request', 'instagram-ai-import-key', [
       { name: 'saved_posts.json', mime: 'application/json', size: 1, chunks: 1 },
@@ -180,6 +176,8 @@ test('existing Instagram imports can queue up to 300 unanalyzed saved posts idem
     const owner = await register(baseUrl, 'retroactive-ai@example.test', 'retroactive_ai');
     const account = await database.prepare('SELECT id FROM users WHERE email=?').get('retroactive-ai@example.test') as { id: string };
     const now = new Date().toISOString();
+    await database.prepare(`UPDATE ai_analysis_preferences SET enabled=FALSE,disabled_at=?,updated_at=? WHERE owner_id=?`)
+      .run(now, now, account.id);
     await database.prepare(`INSERT INTO ai_worker_status (singleton,meta_api_configured,last_heartbeat_at)
       VALUES (TRUE,TRUE,?)`).run(now);
     const repository = createImportRepository(database);
@@ -201,9 +199,8 @@ test('existing Instagram imports can queue up to 300 unanalyzed saved posts idem
       (SELECT item_id FROM import_entries WHERE owner_id=? AND import_id=?)`).run(account.id, account.id, manifest.id);
     await database.prepare(`UPDATE import_entries SET status='saved' WHERE owner_id=? AND import_id=?`).run(account.id, manifest.id);
     await database.prepare(`UPDATE imports SET status='completed' WHERE owner_id=? AND id=?`).run(account.id, manifest.id);
-    await database.prepare(`INSERT INTO ai_analysis_preferences (owner_id,enabled,consent_version,consented_at,updated_at)
-      VALUES (?,TRUE,?,?,?)`).run(account.id, AI_DISCLOSURE_VERSION, now, now);
-
+    await database.prepare(`UPDATE ai_analysis_preferences SET enabled=TRUE,consent_version=?,consented_at=?,disabled_at=NULL,updated_at=? WHERE owner_id=?`)
+      .run(AI_DISCLOSURE_VERSION, now, now, account.id);
     const request = () => fetch(`${baseUrl}/api/imports/${manifest.id}/ai-analysis`, { method: 'POST', headers: { Cookie: owner } });
     const first = await request();
     assert.equal(first.status, 200);

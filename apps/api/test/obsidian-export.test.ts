@@ -25,7 +25,7 @@ async function withApi(run: (baseUrl: string, database: Awaited<ReturnType<typeo
 }
 
 async function register(baseUrl: string, email: string) {
-  const response = await fetch(`${baseUrl}/api/auth/register`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
+  const response = await fetch(`${baseUrl}/api/auth/register`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password, acceptedTerms: true }) });
   assert.equal(response.status, 201);
   const cookie = (response.headers.get('set-cookie') ?? '').split(';')[0]!;
   const body = await response.json() as { user: { id: string } };

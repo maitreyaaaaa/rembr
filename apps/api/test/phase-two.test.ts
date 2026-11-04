@@ -8,7 +8,6 @@ import { once } from 'node:events';
 import { test } from 'node:test';
 import { createApp } from '../src/app.js';
 import { createTestDatabase } from '../src/db/database.js';
-import { AI_SEARCH_DISCLOSURE_VERSION } from '../src/knowledge/ai-search-preferences.js';
 import { MetaApiError } from '../src/ai/meta-client.js';
 import { utcMonthStart } from '../src/ai/usage.js';
 import { recoverAssets } from '../src/assets/recovery.js';
@@ -34,7 +33,7 @@ async function withApi(run: (baseUrl: string, database: Awaited<ReturnType<typeo
 }
 
 async function register(baseUrl: string, email: string) {
-  const response = await fetch(`${baseUrl}/api/auth/register`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password }) });
+  const response = await fetch(`${baseUrl}/api/auth/register`, { method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ email, password, acceptedTerms: true }) });
   assert.equal(response.status, 201);
   const cookie = (response.headers.get('set-cookie') ?? '').split(';')[0]!;
   return { cookie, user: await response.json() as { user: { id: string; email: string } } };
@@ -191,7 +190,7 @@ test('an item can have at most five tags', async () => {
   });
 });
 
-test('Phase 4 grounded answers require separate consent and only retain citations to retrieved owner items', async () => {
+test('Terms acceptance enables grounded answers and citations only include retrieved owner items', async () => {
   let modelCalls = 0;
   let preflightCalls = 0;
   let modelPrompt = '';
@@ -202,26 +201,15 @@ test('Phase 4 grounded answers require separate consent and only retain citation
     const created = await createPage(baseUrl, owner.cookie, 'https://evidence.test/design-system');
     const item = (await created.json() as { item: { id: string } }).item;
     await fetch(`${baseUrl}/api/items/${item.id}`, { method: 'PATCH', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ titleOverride: 'Design systems', descriptionOverride: 'A reliable system for accessible product teams.' }) });
-    await database.prepare(`INSERT INTO ai_search_preferences (owner_id,enabled,consent_version,consented_at,updated_at)
-      VALUES (?,TRUE,'2026-10-29-v4',?,?)`).run(owner.user.user.id, new Date().toISOString(), new Date().toISOString());
-    const oldConsent = await fetch(`${baseUrl}/api/knowledge/ai-preferences`, { headers: { Cookie: owner.cookie } });
-    assert.equal((await oldConsent.json() as { preference: { enabled: boolean } }).preference.enabled, false);
-    const noConsent = await fetch(`${baseUrl}/api/knowledge/answer`, { method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ question: 'What did I save about design systems?' }) });
-    assert.equal((await noConsent.json() as { mode: string }).mode, 'lexical-excerpts');
-    assert.equal(modelCalls, 0);
-    assert.equal(preflightCalls, 0);
-    const missingDisclosure = await fetch(`${baseUrl}/api/knowledge/ai-preferences`, { method: 'PUT', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: true }) });
-    assert.equal(missingDisclosure.status, 400);
-    const oldDisclosure = await fetch(`${baseUrl}/api/knowledge/ai-preferences`, { method: 'PUT', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: true, disclosureVersion: '2026-10-29-v1' }) });
-    assert.equal(oldDisclosure.status, 400);
+    const preference = await fetch(`${baseUrl}/api/knowledge/ai-preferences`, { headers: { Cookie: owner.cookie } });
+    assert.equal((await preference.json() as { preference: { enabled: boolean } }).preference.enabled, true);
     const tooMuchHistory = await fetch(`${baseUrl}/api/knowledge/answer`, { method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ question: 'design', messages: Array.from({ length: 9 }, () => ({ role: 'user', content: 'design systems' })) }) });
     assert.equal(tooMuchHistory.status, 400);
-    const consent = await fetch(`${baseUrl}/api/knowledge/ai-preferences`, { method: 'PUT', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled: true, disclosureVersion: AI_SEARCH_DISCLOSURE_VERSION }) });
-    assert.equal(consent.status, 200);
     const grounded = await fetch(`${baseUrl}/api/knowledge/answer`, { method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ question: 'What did I save about design systems?' }) });
     const body = await grounded.json() as { mode: string; claims: Array<{ text: string; citationIds: string[] }>; citations: Array<{ id: string }> };
     assert.equal(body.mode, 'grounded-ai');
     assert.equal(modelCalls, 1);
+    assert.equal(preflightCalls, 1);
     assert.match(modelPrompt, /untrusted data/i);
     assert.deepEqual(body.claims, [{ text: 'The note is about accessible product teams.', citationIds: [item.id] }]);
     assert.deepEqual(body.citations.map((citation) => citation.id), [item.id]);
@@ -242,6 +230,7 @@ test('Phase 4 grounded answers require separate consent and only retain citation
     assert.match(modelPrompt, /"conversation"/);
     assert.match(modelPrompt, /What did I save about design systems/);
     assert.equal(modelCalls, 2);
+    assert.equal(preflightCalls, 2);
     const finalMonthUsage = await database.prepare('SELECT spent_microusd,reserved_microusd FROM ai_monthly_usage WHERE month_start=?').get(utcMonthStart()) as { spent_microusd: string; reserved_microusd: string };
     assert.equal(Number(finalMonthUsage.spent_microusd), 590);
     assert.equal(Number(finalMonthUsage.reserved_microusd), 0);
@@ -258,7 +247,37 @@ test('Phase 4 grounded answers require separate consent and only retain citation
   } });
 });
 
-test('Phase 4 saved-item summaries are user-triggered, consent-gated, owner-scoped, bounded, and accounted', async () => {
+test('grounded answers can compare an explicit owner-scoped set of saved items', async () => {
+  await withApi(async (baseUrl) => {
+    const owner = await register(baseUrl, 'selected-answer-owner@example.test');
+    const foreign = await register(baseUrl, 'selected-answer-foreign@example.test');
+    await profile(baseUrl, owner.cookie, 'selected_answer_owner');
+    await profile(baseUrl, foreign.cookie, 'selected_answer_foreign');
+    const save = async (account: typeof owner, path: string, title: string, description: string) => {
+      const created = await createPage(baseUrl, account.cookie, `https://selected-answer.test/${path}`);
+      const { item } = await created.json() as { item: { id: string } };
+      await fetch(`${baseUrl}/api/items/${item.id}`, { method: 'PATCH', headers: { Cookie: account.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ titleOverride: title, descriptionOverride: description }) });
+      return item.id;
+    };
+    const first = await save(owner, 'first', 'AI makes building cheaper', 'AI tools reduce the cost of producing software.');
+    const second = await save(owner, 'second', 'Tools for founders', 'AI tools help founders build and ship software.');
+    await save(owner, 'unselected', 'Other AI reference', 'This also mentions AI software tools.');
+    const foreignId = await save(foreign, 'private', 'Private reference', 'This is another account’s private save.');
+    const ask = (sourceIds: string[]) => fetch(`${baseUrl}/api/knowledge/answer`, {
+      method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ question: 'What do these have in common?', sourceIds }),
+    });
+    const response = await ask([second, first]);
+    assert.equal(response.status, 200);
+    const answer = await response.json() as { citations: Array<{ id: string; title: string }> };
+    assert.deepEqual(answer.citations.map(({ id }) => id), [second, first]);
+    assert.deepEqual(answer.citations.map(({ title }) => title), ['Tools for founders', 'AI makes building cheaper']);
+    assert.equal((await ask([first, foreignId])).status, 404);
+    assert.equal((await ask([first, first])).status, 400);
+  });
+});
+
+test('Phase 4 saved-item summaries are user-triggered, owner-scoped, bounded, and accounted', async () => {
   let modelCalls = 0;
   let prompt = '';
   let summaryOutputSchema: { name: string; schema: Record<string, unknown> } | undefined;
@@ -277,24 +296,6 @@ test('Phase 4 saved-item summaries are user-triggered, consent-gated, owner-scop
       VALUES ('summary-extract',?,?, 'Garden plan', 'Notes on the project', ?, ?, ?)`)
       .run(owner.user.user.id, item.id, source, new Date().toISOString(), new Date().toISOString());
 
-    const noConsent = await fetch(`${baseUrl}/api/knowledge/items/${item.id}/summary`, {
-      method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({}),
-    });
-    assert.equal(noConsent.status, 403);
-    assert.equal(modelCalls, 0);
-
-    await database.prepare(`INSERT INTO ai_search_preferences (owner_id,enabled,consent_version,consented_at,updated_at)
-      VALUES (?,TRUE,'2026-10-29-v3',?,?)`).run(owner.user.user.id, new Date().toISOString(), new Date().toISOString());
-    const previousConsent = await fetch(`${baseUrl}/api/knowledge/items/${item.id}/summary`, {
-      method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({}),
-    });
-    assert.equal(previousConsent.status, 403);
-    assert.equal(modelCalls, 0);
-
-    await fetch(`${baseUrl}/api/knowledge/ai-preferences`, {
-      method: 'PUT', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ enabled: true, disclosureVersion: AI_SEARCH_DISCLOSURE_VERSION }),
-    });
     const unavailableSummary = await fetch(`${baseUrl}/api/knowledge/items/${item.id}/summary`, {
       method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({}),
     });
@@ -409,8 +410,6 @@ test('grounded library answers cite matching OCR and media analysis without expo
     await seedAnalysis(foreign, 'foreign', 'Project Aurora confidential owner-only phrase: blue lighthouse 77.');
     await database.prepare(`UPDATE ai_analysis_results SET brands_json=?,tools_json=?,people_json=?,repositories_json=?
       WHERE owner_id=? AND item_id=?`).run(JSON.stringify(['Acme']), JSON.stringify(['Figma']), JSON.stringify(['Ada Lovelace']), JSON.stringify(['rembr/core']), owner.user.user.id, ownerItem);
-    await database.prepare(`INSERT INTO ai_search_preferences (owner_id,enabled,consent_version,consented_at,updated_at)
-      VALUES (?,TRUE,?,?,?)`).run(owner.user.user.id, AI_SEARCH_DISCLOSURE_VERSION, now, now);
     const response = await fetch(`${baseUrl}/api/knowledge/answer`, {
       method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' },
       body: JSON.stringify({ question: 'What does the Project Aurora screenshot say?' }),
@@ -834,10 +833,10 @@ test('Postgres schema starts with the complete empty Rembr model', async () => {
   try {
     const result = await database.prepare(`SELECT count(*) AS count FROM information_schema.tables
       WHERE table_schema='public' AND table_type='BASE TABLE'`).get() as { count: string };
-    assert.equal(Number(result.count), 47);
+    assert.equal(Number(result.count), 49);
     const rls = await database.prepare(`SELECT count(*) AS count FROM pg_class c
       JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relkind='r' AND c.relrowsecurity`).get() as { count: string };
-    assert.equal(Number(rls.count), 47);
+    assert.equal(Number(rls.count), 49);
     const mcpRls = await database.prepare(`SELECT count(*) AS count FROM pg_class c
       JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public' AND c.relname IN ('workos_mcp_user_links','mcp_tool_audit_events') AND c.relrowsecurity`).get() as { count: string };
     assert.equal(Number(mcpRls.count), 2);

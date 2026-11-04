@@ -9,7 +9,7 @@ import type { MediaStorage } from '../media/storage.js';
 import { createLibraryService, LibraryServiceError } from './service.js';
 
 const noteUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024, files: 5, fields: 3, fieldSize: 50_000 } });
-const updateItemSchema = z.object({ titleOverride: z.string().trim().max(240).nullable().optional(), descriptionOverride: z.string().trim().max(2000).nullable().optional() }).strict();
+const updateItemSchema = z.object({ titleOverride: z.string().trim().max(240).nullable().optional(), descriptionOverride: z.string().trim().max(2000).nullable().optional(), summaryOverride: z.string().trim().max(2000).nullable().optional(), whySaved: z.string().trim().max(1000).nullable().optional() }).strict();
 const searchFeedbackSchema = z.object({ searchEventId: z.string().uuid(), itemId: z.string().uuid(), rating: z.enum(['helpful','not_helpful']) }).strict();
 
 function param(req: express.Request, key: string): string { const value = req.params[key]; return Array.isArray(value) ? value[0] ?? '' : value ?? ''; }
@@ -69,7 +69,7 @@ export function createLibraryRouter(database: DatabaseHandle, storage: AssetStor
 
   router.patch('/items/:id', signedIn, profile, async (req, res) => {
     const parsed = updateItemSchema.safeParse(req.body);
-    if (!parsed.success || Object.keys(parsed.data ?? {}).length === 0) return apiError(res, 400, 'invalid_item', 'Provide a title or description to update.', req.requestId);
+    if (!parsed.success || Object.keys(parsed.data ?? {}).length === 0) return apiError(res, 400, 'invalid_item', 'Provide a title, description, summary, or save reason to update.', req.requestId);
     const item = await library.update(req.user!.id, param(req, 'id'), parsed.data);
     if (!item) return apiError(res, 404, 'not_found', 'Saved item not found.', req.requestId);
     return res.json({ item });

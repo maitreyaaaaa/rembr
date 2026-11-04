@@ -2,7 +2,7 @@ import type { ApiError, Profile, SavedItem, Session } from './app/contracts.js';
 import { api, apiWithProgress } from './app/api.js';
 import { messageOf, sameAppPath } from './app/helpers.js';
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { ArrowRight, FileText, Link2, Plus, Upload, X } from 'lucide-react';
+import { ArrowRight, Brain, FileCheck2, FileText, Link2, Plus, Upload, X } from 'lucide-react';
 import { BrowserRouter, Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AvatarUpload } from './components/AvatarUpload.js';
 import { RembrAuthFrame } from './features/auth/RembrAuthFrame.js';
@@ -17,6 +17,7 @@ import { DeveloperAccessPage } from './features/settings/DeveloperAccessPage.js'
 import { McpAccessPage } from './features/settings/McpAccessPage.js';
 import { WorkOSMcpConsentPage } from './features/auth/WorkOSMcpConsentPage.js';
 import { DemoWorkspacePage } from './features/demo/DemoWorkspacePage.js';
+import { MemoryRecallPage } from './features/knowledge/MemoryRecallPage.js';
 
 const MarketingSite = lazy(() => import('./MarketingSite.js').then(({ MarketingSite: page }) => ({ default: page })));
 const PortedLanding = lazy(() => import('./features/marketing/PortedLanding.js').then(({ PortedLanding: page }) => ({ default: page })));
@@ -62,9 +63,10 @@ function AppRoutes() {
       <Route path="smart-collections/:collectionId" element={<SmartCollectionsPage request={api} />} />
       <Route path="graph" element={<KnowledgeGraphPage />} />
       <Route path="checkup" element={<LibraryCheckupPage />} />
+      <Route path="remember" element={<MemoryRecallPage />} />
       <Route path="settings/profile" element={<SettingsPage />} />
       <Route path="settings/preferences" element={<SettingsPage />} />
-      <Route path="settings/advanced" element={<SettingsPage />} />
+      <Route path="settings/advanced" element={<Navigate to="/app/checkup" replace />} />
       <Route path="settings/developer-access" element={<DeveloperAccessPage />} />
       <Route path="settings/mcp-access" element={<McpAccessPage />} />
     </Route>
@@ -73,7 +75,7 @@ function AppRoutes() {
 }
 
 function NotFoundPage() {
-  return <main className="rg-page"><div className="rg-main"><section className="rg-intro"><p className="rg-kicker">404 / NOT FOUND</p><h1>This page is not here.</h1><p>Check the address or return to your Rembr library.</p><div className="rg-not-found-actions"><Link className="rg-button rg-button-primary" to="/">Go to Rembr home</Link><Link className="rg-button rg-button-secondary" to="/app">Open your library</Link></div></section></div></main>;
+  return <main className="rg-page"><div className="rg-main"><section className="rg-intro"><p className="rg-kicker">404 / NOT FOUND</p><h1>This page is not here.</h1><p>Check the address or return to your Rembr library.</p><div className="rg-not-found-actions"><Link className="rg-button rg-button-primary" to="/">Go to Rembr home</Link><Link className="rg-button rg-button-secondary" to="/app" target="_blank" rel="noopener noreferrer">Open your library</Link></div></section></div></main>;
 }
 
 function AuthPage() {
@@ -83,6 +85,7 @@ function AuthPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(true);
+  const [termsAccepted, setTermsAccepted] = useState(false);
   const [passwordRevealed, setPasswordRevealed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -102,7 +105,7 @@ function AuthPage() {
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setBusy(true); setError('');
     try {
-      await api(`/api/auth/${mode === 'register' ? 'register' : 'login'}`, { method: 'POST', body: JSON.stringify({ email, password, rememberMe }) });
+      await api(`/api/auth/${mode === 'register' ? 'register' : 'login'}`, { method: 'POST', body: JSON.stringify({ email, password, rememberMe, ...(mode === 'register' ? { acceptedTerms: termsAccepted } : {}) }) });
       const session = await api<Session>('/api/auth/session');
       navigate(session.profileComplete ? returnTo : '/app/setup/profile', { replace: true, state: { returnTo } });
     } catch (cause) { setError(messageOf(cause, 'Sign in failed. Try again.')); }
@@ -111,8 +114,8 @@ function AuthPage() {
 
   return <><RembrAuthFrame title="Keep what you find. Find it again." description="Save a public page with its source and a readable copy." sideNote="Made for the long read">
     <div className="auth-card-heading"><h2 id="auth-form-title">{mode === 'login' ? 'Welcome back.' : 'Create your account.'}</h2></div>
-      <div className="auth-tabs" role="tablist" aria-label="Account access"><button type="button" role="tab" aria-selected={mode === 'login'} onClick={() => { setMode('login'); setPassword(''); setPasswordRevealed(false); setError(''); }}>Sign in</button><button type="button" role="tab" aria-selected={mode === 'register'} onClick={() => { setMode('register'); setPassword(''); setPasswordRevealed(false); setError(''); }}>Create account</button></div>
-      <form className="stack-form" onSubmit={(event) => void submit(event)}><label htmlFor="email">Email address</label><input id="email" autoComplete="email" type="email" required maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} />{mode === 'register' ? <PasswordStrengthField id="password" value={password} onValueChange={setPassword} disabled={busy} /> : <><label htmlFor="password">Password</label><div className="password-input-wrap"><input id="password" name="password" autoComplete="current-password" type={passwordRevealed ? 'text' : 'password'} required minLength={1} maxLength={128} value={password} onChange={(event) => setPassword(event.target.value)} /><button type="button" className="password-reveal" aria-label={passwordRevealed ? 'Hide password' : 'Show password'} aria-controls="password" aria-pressed={passwordRevealed} onClick={() => setPasswordRevealed((current) => !current)}>{passwordRevealed ? 'Hide' : 'Show'}</button></div></>}<label className="auth-remember"><input type="checkbox" checked={rememberMe} onChange={(event) => setRememberMe(event.currentTarget.checked)} /><span>Keep me signed in on this browser for 30 days</span></label>{error && <p className="notice error" role="alert">{error}</p>}<button className="primary-button" type="submit" disabled={busy}>{busy ? (mode === 'register' ? 'Creating account…' : 'Signing in…') : mode === 'register' ? 'Create your library' : 'Sign in to Rembr'}</button></form>
+      <div className="auth-tabs" role="tablist" aria-label="Account access"><button type="button" role="tab" aria-selected={mode === 'login'} onClick={() => { setMode('login'); setPassword(''); setTermsAccepted(false); setPasswordRevealed(false); setError(''); }}>Sign in</button><button type="button" role="tab" aria-selected={mode === 'register'} onClick={() => { setMode('register'); setPassword(''); setPasswordRevealed(false); setError(''); }}>Create account</button></div>
+      <form className="stack-form" onSubmit={(event) => void submit(event)}><label htmlFor="email">Email address</label><input id="email" autoComplete="email" type="email" required maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} />{mode === 'register' ? <PasswordStrengthField id="password" value={password} onValueChange={setPassword} disabled={busy} /> : <><label htmlFor="password">Password</label><div className="password-input-wrap"><input id="password" name="password" autoComplete="current-password" type={passwordRevealed ? 'text' : 'password'} required minLength={1} maxLength={128} value={password} onChange={(event) => setPassword(event.target.value)} /><button type="button" className="password-reveal" aria-label={passwordRevealed ? 'Hide password' : 'Show password'} aria-controls="password" aria-pressed={passwordRevealed} onClick={() => setPasswordRevealed((current) => !current)}>{passwordRevealed ? 'Hide' : 'Show'}</button></div></>}{mode === 'register' && <label className="auth-terms"><input type="checkbox" required checked={termsAccepted} onChange={(event) => setTermsAccepted(event.currentTarget.checked)} /><span className="auth-terms-icon"><FileCheck2 size={17} aria-hidden="true" /></span><span>I agree to the <a href="/terms" target="_blank" rel="noopener noreferrer">Terms and Conditions</a>, including the AI processing described there.</span></label>}<label className="auth-remember"><input type="checkbox" checked={rememberMe} onChange={(event) => setRememberMe(event.currentTarget.checked)} /><span>Keep me signed in on this browser for 30 days</span></label>{error && <p className="notice error" role="alert">{error}</p>}<button className="primary-button" type="submit" disabled={busy || (mode === 'register' && !termsAccepted)}>{busy ? (mode === 'register' ? 'Creating account…' : 'Signing in…') : mode === 'register' ? 'Create your library' : 'Sign in to Rembr'}</button></form>
       <p className="privacy-note"><span>✳</span>Your library is private to your account. Rembr can save public pages.</p>
   </RembrAuthFrame>{demoPromptOpen && <div className="demo-choice-backdrop"><section className="demo-choice-dialog" role="dialog" aria-modal="true" aria-labelledby="demo-choice-title"><p className="demo-choice-kicker">A faster way to explore</p><h2 id="demo-choice-title">Take a look around first.</h2><p>Either log in or sign up with your own account and export your Instagram saves. Importing them takes a little time. Or enter the shared demo workspace now. Changes, imports, and profile edits in the demo are visible to other visitors.</p><Link className="demo-choice-primary" to="/demo" onClick={() => setDemoPromptOpen(false)}>Enter the demo workspace <ArrowRight size={18} aria-hidden="true" /></Link><button className="demo-choice-account" type="button" onClick={() => setDemoPromptOpen(false)}>Log in or sign up with my own account</button><button className="demo-choice-close" type="button" aria-label="Close demo introduction" onClick={() => setDemoPromptOpen(false)}>×</button></section></div>}</>;
 }
@@ -271,6 +274,7 @@ function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promi
   const navItems = [
     { path: '/app', label: 'Saved library', icon: <SidebarIcon name="book-saved" />, exact: true },
     { path: '/app/smart-collections', label: 'Smart collections', icon: <SidebarIcon name="folder-2" /> },
+    { path: '/app/remember', label: 'Remember', icon: <Brain size={18} aria-hidden="true" /> },
     { path: '/app/add', label: 'Add saves', icon: <SidebarIcon name="document-upload" /> },
   ];
   const mobileMoreActive = location.pathname.startsWith('/app/smart-collections') || location.pathname === '/how-to-use';
@@ -332,7 +336,7 @@ function SetupRoute() {
   if (loading) return <main className="center-state" role="status">Checking your session…</main>;
   if (!session) return <Navigate to={`/login?returnTo=${encodeURIComponent(`${location.pathname}${location.search}`)}`} replace />;
   if (session.profileComplete) return <Navigate to={returnTo} replace />;
-  return <main className="phase2-centered phase2-setup-shell"><section className="phase2-card phase2-setup-card"><Link className="wordmark" to="/" aria-label="Rembr home"><img className="rembr-official-logo auth-brand-logo" src="/brand/rembr-wordmark.svg?v=20261101" alt="Rembr" /></Link><ProfileForm session={session} onComplete={async () => { await refresh(); navigate(returnTo, { replace: true }); }} /></section></main>;
+  return <main className="phase2-centered phase2-setup-shell"><section className="phase2-card phase2-setup-card"><Link className="wordmark" to="/app" aria-label="Rembr app home"><img className="rembr-official-logo auth-brand-logo" src="/brand/rembr-wordmark.svg?v=20261101" alt="Rembr" /></Link><ProfileForm session={session} onComplete={async () => { await refresh(); navigate(returnTo, { replace: true }); }} /></section></main>;
 }
 
 function ProfileForm({ session, onComplete }: { session: Session; onComplete: () => Promise<void> }) {

@@ -10,7 +10,18 @@ interface LibraryCardItem {
   titleOverride?: string | null;
   description: string;
   descriptionOverride?: string | null;
+  summaryOverride?: string | null;
+  whySaved?: string | null;
+  originalCaption?: string;
+  summary?: string;
+  visualDescription?: string;
+  ocrText?: string;
+  transcript?: string;
+  creator?: string | null;
+  source?: string | null;
+  postedAt?: string | null;
   textPreview: string;
+  remembering?: { reason: string; nextDueAt: string; intervalDays: number; successfulRecalls: number } | null;
   errorCode: string | null;
   createdAt: string;
   updatedAt: string;
@@ -27,6 +38,8 @@ interface Props {
   feedback: Record<string, 'helpful' | 'not_helpful'>;
   onFeedback: (item: LibraryCardItem, rating: 'helpful' | 'not_helpful') => void;
   onRemove: (item: LibraryCardItem) => void;
+  selectedForAnswer?: Record<string, boolean>;
+  onToggleAnswerSource?: (item: LibraryCardItem) => void;
   removeLabel?: string;
   totalCount?: number;
   showSort?: boolean;
@@ -39,7 +52,7 @@ interface Props {
 }
 
 const layouts = [
-  { key: 'grid', label: 'Pins' },
+  { key: 'grid', label: 'Grid' },
   { key: 'gallery', label: 'Gallery' },
   { key: 'list', label: 'List' },
 ] as const;
@@ -76,15 +89,23 @@ function itemData(item: LibraryCardItem) {
     ?? item.media?.find((asset) => asset.status === 'ready' && asset.url && asset.mime?.startsWith('image/'))?.url
     ?? item.note?.assets.find((asset) => asset.mime.startsWith('image/'))?.url
     ?? null;
-  const title = item.titleOverride || item.title || 'Untitled save';
-  const preview = item.descriptionOverride || item.description || item.note?.body || item.textPreview || 'No preview available.';
+  const extractedTitle = item.summaryOverride || item.summary || '';
+  const rawTitle = item.title || '';
+  const sourceTitle = (item.titleOverride || rawTitle).replace(/#[\p{L}\p{N}_-]+/gu, '').replace(/\s+/g, ' ').trim();
+  const title = item.titleOverride || ((/#|.{90}/u.test(rawTitle) || rawTitle.trim() === item.description.trim()) && extractedTitle ? extractedTitle.split(/[.!?\n]/, 1)[0]?.slice(0, 100) : sourceTitle) || (item.creator ? `${item.creator} · ${platformFor(item).label} save` : `${platformFor(item).label} save`);
+  const reason = item.whySaved || item.remembering?.reason;
+  const preview = reason ? `Why I saved this: ${reason}` : extractedTitle || item.note?.body || item.textPreview || '';
   const chip = item.tags[0]?.name || '';
   const statusLabel = ({ ready: 'Ready', queued: 'Queued', processing: 'Processing', retry_wait: 'Retry scheduled', failed: 'Failed', partial: 'Partially ready', paused: 'Paused', cancelled: 'Canceled', cancel_requested: 'Canceling' } as Record<string, string>)[item.status] ?? 'Saved';
   const StatusIcon = item.status === 'ready' ? CheckCircle2 : item.status === 'failed' ? XCircle : item.status === 'processing' ? LoaderCircle : item.status === 'queued' ? Clock3 : item.status === 'retry_wait' ? RotateCcw : AlertCircle;
-  return { note, thumbnail, title, preview, chip, statusLabel, StatusIcon, source: note ? 'Personal note' : host(item.url) };
+  const video = item.media?.find((asset) => asset.status === 'ready' && asset.url && asset.mime?.startsWith('video/')) ?? null;
+  const source = note ? 'Personal note' : platformFor(item).label;
+  const postedDate = item.postedAt && Number.isFinite(Date.parse(item.postedAt)) ? new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(item.postedAt)) : '';
+  const mediaType = note ? 'Note' : video ? 'Video' : thumbnail ? 'Image' : 'Page';
+  return { note, thumbnail, video, title, preview, chip, statusLabel, StatusIcon, source, postedDate, mediaType };
 }
 
-export function PortedLibraryGrid({ items, searchActive, feedback, onFeedback, onRemove, removeLabel = 'Remove', totalCount, showSort = true, hasMore = false, loadingMore = false, loadMoreError = '', onLoadMore, sort = 'created_desc', onSortChange }: Props) {
+export function PortedLibraryGrid({ items, searchActive, feedback, onFeedback, onRemove, selectedForAnswer = {}, onToggleAnswerSource, removeLabel = 'Remove', totalCount, showSort = true, hasMore = false, loadingMore = false, loadMoreError = '', onLoadMore, sort = 'created_desc', onSortChange }: Props) {
   const [layout, setLayout] = useState<(typeof layouts)[number]['key']>('grid');
   const [viewportHeight, setViewportHeight] = useState(() => window.innerHeight);
   const sentinelRef = useRef<HTMLDivElement>(null);
@@ -118,8 +139,8 @@ export function PortedLibraryGrid({ items, searchActive, feedback, onFeedback, o
         </select>
       </label>}
     </div>
-    <div className={`source-library-grid ${layout === 'list' ? 'is-list' : layout === 'gallery' ? 'is-gallery' : 'is-masonry'}`}>
-      {items.map((item, index) => <LibraryCard key={item.id} item={item} index={index} layout={layout} searchActive={searchActive} feedback={feedback[item.id]} onFeedback={onFeedback} onRemove={onRemove} removeLabel={removeLabel} />)}
+    <div className={`source-library-grid ${layout === 'list' ? 'is-list' : layout === 'gallery' ? 'is-gallery' : ''}`}>
+      {items.map((item, index) => <LibraryCard key={item.id} item={item} index={index} layout={layout} searchActive={searchActive} feedback={feedback[item.id]} selectedForAnswer={selectedForAnswer[item.id] ?? false} onToggleAnswerSource={onToggleAnswerSource} onFeedback={onFeedback} onRemove={onRemove} removeLabel={removeLabel} />)}
       {loadingMore && <LibraryCardSkeletons count={Math.min(20, Math.max(4, Math.ceil((window.innerWidth - 100) / 320) * 2))} layout={layout} />}
     </div>
     <div ref={sentinelRef} className="library-infinite-scroll-sentinel" aria-hidden="true" />
@@ -129,18 +150,19 @@ export function PortedLibraryGrid({ items, searchActive, feedback, onFeedback, o
 }
 
 export function LibraryCardSkeletons({ count = 12, layout = 'grid' }: { count?: number; layout?: 'grid' | 'gallery' | 'list' }) {
-  const heights = [0.78, 1.04, 0.9, 1.18, 0.84, 1.1, 0.96, 0.75];
-  return <div className={`source-library-skeleton-grid ${layout === 'list' ? 'is-list' : layout === 'gallery' ? 'is-gallery' : 'is-masonry'}`} role="status" aria-label="Loading saved items">
-    {Array.from({ length: count }, (_, index) => <div className="source-library-card-skeleton" key={index} style={{ '--skeleton-ratio': heights[index % heights.length] } as React.CSSProperties}><div className="source-library-card-skeleton-cover" /><div className="source-library-card-skeleton-lines"><i /><i /><i /></div></div>)}
+  return <div className={`source-library-skeleton-grid ${layout === 'list' ? 'is-list' : layout === 'gallery' ? 'is-gallery' : ''}`} role="status" aria-label="Loading saved items">
+    {Array.from({ length: count }, (_, index) => <div className="source-library-card-skeleton" key={index}><div className="source-library-card-skeleton-cover" /><div className="source-library-card-skeleton-lines"><i /><i /><i /></div></div>)}
   </div>;
 }
 
-function LibraryCard({ item, index, layout, searchActive, feedback, onFeedback, onRemove, removeLabel }: {
+function LibraryCard({ item, index, layout, searchActive, feedback, selectedForAnswer, onToggleAnswerSource, onFeedback, onRemove, removeLabel }: {
   item: LibraryCardItem;
   index: number;
   layout: 'grid' | 'gallery' | 'list';
   searchActive: boolean;
   feedback?: 'helpful' | 'not_helpful';
+  selectedForAnswer: boolean;
+  onToggleAnswerSource?: Props['onToggleAnswerSource'];
   removeLabel: string;
   onFeedback: Props['onFeedback'];
   onRemove: Props['onRemove'];
@@ -148,48 +170,75 @@ function LibraryCard({ item, index, layout, searchActive, feedback, onFeedback, 
   const location = useLocation();
   const returnTo = `${location.pathname}${location.search}`;
   const detailHref = `/app/items/${encodeURIComponent(item.id)}${location.search}`;
-  const { note, thumbnail, title, preview, chip, statusLabel, StatusIcon, source } = itemData(item);
+  const { note, thumbnail, video, title, preview, chip, statusLabel, StatusIcon, source, postedDate, mediaType } = itemData(item);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const previewTimer = useRef<number | null>(null);
+  const previewVideo = useRef<HTMLVideoElement>(null);
+  const previewPinned = useRef(false);
+  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function clearPreviewTimer() { if (previewTimer.current !== null) window.clearTimeout(previewTimer.current); previewTimer.current = null; }
+  function schedulePreview() { clearPreviewTimer(); previewTimer.current = window.setTimeout(() => setPreviewOpen(true), 750); }
+  function closePreview() { clearPreviewTimer(); previewPinned.current = false; if (previewVideo.current) { previewVideo.current.pause(); previewVideo.current.currentTime = 0; } setPreviewOpen(false); }
+  function togglePreview() { const next = !previewOpen; previewPinned.current = next; if (!next && previewVideo.current) { previewVideo.current.pause(); previewVideo.current.currentTime = 0; } setPreviewOpen(next); }
+  useEffect(() => () => { clearPreviewTimer(); }, []);
+  useEffect(() => {
+    const media = previewVideo.current;
+    if (!media) return;
+    if (previewOpen && !reducedMotion) { media.currentTime = 0; void media.play().catch(() => undefined); }
+    else { media.pause(); media.currentTime = 0; }
+  }, [previewOpen, reducedMotion]);
+  const onPreviewTime = () => { if (previewVideo.current && previewVideo.current.currentTime >= 3) { previewVideo.current.pause(); previewVideo.current.currentTime = 0; } };
+  const metaRow = <p className="source-library-context">{[item.creator, source, postedDate, mediaType].filter(Boolean).join(' · ')}</p>;
+  const previewLayer = previewOpen && <div className="source-library-hover-preview" role="status" aria-label={`Preview of ${title}`}>
+    {video?.url && !reducedMotion ? <video ref={previewVideo} src={video.url} muted playsInline preload="metadata" onTimeUpdate={onPreviewTime} aria-hidden="true" /> : thumbnail ? <img src={thumbnail} alt="" loading="lazy" decoding="async" /> : null}
+    <div className="source-library-preview-text"><strong>{title}</strong><span>{preview || item.originalCaption || item.description || 'No extracted preview is available.'}</span></div>
+  </div>;
   const backdrops = ['#d6ff24', '#f4f4f0', '#a5ff18', '#29ffc6', '#e5e7eb', '#86efac'];
-  const ratios = ['4 / 5', '3 / 4', '1 / 1', '2 / 3', '5 / 4', '3 / 5'];
-  if (layout === 'list') return <article className="source-library-row">
+  if (layout === 'list') return <article className="source-library-row" onPointerEnter={(event) => { if (event.pointerType === 'mouse') schedulePreview(); }} onPointerLeave={() => { if (!previewPinned.current) closePreview(); }} onFocusCapture={schedulePreview} onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) closePreview(); }}>
     <Link className="source-library-row-copy" to={detailHref} state={{ returnTo }}>
       <div className="source-library-meta"><SourceBadge item={item} />{chip && <span>{chip}</span>}<span className={`source-status is-${item.status}`}><StatusIcon />{statusLabel}</span></div>
-      <h2>{title}</h2><p className="source-library-domain">{source}</p><p className="source-library-preview">{preview}</p>
+      <h2>{title}</h2>{metaRow}<p className="source-library-preview">{preview || 'No extracted summary yet.'}</p>
     </Link>
-    {thumbnail ? <img src={thumbnail} alt="" loading="lazy" decoding="async" /> : <div className="source-library-row-placeholder">{note ? <FileText /> : <Eye />}</div>}
-    <LibraryCardActions item={item} returnTo={returnTo} searchActive={searchActive} feedback={feedback} onFeedback={onFeedback} onRemove={onRemove} removeLabel={removeLabel} />
+      {thumbnail ? <img src={thumbnail} alt="" loading="lazy" decoding="async" /> : <div className="source-library-row-placeholder">{video ? <span aria-label="Video">▶</span> : note ? <FileText /> : <Eye />}</div>}
+    <LibraryCardActions item={item} returnTo={returnTo} searchActive={searchActive} feedback={feedback} selectedForAnswer={selectedForAnswer} onToggleAnswerSource={onToggleAnswerSource} onFeedback={onFeedback} onRemove={onRemove} removeLabel={removeLabel} onTogglePreview={togglePreview} previewOpen={previewOpen} />{previewLayer}
   </article>;
 
-  if (layout === 'gallery') return <article className="source-library-gallery group">
+  if (layout === 'gallery') return <article className="source-library-gallery group" onPointerEnter={(event) => { if (event.pointerType === 'mouse') schedulePreview(); }} onPointerLeave={() => { if (!previewPinned.current) closePreview(); }} onFocusCapture={schedulePreview} onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) closePreview(); }}>
     <Link className="source-library-gallery-visual" to={detailHref} state={{ returnTo }}>
-      {thumbnail ? <img src={thumbnail} alt="" loading="lazy" decoding="async" /> : <div className="source-library-gallery-empty"><span>{note ? <FileText /> : <ImageIcon />}</span><small>Preview pending</small><p>{preview}</p></div>}
+      {thumbnail ? <img src={thumbnail} alt="" loading="lazy" decoding="async" /> : <div className="source-library-gallery-empty"><span>{video ? '▶' : note ? <FileText /> : <ImageIcon />}</span><small>{video ? 'Video saved' : 'No thumbnail saved'}</small></div>}
       <span className="source-library-platform"><SourceBadge item={item} /></span>
     </Link>
-    <div className="source-library-gallery-copy"><div className="source-library-meta"><span>{source}</span><span className={`source-status is-${item.status}`}><StatusIcon />{statusLabel}</span></div><Link to={detailHref} state={{ returnTo }}><h2>{title}</h2></Link><p className="source-library-preview">{preview}</p>{chip && <span className="source-library-chip">{chip}</span>}<LibraryCardActions item={item} returnTo={returnTo} searchActive={searchActive} feedback={feedback} onFeedback={onFeedback} onRemove={onRemove} removeLabel={removeLabel} /></div>
+    <div className="source-library-gallery-copy"><div className="source-library-meta"><span>{source}</span><span className={`source-status is-${item.status}`}><StatusIcon />{statusLabel}</span></div><Link to={detailHref} state={{ returnTo }}><h2>{title}</h2></Link>{metaRow}<p className="source-library-preview">{preview || 'No extracted summary yet.'}</p>{chip && <span className="source-library-chip">{chip}</span>}<LibraryCardActions item={item} returnTo={returnTo} searchActive={searchActive} feedback={feedback} selectedForAnswer={selectedForAnswer} onToggleAnswerSource={onToggleAnswerSource} onFeedback={onFeedback} onRemove={onRemove} removeLabel={removeLabel} onTogglePreview={togglePreview} previewOpen={previewOpen} /></div>{previewLayer}
   </article>;
 
-  return <article className="source-library-pin group" style={{ '--pin-backdrop': backdrops[index % backdrops.length], '--pin-ratio': thumbnail ? ratios[index % ratios.length] : '1.3 / 1' } as React.CSSProperties}>
+  return <article className="source-library-pin group" onPointerEnter={(event) => { if (event.pointerType === 'mouse') schedulePreview(); }} onPointerLeave={() => { if (!previewPinned.current) closePreview(); }} onFocusCapture={schedulePreview} onBlurCapture={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) closePreview(); }} style={{ '--pin-backdrop': backdrops[index % backdrops.length] } as React.CSSProperties}>
     <Link className="source-library-pin-cover" to={detailHref} state={{ returnTo }}>
       {thumbnail && <img src={thumbnail} alt="" loading="lazy" decoding="async" />}
-      <div className="source-library-pin-top"><SourceBadge item={item} /><i>{note ? <FileText /> : <Eye />}</i></div>
+      <div className="source-library-pin-top"><SourceBadge item={item} /><i>{video ? '▶' : note ? <FileText /> : <Eye />}</i></div>
       <div className="source-library-pin-title">{chip && <span>{chip}</span>}<h2>{title}</h2></div>
     </Link>
-    <div className="source-library-pin-copy"><div className="source-library-meta"><span>{source}</span>{!note && <span className={`source-status is-${item.status}`}><StatusIcon />{statusLabel}</span>}</div><p className="source-library-preview">{preview}</p><LibraryCardActions item={item} returnTo={returnTo} searchActive={searchActive} feedback={feedback} onFeedback={onFeedback} onRemove={onRemove} removeLabel={removeLabel} /></div>
+    <div className="source-library-pin-copy"><div className="source-library-meta"><span>{source}</span>{!note && <span className={`source-status is-${item.status}`}><StatusIcon />{statusLabel}</span>}</div>{metaRow}<p className="source-library-preview">{preview || 'No extracted summary yet.'}</p><LibraryCardActions item={item} returnTo={returnTo} searchActive={searchActive} feedback={feedback} selectedForAnswer={selectedForAnswer} onToggleAnswerSource={onToggleAnswerSource} onFeedback={onFeedback} onRemove={onRemove} removeLabel={removeLabel} onTogglePreview={togglePreview} previewOpen={previewOpen} /></div>{previewLayer}
   </article>;
 }
 
-function LibraryCardActions({ item, returnTo, searchActive, feedback, onFeedback, onRemove, removeLabel }: {
+function LibraryCardActions({ item, returnTo, searchActive, feedback, selectedForAnswer, onToggleAnswerSource, onFeedback, onRemove, removeLabel, onTogglePreview, previewOpen }: {
   item: LibraryCardItem;
   returnTo: string;
   searchActive: boolean;
   feedback?: 'helpful' | 'not_helpful';
+  selectedForAnswer: boolean;
+  onToggleAnswerSource?: Props['onToggleAnswerSource'];
   removeLabel: string;
   onFeedback: Props['onFeedback'];
   onRemove: Props['onRemove'];
+  onTogglePreview?: () => void;
+  previewOpen?: boolean;
 }) {
   return <div className="source-library-actions">
+    {onTogglePreview && <button type="button" className="source-library-preview-toggle" aria-expanded={previewOpen} onClick={onTogglePreview}>{previewOpen ? 'Hide preview' : 'Preview'}</button>}
+    {onToggleAnswerSource && <button type="button" className="source-library-ask-select" aria-pressed={selectedForAnswer} onClick={() => onToggleAnswerSource(item)}>{selectedForAnswer ? 'Selected for question' : 'Ask about this save'}</button>}
     {searchActive && <div className="source-library-feedback"><span>Useful?</span><button type="button" aria-pressed={feedback === 'helpful'} onClick={() => onFeedback(item, 'helpful')}>Yes</button><button type="button" aria-pressed={feedback === 'not_helpful'} onClick={() => onFeedback(item, 'not_helpful')}>No</button></div>}
-    <Link to={`/app/items/${encodeURIComponent(item.id)}/edit`} state={{ returnTo }} aria-label={`Edit ${item.title}`}>Edit <ArrowUpRight /></Link>
+    <Link to={`/app/items/${encodeURIComponent(item.id)}/edit`} state={{ returnTo }} aria-label={`Edit title and context for ${item.title}`}>{!item.titleOverride && !item.summaryOverride && !item.summary && !item.remembering?.reason ? 'Add a label' : 'Edit'} <ArrowUpRight /></Link>
     <button type="button" className="source-library-remove" onClick={() => onRemove(item)} aria-label={`${removeLabel} ${item.title}`}>{removeLabel}</button>
   </div>;
 }
