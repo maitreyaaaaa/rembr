@@ -5,10 +5,11 @@
 Remember brings saved posts, useful links, screenshots, notes, and imported collections into one personal library. Keep the original source beside the reason you saved it, then search when you need it again.
 
 <p align="center">
-  <video controls playsinline preload="metadata" width="100%">
-    <source src="assets/launch-film.mp4" type="video/mp4">
-    Your browser does not support embedded video.
-  </video>
+  <a href="https://rembr-web.onrender.com/launch-film.mp4">
+    <img src="apps/web/public/launch-film-poster.jpg" alt="Play the Remember launch film" width="960">
+  </a>
+  <br>
+  <a href="https://rembr-web.onrender.com/launch-film.mp4">▶ Watch the 92-second launch film</a>
 </p>
 
 ## What you can do
@@ -90,9 +91,9 @@ Do not commit `.env` files, provider credentials, or service-role keys. The brow
 apps/
   api/       Express API, account and library routes, processing jobs, worker
   web/       React app and public pages
+    public/  Public site assets, including the launch film and poster
 supabase/
   migrations/ PostgreSQL schema changes
-assets/      Launch film embedded above
 data/        Local uploads and media during development
 ```
 
