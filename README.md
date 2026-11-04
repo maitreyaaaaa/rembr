@@ -4,13 +4,9 @@
 
 Remember brings saved posts, useful links, screenshots, notes, and imported collections into one personal library. Keep the original source beside the reason you saved it, then search when you need it again.
 
-<p align="center">
-  <a href="https://rembr-web.onrender.com/launch-film.mp4">
-    <img src="apps/web/public/launch-film-poster.jpg" alt="Play the Remember launch film" width="960">
-  </a>
-  <br>
-  <a href="https://rembr-web.onrender.com/launch-film.mp4">▶ Watch the 92-second launch film</a>
-</p>
+[![Play the Remember launch film](apps/web/public/launch-film-poster.jpg)](https://rembr-web.onrender.com/launch-film.mp4)
+
+**▶ [Watch the 92-second launch film](https://rembr-web.onrender.com/launch-film.mp4)**
 
 ## What you can do
 
