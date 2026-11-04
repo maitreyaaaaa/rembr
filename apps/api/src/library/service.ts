@@ -104,7 +104,7 @@ export function createLibraryService(database: DatabaseHandle, storage: AssetSto
         return item ? [item] : [];
       });
     },
-    update(ownerId: string, itemId: string, changes: { titleOverride?: string | null; descriptionOverride?: string | null; summaryOverride?: string | null; whySaved?: string | null }) {
+    update(ownerId: string, itemId: string, changes: { titleOverride?: string | null; descriptionOverride?: string | null }) {
       if (Object.keys(changes).length === 0) throw new LibraryServiceError('invalid_note', 'Provide an item field to update.');
       return repository.update(ownerId, itemId, changes);
     },
