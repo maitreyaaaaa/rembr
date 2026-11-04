@@ -41,6 +41,7 @@ export function extractPage(html: string, sourceUrl: string): ExtractedPage {
   for (const selector of ['meta[property="og:image"]', 'meta[name="twitter:image"]', 'meta[name="twitter:image:src"]',
     'meta[property="og:video"]', 'meta[property="og:video:url"]', 'meta[property="og:video:secure_url"]', 'meta[name="twitter:player:stream"]',
     'meta[property="og:audio"]', 'meta[property="og:audio:url"]', 'meta[property="og:audio:secure_url"]']) addMedia(page(selector).first().attr('content'));
+  addMedia(page('link[rel="video_src"]').first().attr('href'));
   page('img[src]').each((_index, element) => { addMedia(page(element).attr('src')); });
   page('video[src], video source[src], audio[src], audio source[src]').each((_index, element) => { addMedia(page(element).attr('src')); });
   const addAnalysisMedia = (raw: string | undefined, kind: 'image' | 'video') => {
@@ -59,11 +60,15 @@ export function extractPage(html: string, sourceUrl: string): ExtractedPage {
   for (const selector of ['meta[property="og:video"]', 'meta[property="og:video:url"]', 'meta[property="og:video:secure_url"]', 'meta[name="twitter:player:stream"]']) {
     addAnalysisMedia(page(selector).first().attr('content'), 'video');
   }
+  addAnalysisMedia(page('link[rel="video_src"]').first().attr('href'), 'video');
   page('img[src], img[data-src], picture source[srcset]').each((_index, element) => {
     const node = page(element);
     const srcset = node.attr('srcset')?.split(',')[0]?.trim().split(/\s+/)[0];
     addAnalysisMedia(node.attr('src') || node.attr('data-src') || srcset, 'image');
   });
-  page('video[src], video source[src]').each((_index, element) => addAnalysisMedia(page(element).attr('src'), 'video'));
+  page('video[src], video[data-src], video source[src], video source[data-src]').each((_index, element) => {
+    const node = page(element);
+    addAnalysisMedia(node.attr('src') || node.attr('data-src'), 'video');
+  });
   return { title: title || new URL(sourceUrl).hostname, description, text, mediaUrls, imageUrls, videoUrls };
 }

@@ -16,4 +16,5 @@ RUN npm run build --workspace @rembr/api
 
 ENV NODE_ENV=production
 ENV FFMPEG_PATH=/usr/bin/ffmpeg
+ENV FFPROBE_PATH=/usr/bin/ffprobe
 CMD ["npm", "run", "start:worker", "--workspace", "@rembr/api"]

@@ -149,6 +149,33 @@ test('AI worker writes a partial result when public media is unavailable and alw
   } finally { await database.close(); }
 });
 
+test('AI worker keeps Reel caption-only results partial and persists video coverage', async () => {
+  const database = await createTestDatabase();
+  try {
+    const now = new Date('2026-10-29T10:00:00.000Z');
+    await seedImport(database, 'reel-partial-import', 'reel-partial-job', now.toISOString());
+    await database.prepare(`UPDATE saved_items SET original_url='https://www.instagram.com/reel/example/' WHERE id='item-reel-partial-import'`).run();
+    await database.prepare(`INSERT INTO ai_analysis_preferences (owner_id,enabled,consent_version,consented_at,updated_at)
+      VALUES ('budget-user',TRUE,?,'2026-10-29T00:00:00.000Z',?)`).run(AI_DISCLOSURE_VERSION, now.toISOString());
+    const unusedClient = new Proxy({}, { get: () => async () => { throw new Error('caption-only Reel must not be sent for text-only analysis'); } }) as AiModelClient;
+    const jobId = await processNextAiJob(database, unusedClient, async () => ({
+      files: [{ path: '/unused/page-image.jpg', mime: 'image/jpeg', byteSize: 100, kind: 'image', role: 'page_image' }],
+      coverage: { expectedVideo: true, pageImagesFound: 1, pageImagesUsed: 0, sourceVideoMime: null,
+        normalizedVideoMime: null, videoDurationSeconds: null, videoTruncated: false, videoAnalyzed: false,
+        sampledFramesSeconds: [], audioTrackDetected: false, audioDurationSeconds: 0, transcriptAvailable: false,
+        warnings: ['video_unavailable'] },
+      cleanup: async () => undefined,
+    }), true, now);
+    assert.equal(jobId, 'reel-partial-job');
+    const result = await database.prepare(`SELECT status,summary,media_coverage_json FROM ai_analysis_results WHERE item_id='item-reel-partial-import'`)
+      .get() as { status: string; summary: string; media_coverage_json: string };
+    assert.equal(result.status, 'partial');
+    assert.equal(result.summary, '');
+    assert.equal(JSON.parse(result.media_coverage_json).expectedVideo, true);
+    assert.deepEqual(JSON.parse(result.media_coverage_json).warnings, ['video_unavailable']);
+  } finally { await database.close(); }
+});
+
 test('AI worker reserves before analysis, settles actual usage, and persists structured output', async () => {
   const database = await createTestDatabase();
   const root = await mkdtemp(join(tmpdir(), 'rembr-ai-worker-'));

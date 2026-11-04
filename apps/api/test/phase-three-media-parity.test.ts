@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { extractPage } from '../src/items/extract.js';
 import { detectSupportedMediaMime } from '../src/media/storage.js';
 import { MAX_ANALYSIS_IMAGE_BYTES_PER_POST, MAX_ANALYSIS_IMAGES_PER_POST, resolveTemporaryAnalysisMedia } from '../src/ai/temporary-media.js';
@@ -75,5 +75,58 @@ test('temporary analysis rejects media whose bytes do not match the declared MIM
   try {
     assert.equal(resolution.files.length, 0);
     assert.equal(resolution.skippedCount, 1);
+  } finally { await resolution.cleanup(); }
+});
+
+test('temporary Reel analysis excludes unrelated page images when its video cannot be found', async () => {
+  const resolution = await resolveTemporaryAnalysisMedia('https://www.instagram.com/reel/example/', {
+    fetchPage: async () => ({ finalUrl: 'https://www.instagram.com/reel/example/', contentType: 'text/html',
+      html: '<img src="https://cdn.example/recommended.jpg"><meta property="og:title" content="A saved reel">' }),
+    fetchMedia: async () => { throw new Error('there should be no page-image download for a Reel'); },
+  });
+  try {
+    assert.equal(resolution.files.length, 0);
+    assert.equal(resolution.coverage?.expectedVideo, true);
+    assert.equal(resolution.coverage?.pageImagesFound, 1);
+    assert.equal(resolution.coverage?.pageImagesUsed, 0);
+    assert.ok(resolution.coverage?.warnings.includes('video_unavailable'));
+  } finally { await resolution.cleanup(); }
+});
+
+test('temporary Reel analysis normalizes WebM and emits timestamped frames', async () => {
+  const resolution = await resolveTemporaryAnalysisMedia('https://www.instagram.com/reel/example/', {
+    fetchPage: async () => ({ finalUrl: 'https://www.instagram.com/reel/example/', contentType: 'text/html',
+      html: '<video><source src="https://cdn.example/clip.webm" type="video/webm"></video><img src="https://cdn.example/other.jpg">' }),
+    fetchMedia: async (url, directory) => {
+      assert.equal(url, 'https://cdn.example/clip.webm');
+      const path = join(directory, 'source.webm');
+      await writeFile(path, Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x00]));
+      return { finalUrl: url, mime: 'video/webm', path, byteSize: 5 };
+    },
+    probe: async () => ({ durationSeconds: 5, audioTrackDetected: false }),
+    runCommand: async (_command, args) => {
+      const output = args.at(-1)!;
+      if (output.endsWith('.mp4')) {
+        const header = Buffer.alloc(12); header.write('ftyp', 4, 'ascii');
+        await writeFile(output, header);
+      } else if (output.includes('rembr-frame-%03d.jpg')) {
+        const directory = dirname(output);
+        await mkdir(directory, { recursive: true });
+        for (let index = 1; index <= 3; index += 1) {
+          await writeFile(join(directory, `rembr-frame-${String(index).padStart(3, '0')}.jpg`), Buffer.from([0xff, 0xd8, 0xff, index]));
+        }
+      }
+      return { stdout: '', stderr: '' };
+    },
+  });
+  try {
+    const frames = resolution.files.filter((file) => file.role === 'video_frame');
+    assert.equal(resolution.coverage?.sourceVideoMime, 'video/webm');
+    assert.equal(resolution.coverage?.normalizedVideoMime, 'video/mp4');
+    assert.equal(resolution.coverage?.pageImagesFound, 1);
+    assert.equal(resolution.coverage?.pageImagesUsed, 0);
+    assert.equal(resolution.files.find((file) => file.role === 'video')?.mime, 'video/mp4');
+    assert.deepEqual(frames.map((frame) => frame.timestampSeconds), [0, 0.5, 1]);
+    assert.equal(resolution.coverage?.sampledFramesSeconds.length, 3);
   } finally { await resolution.cleanup(); }
 });

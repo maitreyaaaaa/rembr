@@ -13,7 +13,7 @@ const DEFAULT_TIMEOUT_MS = 90_000;
 const DEFAULT_REASONING = { effort: 'low' } as const;
 
 export type ImageMime = 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif';
-export interface ImageInput { bytes: Uint8Array; mime: ImageMime }
+export interface ImageInput { bytes: Uint8Array; mime: ImageMime; label?: string }
 export interface ModelTextResult { text: string; inputTokens: number; outputTokens: number }
 export interface TranscriptionResult { transcript: string; audioDurationMs: number; sessionId: string }
 export interface MetaJsonSchema { name: string; schema: Record<string, unknown> }
@@ -228,7 +228,10 @@ export function createMetaModelClient(options: MetaModelClientOptions) {
     for (const group of groups) {
       const content = [
         { type: 'input_text', text: prompt.slice(0, 8_000) },
-        ...group.map((image) => ({ type: 'input_image', image_url: dataUrl(image.bytes, image.mime) })),
+        ...group.flatMap((image) => [
+          ...(image.label ? [{ type: 'input_text' as const, text: image.label.slice(0, 200) }] : []),
+          { type: 'input_image' as const, image_url: dataUrl(image.bytes, image.mime) },
+        ]),
       ];
       const body = {
         model: MUSE_SPARK_MODEL,
@@ -260,7 +263,10 @@ export function createMetaModelClient(options: MetaModelClientOptions) {
         reasoning: DEFAULT_REASONING,
         input: [{ type: 'message', role: 'user', content: [
           { type: 'input_text', text: prompt.slice(0, 8_000) },
-          ...group.map((image) => ({ type: 'input_image', image_url: dataUrl(image.bytes, image.mime) })),
+          ...group.flatMap((image) => [
+            ...(image.label ? [{ type: 'input_text' as const, text: image.label.slice(0, 200) }] : []),
+            { type: 'input_image' as const, image_url: dataUrl(image.bytes, image.mime) },
+          ]),
         ] }],
         ...structuredOutput(outputSchema),
       };

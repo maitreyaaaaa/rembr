@@ -106,6 +106,21 @@ export interface RembrDetailAnalysis {
     repositories: string[];
     imageCount: number;
     videoCount: number;
+    mediaCoverage?: {
+      expectedVideo?: boolean;
+      pageImagesFound?: number;
+      pageImagesUsed?: number;
+      sourceVideoMime?: string | null;
+      normalizedVideoMime?: string | null;
+      videoDurationSeconds?: number | null;
+      videoTruncated?: boolean;
+      videoAnalyzed?: boolean;
+      sampledFramesSeconds?: number[];
+      audioTrackDetected?: boolean;
+      audioDurationSeconds?: number;
+      transcriptAvailable?: boolean;
+      warnings?: string[];
+    };
     createdAt: string;
   };
 }
@@ -351,6 +366,15 @@ export function RembrDetailDrawer({
               <h3 id="rembr-analysis-heading" className="font-mono text-xs uppercase tracking-widest text-muted-foreground">AI media notes</h3>
               <p className="text-sm text-muted-foreground">{analysisStatusText(analysis)}</p>
               {analysis.result && <div className="space-y-3 text-sm leading-relaxed">
+              {analysis.result.mediaCoverage?.expectedVideo && <div className="rounded-xl border border-white/10 bg-white/[0.025] p-3 text-xs text-muted-foreground">
+                <p className="font-semibold text-foreground">Reel media coverage</p>
+                <p className="mt-1">{analysis.result.mediaCoverage.videoAnalyzed
+                  ? `Video frames analyzed at ${analysis.result.mediaCoverage.sampledFramesSeconds?.map((second) => `${second}s`).join(', ') || 'unknown timestamps'}.`
+                  : 'The Reel video was not available for analysis. Caption text may appear below without visual verification.'}</p>
+                {analysis.result.mediaCoverage.audioTrackDetected && <p className="mt-1">Audio track found{analysis.result.mediaCoverage.transcriptAvailable ? ' and transcribed' : ', but no transcript was available'}.</p>}
+                {analysis.result.mediaCoverage.videoTruncated && <p className="mt-1">Video analysis was limited to the first 3 minutes.</p>}
+                {analysis.result.mediaCoverage.warnings?.length ? <p className="mt-1">Coverage notes: {analysis.result.mediaCoverage.warnings.map((warning) => warning.replaceAll('_', ' ')).join(', ')}.</p> : null}
+              </div>}
               {analysis.result.visualDescription && <DetailText label="Visual notes">{analysis.result.visualDescription}</DetailText>}
               {analysis.result.keywords.length > 0 && <DetailText label="Keywords">{analysis.result.keywords.join(', ')}</DetailText>}
               {topics.length > 0 && <div><p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Useful topics</p><div className="flex flex-wrap gap-2">{topics.slice(0, 4).map((topic) => <span key={topic} className="rounded-full border border-white/10 px-3 py-1 text-xs text-muted-foreground">{topic}</span>)}</div>{topics.length > 4 && <details className="mt-2"><summary className="cursor-pointer text-xs text-primary">Show {topics.length - 4} more topics</summary><div className="mt-2 flex flex-wrap gap-2">{topics.slice(4).map((topic) => <span key={topic} className="rounded-full border border-white/10 px-3 py-1 text-xs text-muted-foreground">{topic}</span>)}</div></details>}</div>}
