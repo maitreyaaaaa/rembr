@@ -171,6 +171,35 @@ test('Instagram import acceptance queues AI analysis and import failures clear l
   });
 });
 
+test('a failed final imported job settles the import before the worker resolves', async () => {
+  await withApi(async (baseUrl, database) => {
+    await register(baseUrl, 'failed-final-job@example.test', 'failed_final_job');
+    const account = await database.prepare('SELECT id FROM users WHERE email=?').get('failed-final-job@example.test') as { id: string };
+    const repository = createImportRepository(database);
+    const manifest = await repository.create(account.id, 'failed-final-job', 'failed-final-job-key', [
+      { name: 'saved_posts.json', mime: 'application/json', size: 1, chunks: 1 },
+    ]);
+    await database.prepare(`UPDATE imports SET status='staged' WHERE owner_id=? AND id=?`).run(account.id, manifest.id);
+    await database.prepare(`UPDATE import_upload_files SET state='staged' WHERE owner_id=? AND import_id=?`).run(account.id, manifest.id);
+    const lease = await repository.claimForParsing(account.id, manifest.id);
+    assert.ok(lease);
+    const files = await repository.files(account.id, manifest.id);
+    await repository.accept(account.id, manifest.id, lease, files.map((file) => ({
+      id: String(file.id), key: String(file.storage_key), name: String(file.original_name),
+    })), [{
+      platform: 'instagram', url: 'https://www.instagram.com/p/FAILEDIMPORT/', sourceId: 'FAILEDIMPORT',
+      title: 'Failed import test', description: '', collection: null,
+      metadata: { sourceFile: 'saved_posts.json' }, sourceOrder: 0,
+    }]);
+
+    assert.ok(await processNextJob(database, async () => { throw new CaptureError('blocked_target', 'Blocked target'); }));
+
+    const status = await database.prepare('SELECT status FROM imports WHERE owner_id=? AND id=?')
+      .get(account.id, manifest.id) as { status: string };
+    assert.equal(status.status, 'partial');
+  });
+});
+
 test('existing Instagram imports can queue up to 300 unanalyzed saved posts idempotently', async () => {
   await withApi(async (baseUrl, database) => {
     const owner = await register(baseUrl, 'retroactive-ai@example.test', 'retroactive_ai');

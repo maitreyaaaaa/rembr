@@ -215,7 +215,7 @@ export async function processNextJob(database: DatabaseHandle, fetchPage: PageFe
       await database.prepare(`UPDATE job_attempts SET status='failed',error_code=?,finished_at=?
         WHERE owner_id=? AND job_id=? AND generation=? AND attempt_number=? AND status='running'`)
         .run(code, now, job.owner_id, job.id, job.generation, job.attempts);
-      finishImportIfIdle(database, job.owner_id, job.import_id, now);
+      await finishImportIfIdle(database, job.owner_id, job.import_id, now);
     });
     await fail();
     return job.id;
