@@ -225,7 +225,7 @@ test('an item can have at most five tags', async () => {
   });
 });
 
-test('Terms acceptance enables grounded answers and citations only include retrieved owner items', async () => {
+test('grounded answers require explicit AI consent and cite only retrieved owner items', async () => {
   let modelCalls = 0;
   let preflightCalls = 0;
   let modelPrompt = '';
@@ -237,7 +237,12 @@ test('Terms acceptance enables grounded answers and citations only include retri
     const item = (await created.json() as { item: { id: string } }).item;
     await fetch(`${baseUrl}/api/items/${item.id}`, { method: 'PATCH', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ titleOverride: 'Design systems', descriptionOverride: 'A reliable system for accessible product teams.' }) });
     const preference = await fetch(`${baseUrl}/api/knowledge/ai-preferences`, { headers: { Cookie: owner.cookie } });
-    assert.equal((await preference.json() as { preference: { enabled: boolean } }).preference.enabled, true);
+    assert.equal((await preference.json() as { preference: { enabled: boolean } }).preference.enabled, false);
+    const consent = await fetch(`${baseUrl}/api/knowledge/ai-preferences`, {
+      method: 'PUT', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: true, disclosureVersion: AI_SEARCH_DISCLOSURE_VERSION }),
+    });
+    assert.equal(consent.status, 200);
     const tooMuchHistory = await fetch(`${baseUrl}/api/knowledge/answer`, { method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ question: 'design', messages: Array.from({ length: 9 }, () => ({ role: 'user', content: 'design systems' })) }) });
     assert.equal(tooMuchHistory.status, 400);
     const grounded = await fetch(`${baseUrl}/api/knowledge/answer`, { method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ question: 'What did I save about design systems?' }) });
@@ -326,6 +331,11 @@ test('Phase 4 saved-item summaries are user-triggered, owner-scoped, bounded, an
     const created = await createPage(baseUrl, owner.cookie, 'https://summary.test/source');
     assert.equal(created.status, 202);
     const { item } = await created.json() as { item: { id: string } };
+    const consent = await fetch(`${baseUrl}/api/knowledge/ai-preferences`, {
+      method: 'PUT', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: true, disclosureVersion: AI_SEARCH_DISCLOSURE_VERSION }),
+    });
+    assert.equal(consent.status, 200);
     const source = 'This source contains grounded facts about a private garden project. '.repeat(120);
     await database.prepare(`INSERT INTO extracted_artifacts (id,owner_id,item_id,title,description,text_content,fetched_at,created_at)
       VALUES ('summary-extract',?,?, 'Garden plan', 'Notes on the project', ?, ?, ?)`)

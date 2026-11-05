@@ -134,7 +134,7 @@ test('AI worker writes a partial result when public media is unavailable and alw
     const now = new Date('2026-10-29T10:00:00.000Z');
     await seedImport(database, 'partial-import', 'partial-job', now.toISOString());
     await database.prepare(`INSERT INTO ai_analysis_preferences (owner_id,enabled,consent_version,consented_at,updated_at)
-      VALUES ('budget-user',TRUE,?,'2026-10-29T00:00:00.000Z',?)`).run(AI_DISCLOSURE_VERSION, now.toISOString());
+      VALUES ('budget-user',TRUE,?,'2026-10-29T10:00:00.001Z',?)`).run(AI_DISCLOSURE_VERSION, now.toISOString());
     await database.prepare(`UPDATE ai_analysis_jobs SET status='paused',pause_reason='provider_unavailable' WHERE id='partial-job'`).run();
     let cleaned = false;
     const unusedClient = new Proxy({}, { get: () => async () => { throw new Error('provider must not be called'); } }) as AiModelClient;
@@ -156,7 +156,7 @@ test('AI worker keeps Reel caption-only results partial and persists video cover
     await seedImport(database, 'reel-partial-import', 'reel-partial-job', now.toISOString());
     await database.prepare(`UPDATE saved_items SET original_url='https://www.instagram.com/reel/example/' WHERE id='item-reel-partial-import'`).run();
     await database.prepare(`INSERT INTO ai_analysis_preferences (owner_id,enabled,consent_version,consented_at,updated_at)
-      VALUES ('budget-user',TRUE,?,'2026-10-29T00:00:00.000Z',?)`).run(AI_DISCLOSURE_VERSION, now.toISOString());
+      VALUES ('budget-user',TRUE,?,'2026-10-29T10:00:00.001Z',?)`).run(AI_DISCLOSURE_VERSION, now.toISOString());
     const unusedClient = new Proxy({}, { get: () => async () => { throw new Error('caption-only Reel must not be sent for text-only analysis'); } }) as AiModelClient;
     const jobId = await processNextAiJob(database, unusedClient, async () => ({
       files: [{ path: '/unused/page-image.jpg', mime: 'image/jpeg', byteSize: 100, kind: 'image', role: 'page_image' }],
@@ -183,7 +183,7 @@ test('AI worker reserves before analysis, settles actual usage, and persists str
     const now = new Date('2026-10-29T10:00:00.000Z');
     await seedImport(database, 'media-import', 'media-job', now.toISOString());
     await database.prepare(`INSERT INTO ai_analysis_preferences (owner_id,enabled,consent_version,consented_at,updated_at)
-      VALUES ('budget-user',TRUE,?,'2026-10-29T00:00:00.000Z',?)`).run(AI_DISCLOSURE_VERSION, now.toISOString());
+      VALUES ('budget-user',TRUE,?,'2026-10-29T10:00:00.001Z',?)`).run(AI_DISCLOSURE_VERSION, now.toISOString());
     const path = join(root, 'photo.jpg');
     await writeFile(path, Buffer.from([0xff, 0xd8, 0xff]));
     const calls: string[] = [];
@@ -230,7 +230,7 @@ test('known Meta rate limits are queued for a bounded retry without double spend
     const now = new Date('2026-10-29T10:00:00.000Z');
     await seedImport(database, 'retry-import', 'retry-job', now.toISOString());
     await database.prepare(`INSERT INTO ai_analysis_preferences (owner_id,enabled,consent_version,consented_at,updated_at)
-      VALUES ('budget-user',TRUE,?,?,?)`).run(AI_DISCLOSURE_VERSION, now.toISOString(), now.toISOString());
+      VALUES ('budget-user',TRUE,?,?,?)`).run(AI_DISCLOSURE_VERSION, '2026-10-29T10:00:00.001Z', now.toISOString());
     const client = {
       countTextInputTokens: async () => { throw new MetaApiError('rate_limited', 'rate limit', { status: 429, retryable: true, outcomeUnknown: false }); },
     } as AiModelClient;
