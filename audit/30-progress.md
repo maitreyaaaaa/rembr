@@ -19,7 +19,7 @@
 
 ## Release
 
-The user directly authorized commit and production push, overriding the attached prompt's branch-only/no-deploy instruction. `master` is configured for Render auto-deploy. After the full gate and documentation commit, push by fast-forward and verify both service deployments plus `/api/health`.
+The user directly authorized commit and production push, overriding the attached prompt's branch-only/no-deploy instruction. Commit `c0eb3bc` was pushed fast-forward to `master`. Render web deploy `dep-dbm6en3bc2fs73aqp7ig` and worker deploy `dep-dbm6en3bc2fs73aqp7s0` both reached `live`; production `/api/health` returned HTTP 200.
 
 ## Remaining limits
 

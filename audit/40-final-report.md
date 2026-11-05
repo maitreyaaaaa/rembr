@@ -4,7 +4,7 @@
 
 The audit found and fixed three issues:
 
-- **SEC-001 (High, Confirmed):** AI consent is now explained and included in Terms acceptance. New accounts get AI features enabled after accepting those Terms; existing users must accept the updated Terms once. Per-feature controls let users switch AI functions off, and API routes block use until updated Terms are accepted. Commits `4bc2266` and `a2542cd`, plus the Terms-flow correction pending release.
+- **SEC-001 (High, Confirmed):** AI consent is now explained and included in Terms acceptance. New accounts get AI features enabled after accepting those Terms; existing users must accept the updated Terms once. Per-feature controls let users switch AI functions off, and API routes block use until updated Terms are accepted. Commits `4bc2266`, `a2542cd`, and `c0eb3bc`.
 - **COR-001 (Medium):** failed imported jobs returned before import finalization completed. Commit `d57f6ef` awaits finalization within the transaction and includes a regression test.
 - **CFG-001 (Medium, Likely):** CI had no least-privilege token permissions and checkout persisted credentials. Commit `6568c27` restricts permissions and disables credential persistence.
 
@@ -28,8 +28,8 @@ One Tier 2 UI finding remains deferred: WEB-001, onboarding dialog focus handlin
 
 ## Release and evidence limits
 
-The user directly instructed commit and push to production. That direct instruction overrides the attached audit prompt's branch-only/no-push constraint. Render services auto-deploy from `master`; the reviewed changes are released only after local checks and report commit.
+The user directly instructed commit and push to production. That direct instruction overrides the attached audit prompt's branch-only/no-push constraint. Commit `c0eb3bc` is on `master`; both Render web and worker deployments reached `live`, and `/api/health` returned HTTP 200.
 
 Hosted RLS/grants, authenticated WorkOS OAuth, real provider behavior, browser/device accessibility, production monitoring and rollback remain outside local proof. No migrations, dependency upgrades, production credentials, or external provider data were changed/accessed. The bounded history scan found no obvious credential marker; it is not a full secret-scanner result.
 
-See `NEEDS_USER.md` for remaining hosted and manual verification. The audit run will record exact push, deployment, and health evidence in its session handoff.
+See `NEEDS_USER.md` for remaining hosted and manual verification.
