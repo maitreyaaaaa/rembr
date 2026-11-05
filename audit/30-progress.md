@@ -6,6 +6,7 @@
 - Fixed COR-001, CFG-001, and SEC-001 in separate commits; explicit-consent fixtures were corrected in `a2542cd` after the first full gate surfaced six outdated expectations.
 - Expanded review confirmed SEC-001 High and independently verified the fix. WEB-001 remains a documented Tier 2 deferral due to the absent browser interaction test harness.
 - Product correction: AI consent is part of the Terms acceptance, with a one-time updated-Terms gate for existing users. AI tools retain individual on/off preferences, but the UI no longer asks for separate consent at each feature.
+- Web architecture follow-up split routing/auth/shell/setup/navigation concerns from `App.tsx`, separated the graph page from the library module, hardened landing-page storage access, and closed a Terms-gate route gap. See `audit/50-web-architecture-follow-up.md`.
 - `audit/15`–`19` contain expanded security, web, configuration/CI, and independent consent-fix evidence.
 
 ## Verification
