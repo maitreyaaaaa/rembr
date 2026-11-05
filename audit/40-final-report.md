@@ -2,37 +2,34 @@
 
 ## Result
 
-One confirmed Medium correctness issue was fixed in commit `d57f6ef` on branch `audit/fixes`. Failed imported jobs now await import finalization within their transaction before the worker resolves. The added regression test failed before the fix (`PGlite is closing` from the still-running finalization query) and passes after the fix.
+The audit found and fixed three issues:
+
+- **SEC-001 (High, Confirmed):** accepting Terms implicitly enabled four AI-processing features. New accounts now have those features disabled; older signup-seeded preferences fail closed; provider calls require explicit current-version consent; revocation is available. Commit `4bc2266`; follow-up tests `a2542cd`.
+- **COR-001 (Medium):** failed imported jobs returned before import finalization completed. Commit `d57f6ef` awaits finalization within the transaction and includes a regression test.
+- **CFG-001 (Medium, Likely):** CI had no least-privilege token permissions and checkout persisted credentials. Commit `6568c27` restricts permissions and disables credential persistence.
+
+One Tier 2 UI finding remains deferred: WEB-001, onboarding dialog focus handling. It needs keyboard interaction regression coverage before changing the bespoke dialog; see `16-web-ui-audit-supplement.md`.
 
 ## Verification
 
-- Final `rtk npm run check`: PASS. Typecheck and lint passed; 142 API tests passed, 0 failed; API and web production builds passed.
-- Focused regression test: PASS (1/1 after fix).
-- Production Vite preview served `/` and the emitted app JS with HTTP 200.
-- Web dev server served `/` with HTTP 200.
+- Baseline `rtk npm run check`: PASS, 141 tests; typecheck/lint and API/web builds passed.
+- COR-001 focused regression: reproduced `PGlite is closing` before the fix and passed after.
+- Consent-focused test suites: PASS, including all six full-gate fixture updates (27/27 in targeted suites).
+- Final full gate after `a2542cd`: PASS; typecheck and lint passed, all 143 API tests passed, and API/web production builds passed.
 - `rtk npm audit --omit=dev`: 0 vulnerabilities.
-- `rtk git diff --check`: PASS.
-- Existing warning: Vite bundle includes 1,663.33 kB minified `PasswordStrengthField` chunk and 703.27 kB index chunk, over the 500 kB advisory. No optimization was attempted without user-performance evidence.
-
-Baseline was 141 passing tests; after fix it is 142. Build bundle sizes and warning did not change. Full command outputs/limits are in `03-baseline.md` and `30-progress.md`.
+- Earlier production Vite preview and dev server served `/` and app assets with HTTP 200. Bundle warning remains: large chunks exceed Vite's 500 kB advisory; no performance measurements justified optimization.
 
 ## Changed application files
 
-- `apps/api/src/worker/process-job.ts`: await `finishImportIfIdle` on the failure path.
-- `apps/api/test/phase-three-imports.test.ts`: add final failed import job regression test.
+- `apps/api/src/worker/process-job.ts` and `apps/api/test/phase-three-imports.test.ts`: await and test import finalization.
+- `.github/workflows/ci.yml`: least-privilege workflow token and no persisted checkout credential.
+- `apps/api/src/app.ts`, new `apps/api/src/auth/consent.ts`, AI/import/knowledge/visual/semantic routes and repositories, and related web preference UI: explicit AI consent, fail-closed legacy handling, revocation, and safe disclosure.
+- Relevant API tests cover explicit consent defaults and processing gates.
 
-The `audit/` directory contains context, routing, architecture, work queue, baseline, findings, triage, progress, parity, and handoff documentation.
+## Release and evidence limits
 
-## Findings and deferrals
+The user directly instructed commit and push to production. That direct instruction overrides the attached audit prompt's branch-only/no-push constraint. Render services auto-deploy from `master`; the reviewed changes are released only after local checks and report commit.
 
-- COR-001: fixed and verified. No Critical or High findings were established in the bounded source security review.
-- Hosted RLS/grants, full per-query authorization proof, production demo-account settings, WorkOS authenticated OAuth roundtrip, provider behavior, real media models, deployed service health, device/browser manual checks and rollback remain unverified.
-- No confirmed performance issue was found. Telemetry/APM/load-test evidence and web automated tests are absent.
-- Common credential markers were not found in the narrow Git-history scan, but no full secret scanner was installed. Do not treat that scan as definitive key-rotation evidence.
-- Several extraneous packages were present in local `node_modules`; manifests were not changed.
+Hosted RLS/grants, authenticated WorkOS OAuth, real provider behavior, browser/device accessibility, production monitoring and rollback remain outside local proof. No migrations, dependency upgrades, production credentials, or external provider data were changed/accessed. The bounded history scan found no obvious credential marker; it is not a full secret-scanner result.
 
-See `NEEDS_USER.md` for precise manual checks. No production services or credentials were touched.
-
-## Release boundary
-
-The audit was kept on `audit/fixes`. `render.yaml` configures auto-deploy on `master`; pushing there would trigger production. The audit prompt explicitly requires leaving main/master untouched and prohibits push/deploy. That release boundary was preserved despite the separate production-push request; the fix is ready for review and merge through the normal release path.
+See `NEEDS_USER.md` for remaining hosted and manual verification. The audit run will record exact push, deployment, and health evidence in its session handoff.

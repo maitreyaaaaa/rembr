@@ -1,12 +1,12 @@
 # README_FIRST
 
-1. Branch: `audit/fixes`, from clean starting commit `06f5482`.
-2. Commit: `d57f6ef fix(COR-001): await failed import finalization`.
-3. Fixed: failed import jobs now await import status finalization inside their transaction.
-4. Regression evidence: new test failed before fix with `PGlite is closing`; passed after fix.
-5. Final gate: typecheck/lint passed, 142/142 tests passed, API and web builds passed.
-6. Production dependency audit: 0 vulnerabilities; existing Vite large-chunk warning remains.
-7. Deferred: hosted RLS/grants, provider/OAuth roundtrips, device checks, and production smoke/rollback; see `NEEDS_USER.md`.
-8. Keys to rotate: none identified by the bounded scan; no full secret-scanner result is available.
-9. Review with `git show d57f6ef` and inspect `audit/40-final-report.md`, `audit/41-feature-parity-matrix.md`, and findings.
-10. Merge/discard: review then merge `audit/fixes` through the normal release process, or delete the branch after preserving reports; this audit did not push or deploy.
+1. Branch: `audit/fixes`, based on `master` at `06f5482`.
+2. Fixes: COR-001 (`d57f6ef`), CFG-001 (`6568c27`), SEC-001 (`4bc2266`), test follow-up (`a2542cd`).
+3. SEC-001: AI processing is off until separate, current-version consent; legacy implicit consent is denied; users can revoke.
+4. COR-001 regression reproduced `PGlite is closing` before the fix and passed after.
+5. Final gate: 143/143 tests, typecheck, lint, API/web builds passed; baseline was 141 tests.
+6. `npm audit --omit=dev`: 0 vulnerabilities; Vite large-chunk advisory remains.
+7. WEB-001 focus handling is deferred for keyboard-test coverage; hosted RLS/OAuth/provider/browser checks remain open.
+8. No keys were identified by the bounded history scan; no full secret-scanner result is available.
+9. Direct user instruction authorizes production push and overrides the attached audit prompt's no-push constraint; Render auto-deploys `master`.
+10. Final release outcome will be verified from fast-forward push, both Render services, and `/api/health`.

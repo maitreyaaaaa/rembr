@@ -1,17 +1,14 @@
-# Needs user
+# Remaining verification
 
-## Hosted configuration / production evidence
+No user input is required to complete the authorized release. These checks remain beyond the local audit evidence and should be completed during normal hosted operations:
 
-The local audit cannot establish production Render deployment state, Supabase RLS/grants, demo-account exposure, WorkOS OAuth roundtrip, or provider configuration. Please review those in the provider consoles and run authenticated production smoke checks before a release. No production credentials or services were accessed, and no migration or deployment is proposed.
+1. Confirm Supabase RLS/grants and object-storage policies under hosted roles.
+2. Complete authenticated WorkOS OAuth/MCP roundtrip with a non-production client.
+3. Verify Meta/OpenRouter provider behavior and worker processing using non-sensitive test data.
+4. Exercise two-user owner isolation, import flows, consent settings/revocation, and account deletion in a staged browser session.
+5. Run keyboard and screen-reader checks on onboarding, settings, dialogs, tour, library and mobile layouts. WEB-001 needs keyboard focus regression coverage.
+6. Monitor Render errors, queues, storage and spend after deployment; confirm rollback procedure in staging.
 
-## Manual checklist
+The production deployment check for this release is tracked in `30-progress.md` and the session handoff. No production customer records or credentials were read for the audit.
 
-1. In a staging environment, sign up/sign in, save a URL, and confirm worker success and visible failure/retry behavior.
-2. Import a valid and partially invalid export; verify partial status, per-entry outcomes, cancellation, and final completion after a failed last job.
-3. Exercise library search, filters, pagination, tags, collections, notes, exports, and account deletion with two distinct users; confirm cross-owner requests return no data.
-4. Verify Smart Collections refresh/persistence, graph, semantic/visual search consent and fallback, and API-key/MCP integrations with configured non-production accounts.
-5. Use keyboard and screen reader on onboarding, library, settings, dialogs, tour, and mobile layouts. Run on target devices and browsers.
-6. Validate hosted RLS/grants, object-storage policies, rate limits, OAuth registration/token roundtrip, Render health, worker processing and rollback in staging.
-7. If production release is later authorized through the normal release branch, execute smoke checks and monitor errors, queues, storage, and spend.
-
-No keys are identified for rotation by the bounded local scan; this is not a comprehensive secret-scanner result.
+The bounded local Git-history marker scan found no key requiring rotation. This is not comprehensive secret-scanner evidence.

@@ -29,3 +29,7 @@ No CONFIRMED or strongly LIKELY Critical, High, or Medium security finding was e
 
 - `/api/auth/demo` is intentionally unauthenticated when `REMBR_DEMO_OWNER_ID` is configured (`apps/api/src/app.ts:185-192`). It creates a remembered session for that configured owner. The production exposure and whether the demo account is disposable/read-only depend on hosting configuration and account policy; do not infer those from source alone.
 - No migration or database setting was modified.
+# Superseding evidence
+
+The expanded API/data review in `15-api-data-security-supplement.md` found confirmed High finding SEC-001, which the bounded review below did not identify. Independent verification is in `18-sec001-independent-verification.md`; the fix and independent fix review are documented in `4bc2266` and `19-sec001-fix-review.md`. Treat any prior statement below that no High issue was established as superseded.
+
