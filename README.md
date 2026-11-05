@@ -58,6 +58,12 @@ Rembr brings things you want to come back to into one searchable place. Keep the
 
 AI, semantic search, visual search, and web search depend on server-side providers. Meta powers configured content analysis and visual search; OpenRouter powers semantic embeddings and web search. AI processing and AI-assisted search are optional and governed by the preferences shown in the app. When providers are unavailable, core library features remain available.
 
+## Meta AI integration
+
+Rembr uses **Muse Spark 1.3** for opted-in text, image, and supported video analysis, image-based library search, and grounded answers about saved items. **Muse Voice Transcribe 1.0** is wired to transcribe supported audio extracted from media. These calls run through Meta Model API from the server; consent and usage limits are checked in the product flow.
+
+The [Meta integration and research note](docs/meta-ai-usage.md) maps each model to its code path, tests, current production evidence, and relevant research. It also identifies the other Meta products that are not part of this implementation.
+
 ## How it works
 
 1. **Capture.** The web app sends a page URL, note, image, or import to the API. The API validates the request, scopes it to the signed-in owner, and checks public URLs before fetching them.
