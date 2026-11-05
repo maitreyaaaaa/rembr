@@ -68,7 +68,7 @@ test('API denies private library access without a verified session', async () =>
   });
 });
 
-test('registration requires Terms acceptance and records it while enabling AI features', async () => {
+test('registration records Terms acceptance without enabling AI features', async () => {
   await withApi(async (baseUrl, database) => {
     const missingAcceptance = await fetch(`${baseUrl}/api/auth/register`, {
       method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' },
@@ -85,7 +85,7 @@ test('registration requires Terms acceptance and records it while enabling AI fe
       (SELECT enabled FROM ai_visual_search_preferences WHERE owner_id=?) AS image,
       (SELECT enabled FROM semantic_search_preferences WHERE owner_id=?) AS semantic`)
       .get(accepted.user.user.id, accepted.user.user.id, accepted.user.user.id, accepted.user.user.id) as { media: boolean; answers: boolean; image: boolean; semantic: boolean };
-    assert.deepEqual(preferences, { media: true, answers: true, image: true, semantic: true });
+    assert.deepEqual(preferences, { media: false, answers: false, image: false, semantic: false });
   });
 });
 

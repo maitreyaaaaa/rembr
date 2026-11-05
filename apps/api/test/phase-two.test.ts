@@ -9,6 +9,7 @@ import { createApp } from '../src/app.js';
 import { createTestDatabase } from '../src/db/database.js';
 import { MetaApiError } from '../src/ai/meta-client.js';
 import { utcMonthStart } from '../src/ai/usage.js';
+import { AI_SEARCH_DISCLOSURE_VERSION } from '../src/knowledge/ai-search-preferences.js';
 import { recoverAssets } from '../src/assets/recovery.js';
 import { LocalAssetStorage } from '../src/assets/storage.js';
 
@@ -444,6 +445,11 @@ test('grounded library answers cite matching OCR and media analysis without expo
     await seedAnalysis(foreign, 'foreign', 'Project Aurora confidential owner-only phrase: blue lighthouse 77.');
     await database.prepare(`UPDATE ai_analysis_results SET brands_json=?,tools_json=?,people_json=?,repositories_json=?
       WHERE owner_id=? AND item_id=?`).run(JSON.stringify(['Acme']), JSON.stringify(['Figma']), JSON.stringify(['Ada Lovelace']), JSON.stringify(['rembr/core']), owner.user.user.id, ownerItem);
+    const consent = await fetch(`${baseUrl}/api/knowledge/ai-preferences`, {
+      method: 'PUT', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: true, disclosureVersion: AI_SEARCH_DISCLOSURE_VERSION }),
+    });
+    assert.equal(consent.status, 200);
     const response = await fetch(`${baseUrl}/api/knowledge/answer`, {
       method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' },
       body: JSON.stringify({ question: 'What does the Project Aurora screenshot say?' }),

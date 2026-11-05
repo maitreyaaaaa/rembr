@@ -111,6 +111,7 @@ async function claimNextAiJob(database: DatabaseHandle, now: Date, apiKeyAvailab
       JOIN saved_items s ON s.id=j.item_id AND s.owner_id=j.owner_id
       LEFT JOIN extracted_artifacts e ON e.item_id=j.item_id AND e.owner_id=j.owner_id
       JOIN ai_analysis_preferences p ON p.owner_id=j.owner_id AND p.enabled=TRUE AND p.consent_version=?
+      JOIN users u ON u.id=p.owner_id AND p.consented_at>u.created_at
       WHERE j.attempts<j.max_attempts AND ((j.status='queued' AND j.available_at<=?) OR
         (j.status='processing' AND j.lease_expires_at<=?))
       ORDER BY j.created_at ASC,j.import_id ASC,j.id ASC LIMIT 1`).get(AI_DISCLOSURE_VERSION, timestamp, timestamp) as Omit<ClaimedAiJob, 'lease_token'> | undefined;
@@ -241,7 +242,8 @@ export async function processNextAiJob(database: DatabaseHandle, client: AiModel
   let partial = false;
   let mediaCoverage = emptyMediaCoverage(/instagram\.com\/reel\//i.test(job.original_url));
   const ensureConsent = async () => {
-    const preference = await database.prepare(`SELECT enabled FROM ai_analysis_preferences WHERE owner_id=?`).get(job.owner_id) as { enabled: boolean | number } | undefined;
+    const preference = await database.prepare(`SELECT p.enabled FROM ai_analysis_preferences p JOIN users u ON u.id=p.owner_id
+      WHERE p.owner_id=? AND p.consent_version=? AND p.consented_at>u.created_at`).get(job.owner_id, AI_DISCLOSURE_VERSION) as { enabled: boolean | number } | undefined;
     if (!preference?.enabled) throw new AiConsentDisabledError();
   };
   try {

@@ -25,19 +25,19 @@ test('AI usage prices Spark tokens and Voice seconds in integer microdollars', (
   assert.equal(utcMonthStart(new Date('2026-12-31T23:59:59.000Z')), '2026-12-01');
 });
 
-test('older media-analysis consent does not authorize entity extraction or queued jobs', async () => {
+test('signup-seeded media-analysis consent does not authorize queued jobs', async () => {
   const database = await createTestDatabase();
   try {
     const now = new Date('2026-10-29T10:00:00.000Z');
     await seedImport(database, 'old-consent-import', 'old-consent-job', now.toISOString());
     await database.prepare(`INSERT INTO ai_analysis_preferences (owner_id,enabled,consent_version,consented_at,updated_at)
-      VALUES ('budget-user',TRUE,'2026-10-29-v1',?,?)`).run(now.toISOString(), now.toISOString());
+      VALUES ('budget-user',TRUE,?,?,?)`).run(AI_DISCLOSURE_VERSION, now.toISOString(), now.toISOString());
     const preference = await createAiPreferenceRepository(database).get('budget-user', true);
     assert.equal(preference.enabled, false);
     const unusedClient = new Proxy({}, { get() { throw new Error('stale_consent_must_not_call_provider'); } }) as never;
     assert.equal(await processNextAiJob(database, unusedClient, async () => ({ files: [], cleanup: async () => undefined }), true, now), null);
     const job = await database.prepare("SELECT status FROM ai_analysis_jobs WHERE id='old-consent-job'").get() as { status: string };
-    assert.equal(job.status, 'queued');
+    assert.equal(job.status, 'cancelled');
     await createAiPreferenceRepository(database).set('budget-user', true);
     const refreshed = await createAiPreferenceRepository(database).get('budget-user', true);
     assert.equal(refreshed.enabled, true);

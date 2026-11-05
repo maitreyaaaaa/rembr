@@ -6,6 +6,7 @@ import type { DatabaseHandle } from '../db/database.js';
 import { requireUser } from '../auth/sessions.js';
 import { createProfileGate } from '../account/routes.js';
 import type { AssetStorage } from '../assets/storage.js';
+import { consentedAtAfterAccountCreation } from '../auth/consent.js';
 import { detectImageMime } from '../assets/storage.js';
 import type { createLibraryService } from '../library/service.js';
 import { createAiUsageRepository, AiBudgetExceededError, sparkCostMicroUsd } from './usage.js';
@@ -42,19 +43,21 @@ function fail(res: express.Response, status: number, code: string, message: stri
 function createVisualSearchPreferenceRepository(database: DatabaseHandle) {
   return {
     async get(ownerId: string, providerAvailable: boolean): Promise<VisualSearchPreference> {
-      const row = await database.prepare(`SELECT enabled,consent_version,consented_at,disabled_at,updated_at
-        FROM ai_visual_search_preferences WHERE owner_id=?`).get(ownerId) as {
+      const row = await database.prepare(`SELECT p.enabled,p.consent_version,p.consented_at,p.disabled_at,p.updated_at,u.created_at
+        FROM ai_visual_search_preferences p JOIN users u ON u.id=p.owner_id WHERE p.owner_id=?`).get(ownerId) as {
         enabled: boolean | number; consent_version: string | null; consented_at: string | null;
-        disabled_at: string | null; updated_at: string;
+        disabled_at: string | null; updated_at: string; created_at: string;
       } | undefined;
       return {
-        enabled: Boolean(row?.enabled && row.consent_version === VISUAL_SEARCH_DISCLOSURE_VERSION),
+        enabled: Boolean(row?.enabled && row.consent_version === VISUAL_SEARCH_DISCLOSURE_VERSION && row.consented_at && row.consented_at > row.created_at),
         consentVersion: row?.consent_version ?? null, consentedAt: row?.consented_at ?? null,
         disabledAt: row?.disabled_at ?? null, updatedAt: row?.updated_at ?? null, providerAvailable,
       };
     },
     async set(ownerId: string, enabled: boolean): Promise<void> {
       const now = new Date().toISOString();
+      const account = await database.prepare('SELECT created_at FROM users WHERE id=?').get(ownerId) as { created_at: string } | undefined;
+      const consentedAt = enabled && account ? consentedAtAfterAccountCreation(account.created_at) : null;
       await database.prepare(`INSERT INTO ai_visual_search_preferences
         (owner_id,enabled,consent_version,consented_at,disabled_at,updated_at)
         VALUES (?,?,?,?,?,?)
@@ -64,7 +67,7 @@ function createVisualSearchPreferenceRepository(database: DatabaseHandle) {
           disabled_at=CASE WHEN excluded.enabled THEN NULL ELSE excluded.disabled_at END,
           updated_at=excluded.updated_at`)
         .run(ownerId, enabled, enabled ? VISUAL_SEARCH_DISCLOSURE_VERSION : null,
-          enabled ? now : null, enabled ? null : now, now);
+          consentedAt, enabled ? null : now, now);
     },
   };
 }

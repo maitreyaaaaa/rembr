@@ -4,6 +4,7 @@ import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import type { DatabaseHandle } from '../db/database.js';
 import { requireUser } from '../auth/sessions.js';
+import { consentedAtAfterAccountCreation } from '../auth/consent.js';
 import { createProfileGate } from '../account/routes.js';
 import type { AssetStorage } from '../assets/storage.js';
 import { AiBudgetExceededError, createAiUsageRepository } from '../ai/usage.js';
@@ -51,12 +52,21 @@ export function createSemanticSearchRouter(input: {
   const searchRateLimit = rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
 
   const preference = async (ownerId: string): Promise<SemanticPreference> => {
-    const row = await database.prepare(`SELECT enabled,disclosure_version,consented_at,disabled_at,updated_at
-      FROM semantic_search_preferences WHERE owner_id=?`).get(ownerId) as {
+    const row = await database.prepare(`SELECT p.enabled,p.disclosure_version,p.consented_at,p.disabled_at,p.updated_at,u.created_at
+      FROM semantic_search_preferences p JOIN users u ON u.id=p.owner_id WHERE p.owner_id=?`).get(ownerId) as {
       enabled: boolean | number; disclosure_version: string | null; consented_at: string | null;
-      disabled_at: string | null; updated_at: string;
+      disabled_at: string | null; updated_at: string; created_at: string;
     } | undefined;
-    const enabled = Boolean(row?.enabled && row.disclosure_version === SEMANTIC_DISCLOSURE_VERSION);
+    const seededConsent = Boolean(row?.enabled && row.disclosure_version === SEMANTIC_DISCLOSURE_VERSION && row.consented_at && row.consented_at <= row.created_at);
+    if (seededConsent) {
+      const now = new Date().toISOString();
+      await database.transaction(async () => {
+        await database.prepare(`UPDATE semantic_search_preferences SET enabled=FALSE,disabled_at=?,updated_at=? WHERE owner_id=?`)
+          .run(now, now, ownerId);
+        await database.prepare(`DELETE FROM semantic_item_embeddings WHERE owner_id=?`).run(ownerId);
+      })();
+    }
+    const enabled = Boolean(row?.enabled && !seededConsent && row.disclosure_version === SEMANTIC_DISCLOSURE_VERSION && row.consented_at && row.consented_at > row.created_at);
     const counts = await database.prepare(`SELECT
         (SELECT COUNT(DISTINCT item_id)::integer FROM semantic_item_embeddings WHERE owner_id=? AND model=?) AS indexed_items,
         (SELECT COUNT(*)::integer FROM saved_items WHERE owner_id=? AND status IN ('ready','partial')) AS eligible_items`)
@@ -124,6 +134,8 @@ export function createSemanticSearchRouter(input: {
     }
     const ownerId = req.user!.id;
     const now = new Date().toISOString();
+    const account = await database.prepare('SELECT created_at FROM users WHERE id=?').get(ownerId) as { created_at: string } | undefined;
+    const consentedAt = parsed.data.enabled && account ? consentedAtAfterAccountCreation(account.created_at) : null;
     await database.transaction(async () => {
       await database.prepare(`INSERT INTO semantic_search_preferences
         (owner_id,enabled,disclosure_version,consented_at,disabled_at,updated_at)
@@ -133,7 +145,7 @@ export function createSemanticSearchRouter(input: {
           disabled_at=CASE WHEN excluded.enabled THEN NULL ELSE excluded.disabled_at END,
           updated_at=excluded.updated_at`)
         .run(ownerId, parsed.data.enabled, parsed.data.enabled ? SEMANTIC_DISCLOSURE_VERSION : null,
-          parsed.data.enabled ? now : null, parsed.data.enabled ? null : now, now);
+          consentedAt, parsed.data.enabled ? null : now, now);
       if (!parsed.data.enabled) await database.prepare('DELETE FROM semantic_item_embeddings WHERE owner_id=?').run(ownerId);
     })();
     return res.json({ preference: await preference(ownerId) });

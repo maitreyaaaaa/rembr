@@ -41,9 +41,10 @@ export function createImportRepository(database: DatabaseHandle) {
         const imported = await database.prepare('SELECT id FROM imports WHERE owner_id=? AND id=?')
           .get(ownerId, importId) as { id: string } | undefined;
         if (!imported) return { found: false, queued: 0, skipped: 0 };
-        const preference = await database.prepare(`SELECT enabled,consent_version FROM ai_analysis_preferences WHERE owner_id=?`)
-          .get(ownerId) as { enabled: boolean | number; consent_version: string | null } | undefined;
-        if (!preference?.enabled || preference.consent_version !== AI_DISCLOSURE_VERSION) {
+        const preference = await database.prepare(`SELECT p.enabled,p.consent_version,p.consented_at,u.created_at
+          FROM ai_analysis_preferences p JOIN users u ON u.id=p.owner_id WHERE p.owner_id=?`)
+          .get(ownerId) as { enabled: boolean | number; consent_version: string | null; consented_at: string | null; created_at: string } | undefined;
+        if (!preference?.enabled || preference.consent_version !== AI_DISCLOSURE_VERSION || !preference.consented_at || preference.consented_at <= preference.created_at) {
           throw new ImportRepositoryError('ai_consent_required');
         }
         const entries = await database.prepare(`SELECT e.item_id
@@ -343,8 +344,12 @@ export function createImportRepository(database: DatabaseHandle) {
           if (!fileIds.has(failure.fileId)) throw new ImportRepositoryError('upload_file_not_found');
           entryRows.push([randomUUID(), ownerId, importId, failure.fileId, null, null, 'unknown', null, null, '', '{}', 'failed', failure.code, null, now]);
         }
-        const preference = await database.prepare('SELECT enabled FROM ai_analysis_preferences WHERE owner_id=?').get(ownerId) as { enabled: boolean | number } | undefined;
-        const aiEnabled = Boolean(preference?.enabled);
+        const preference = await database.prepare(`SELECT p.enabled,p.consent_version,p.consented_at,u.created_at FROM ai_analysis_preferences p
+          JOIN users u ON u.id=p.owner_id WHERE p.owner_id=?`).get(ownerId) as {
+          enabled: boolean | number; consent_version: string | null; consented_at: string | null; created_at: string;
+        } | undefined;
+        const aiEnabled = Boolean(preference?.enabled && preference.consent_version === AI_DISCLOSURE_VERSION
+          && preference.consented_at && preference.consented_at > preference.created_at);
         for (const entry of items) {
           const uploadFileId = fileIdsByName.get(String(entry.metadata.sourceFile ?? '')) ?? null;
           const sourceOrder = entry.platform === 'instagram' ? instagramOrderByItem.get(entry) ?? null : null;

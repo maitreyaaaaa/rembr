@@ -43,7 +43,7 @@ export function createImportRouter(database: DatabaseHandle, assetStorage: Asset
       return res.json({ importId: param(req, 'id'), queued: result.queued, skipped: result.skipped, limit: 300 });
     } catch (cause) {
       if (cause instanceof ImportRepositoryError && cause.code === 'ai_consent_required') {
-        return fail(res, 409, 'ai_consent_required', 'Enable Instagram media analysis in Settings before requesting analysis.', req.requestId);
+        return fail(res, 409, 'ai_consent_required', 'Accept the Meta AI analysis disclosure before requesting analysis.', req.requestId);
       }
       return fail(res, 500, 'ai_queue_failed', 'Could not queue Instagram media analysis.', req.requestId);
     }

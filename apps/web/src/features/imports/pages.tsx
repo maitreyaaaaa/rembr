@@ -1,4 +1,4 @@
-import type { AiPreference, SavedItem } from '../../app/contracts.js';
+import { AI_DISCLOSURE_VERSION, type AiPreference, type SavedItem } from '../../app/contracts.js';
 import { api } from '../../app/api.js';
 import { date, messageOf } from '../../app/helpers.js';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
@@ -88,6 +88,7 @@ export function ImportDetailPage() {
   const { importId = '' } = useParams();
   const [result, setResult] = useState<{ import: ImportSummary & { total_bytes: number; request_id: string }; entries: ImportEntry[] } | null>(null);
   const [aiPreference, setAiPreference] = useState<AiPreference | null>(null);
+  const [analysisConsentAccepted, setAnalysisConsentAccepted] = useState(false);
   const [progress, setProgress] = useState<ImportProgress | null>(null);
   const [progressStale, setProgressStale] = useState(false);
   const [progressAnnouncement, setProgressAnnouncement] = useState('');
@@ -195,9 +196,27 @@ export function ImportDetailPage() {
   async function queueAnalysis() {
     setBusyAnalysis(true); setError('');
     try {
+      if (!aiPreference?.enabled) {
+        if (!analysisConsentAccepted) return;
+        const saved = await api<{ preference: AiPreference }>('/api/ai/preferences', {
+          method: 'PUT', body: JSON.stringify({ enabled: true, disclosureVersion: AI_DISCLOSURE_VERSION }),
+        });
+        setAiPreference(saved.preference);
+      }
       const queued = await api<{ queued: number; skipped: number; limit: number }>(`/api/imports/${encodeURIComponent(importId)}/ai-analysis`, { method: 'POST' });
       setProgressAnnouncement(`${queued.queued.toLocaleString()} Instagram posts queued for analysis. ${queued.skipped.toLocaleString()} were already analyzed or outside the 300-post limit.`);
     } catch (cause) { setError(messageOf(cause, 'Could not queue Instagram analysis.')); }
+    finally { setBusyAnalysis(false); }
+  }
+  async function disableAnalysis() {
+    setBusyAnalysis(true); setError('');
+    try {
+      const saved = await api<{ preference: AiPreference }>('/api/ai/preferences', {
+        method: 'PUT', body: JSON.stringify({ enabled: false }),
+      });
+      setAiPreference(saved.preference);
+      setAnalysisConsentAccepted(false);
+    } catch (cause) { setError(messageOf(cause, 'Could not disable Meta analysis.')); }
     finally { setBusyAnalysis(false); }
   }
   return <><div className="phase2-back"><Link to="/app/imports">← Back to imports</Link></div><PageHeader title={`${result.import.source} import`} description={`${result.import.file_count} files · ${(result.import.total_bytes / (1024 * 1024)).toFixed(1)} MiB`} actions={<ImportStatusLabel status={result.import.status} />} />
@@ -229,8 +248,10 @@ export function ImportDetailPage() {
     {result.entries.some((entry) => entry.source_platform === 'instagram' && entry.status === 'saved') && <section className="phase2-panel ai-preference-panel" aria-labelledby="import-ai-analysis-title">
       <h2 id="import-ai-analysis-title">Analyze saved Instagram posts</h2>
       <p className="phase2-helper">Queue up to 300 saved posts or reels from this import for Meta analysis. Publicly accessible media and post text may be sent to Meta. Rembr applies a $30 per-import limit; the shared monthly AI limit also applies.</p>
+      {aiPreference && !aiPreference.enabled && <label className="library-ask-consent"><input type="checkbox" checked={analysisConsentAccepted} onChange={(event) => setAnalysisConsentAccepted(event.currentTarget.checked)} /><span>Enable Meta AI analysis for Instagram imports. Public media and post text from this and future imports may be sent to Meta AI (up to 300 posts per import).</span></label>}
       {aiPreference && !aiPreference.providerAvailable && <p className="field-note">Meta analysis is not currently available.</p>}
-      <button className="quiet-button" type="button" disabled={busyAnalysis || !aiPreference?.providerAvailable} onClick={() => void queueAnalysis()}>{busyAnalysis ? 'Queueing analysis…' : 'Queue analysis for imported posts'}</button>
+      <button className="quiet-button" type="button" disabled={busyAnalysis || !aiPreference?.providerAvailable || (!aiPreference.enabled && !analysisConsentAccepted)} onClick={() => void queueAnalysis()}>{busyAnalysis ? 'Queueing analysis…' : 'Queue analysis for imported posts'}</button>
+      {aiPreference?.enabled && <button className="quiet-button" type="button" disabled={busyAnalysis} onClick={() => void disableAnalysis()}>Disable Meta AI analysis</button>}
     </section>}
     <section className="phase2-panel"><h2>Imported links</h2>{result.entries.length ? <ul className="item-list">{result.entries.map((entry) => <li className="item-card" key={entry.id}><div className="item-main"><div className="item-info"><p className="item-domain">{entry.source_platform}{entry.source_id ? ` · ${entry.source_id}` : ''}</p>{entry.item_id ? <SavedItemLink className="item-title" itemId={entry.item_id}>{entry.title || entry.source_url}</SavedItemLink> : <span className="item-title">{entry.title || entry.source_url || 'Unrecognized export row'}</span>}{entry.source_url && <p className="item-description">{entry.source_url}</p>}{entry.error_code && <p className="item-description">{entry.error_code.replaceAll('_', ' ')}</p>}</div><div className="item-actions"><ImportStatusLabel status={entry.status} /></div></div></li>)}</ul> : <div className="phase2-state">{activeImportStatuses.has(result.import.status) ? 'Parsing is underway. Results will appear here automatically.' : 'No imported links were created for this file.'}</div>}</section>
   </>;

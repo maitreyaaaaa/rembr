@@ -130,7 +130,7 @@ test('Phase 3 import manifests precede chunks, auto-queue parsed items, deduplic
   });
 });
 
-test('Instagram import acceptance queues AI analysis and import failures clear leases', async () => {
+test('Instagram import acceptance requires AI consent and import failures clear leases', async () => {
   await withApi(async (_baseUrl, database) => {
     await register(_baseUrl, 'instagram-ai-import@example.test', 'instagram_ai_import');
     const account = await database.prepare('SELECT id FROM users WHERE email=?').get('instagram-ai-import@example.test') as { id: string };
@@ -143,6 +143,9 @@ test('Instagram import acceptance queues AI analysis and import failures clear l
     const lease = await repository.claimForParsing(account.id, manifest.id);
     assert.ok(lease);
     const files = await repository.files(account.id, manifest.id);
+    await database.prepare(`UPDATE ai_analysis_preferences SET enabled=TRUE,consent_version='2026-10-29-v2',
+      consented_at=(SELECT created_at FROM users WHERE id=?),updated_at=(SELECT created_at FROM users WHERE id=?) WHERE owner_id=?`)
+      .run(account.id, account.id, account.id);
     const result = await repository.accept(account.id, manifest.id, lease, files.map((file) => ({
       id: String(file.id), key: String(file.storage_key), name: String(file.original_name),
     })), [{
@@ -153,11 +156,13 @@ test('Instagram import acceptance queues AI analysis and import failures clear l
     assert.equal(result.newCount, 1);
     const aiJob = await database.prepare(`SELECT status,available_at,created_at,updated_at FROM ai_analysis_jobs WHERE owner_id=? AND import_id=?`)
       .get(account.id, manifest.id) as { status: string; available_at: string; created_at: string; updated_at: string } | undefined;
-    assert.ok(aiJob);
-    assert.equal(aiJob.status, 'queued');
-    assert.ok(aiJob.available_at);
-    assert.ok(aiJob.created_at);
-    assert.ok(aiJob.updated_at);
+    assert.equal(aiJob, undefined);
+    await assert.rejects(repository.queueAiAnalysis(account.id, manifest.id), /ai_consent_required/);
+    await database.prepare(`UPDATE ai_analysis_preferences SET enabled=TRUE,consent_version='2026-10-29-v2',
+      consented_at=?,updated_at=? WHERE owner_id=?`).run(new Date(Date.now() + 1000).toISOString(), new Date().toISOString(), account.id);
+    assert.ok(await processNextJob(database, async () => ({ finalUrl: 'https://www.instagram.com/p/AIIMPORT/', contentType: 'text/html', html: '<main>Imported item</main>' })));
+    const queued = await repository.queueAiAnalysis(account.id, manifest.id);
+    assert.equal(queued.queued, 1);
 
     const failedManifest = await repository.create(account.id, 'failure-no-lease-request', 'failure-no-lease-key', [
       { name: 'failed.json', mime: 'application/json', size: 1, chunks: 1 },
