@@ -125,12 +125,15 @@ export function RembrWorkspaceTour({ open, onClose, onNavigate }: RembrWorkspace
         const roomAbove = rect.top;
         const roomRight = window.innerWidth - rect.right;
         const roomLeft = rect.left;
-        const panelBesideTarget = rect.width >= cardWidth && (roomRight >= cardWidth + gap + 16 || roomLeft >= cardWidth + gap + 16);
+        const fitsBelow = roomBelow >= cardHeight + gap;
+        const fitsAbove = roomAbove >= cardHeight + gap;
+        const fitsBeside = roomRight >= cardWidth + gap + 16 || roomLeft >= cardWidth + gap + 16;
+        const panelBesideTarget = fitsBeside && (rect.width >= cardWidth || (!fitsBelow && !fitsAbove));
         const nextTop = panelBesideTarget
           ? Math.max(16, Math.min(window.innerHeight - cardHeight - 16, rect.top + (rect.height - cardHeight) / 2))
-          : roomBelow >= cardHeight + gap
+          : fitsBelow
           ? rect.bottom + gap
-          : roomAbove >= cardHeight + gap
+          : fitsAbove
             ? rect.top - cardHeight - gap
             : Math.max(16, Math.min(window.innerHeight - cardHeight - 16, rect.bottom + gap));
         setPanelTop(nextTop);
