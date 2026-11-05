@@ -362,7 +362,7 @@ export function RembrKnowledgeGraphPanel({
       {graph && !loading && (graph.nodes.length > GRAPH_UI_NODE_LIMIT || graph.links.length > GRAPH_UI_LINK_LIMIT) && <p className="rounded-xl border border-white/10 bg-white/[0.025] px-4 py-3 text-xs leading-5 text-muted-foreground" role="status">The graph view shows the strongest 240 nodes and up to 420 links for readability. Exports retain the full graph.</p>}
 
       <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <section className="relative h-[360px] overflow-hidden rounded-2xl border border-white/10 bg-white/[0.025] shadow-2xl shadow-black/25 sm:h-[410px] lg:h-[470px] xl:h-[540px]" aria-label="Interactive knowledge graph">
+        <section data-rembr-tour-target="graph-canvas" className="relative h-[360px] overflow-hidden rounded-2xl border border-white/10 bg-white/[0.025] shadow-2xl shadow-black/25 sm:h-[410px] lg:h-[470px] xl:h-[540px]" aria-label="Interactive knowledge graph">
           <div className="absolute left-3 top-3 z-10 flex items-center gap-1 rounded-full border border-white/10 bg-black/85 p-1 backdrop-blur sm:left-4 sm:top-4">
             <button type="button" onClick={() => setZoom((current) => Math.min(2.8, Number((current + 0.18).toFixed(2))))} aria-label="Zoom in" className="rounded-full p-2 text-muted-foreground transition hover:bg-white/10 hover:text-primary"><ZoomIn className="h-4 w-4" /></button>
             <button type="button" onClick={() => setZoom((current) => Math.max(0.55, Number((current - 0.18).toFixed(2))))} aria-label="Zoom out" className="rounded-full p-2 text-muted-foreground transition hover:bg-white/10 hover:text-primary"><ZoomOut className="h-4 w-4" /></button>

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ArrowLeft, ArrowRight, BookmarkPlus, Check, Compass, Download, Search, Sparkles, Upload } from 'lucide-react';
+import { ArrowLeft, ArrowRight, BookmarkPlus, Check, Compass, Network, Search, Sparkles, Upload } from 'lucide-react';
 
 export interface RembrWorkspaceTourProps {
   /** Defaults to open for direct use; pass a value to control visibility. */
@@ -28,6 +28,14 @@ const steps: TourStep[] = [
     icon: Search,
   },
   {
+    title: 'Reference a post or reel.',
+    description: 'In AI + saved, type @ in this box and choose a saved post or reel to ground your question in it.',
+    path: '/app?mode=web',
+    target: 'reference-composer',
+    location: 'Post and reel references',
+    icon: Search,
+  },
+  {
     title: 'Save the good stuff in one tap.',
     description: 'Quick Add takes a link or a note. Rembr keeps the original source and shows when a save is ready.',
     path: '/app',
@@ -37,27 +45,27 @@ const steps: TourStep[] = [
   },
   {
     title: 'Bring your existing saves along.',
-    description: 'Import a supported archive, then follow its progress and review what was added or matched.',
-    path: '/app/imports',
-    target: 'import-files',
-    location: 'Imports',
+    description: 'Open Add Saves from the sidebar to save a link, write a note, or import bookmarks from Instagram, Pinterest, and X.',
+    path: '/app/add',
+    target: 'add-saves-nav',
+    location: 'Add Saves',
     icon: Upload,
   },
   {
-    title: 'Let your library organize itself.',
-    description: 'Smart Collections group related saves from the notes, tags, folders, and analysis already in your library. You stay in control of every correction.',
+    title: 'Keep related saves together.',
+    description: 'Smart Collections group related saves as your library grows. You can rename, pin, or hide a group without moving its saved items.',
     path: '/app/smart-collections',
-    target: 'collections-refresh',
+    target: 'smart-collections-nav',
     location: 'Smart Collections',
     icon: Sparkles,
   },
   {
-    title: 'See the ideas connected to each other.',
-    description: 'The Knowledge Graph maps themes across your saves. Export the full graph as an Obsidian vault or a portable JSON file.',
+    title: 'See how your ideas connect.',
+    description: 'The Knowledge Graph links saved pages through shared topics and sources. Drag to explore, zoom in, or select a node to follow a connection.',
     path: '/app/graph',
-    target: 'graph-export-tab',
+    target: 'graph-canvas',
     location: 'Knowledge Graph',
-    icon: Download,
+    icon: Network,
   },
 ];
 
@@ -111,16 +119,25 @@ export function RembrWorkspaceTour({ open, onClose, onNavigate }: RembrWorkspace
         };
         setTargetRect(next);
         const cardHeight = cardRef.current?.offsetHeight ?? 340;
+        const cardWidth = Math.min(380, window.innerWidth - 32);
         const gap = 16;
         const roomBelow = window.innerHeight - rect.bottom;
         const roomAbove = rect.top;
-        const nextTop = roomBelow >= cardHeight + gap
+        const roomRight = window.innerWidth - rect.right;
+        const roomLeft = rect.left;
+        const panelBesideTarget = rect.width >= cardWidth && (roomRight >= cardWidth + gap + 16 || roomLeft >= cardWidth + gap + 16);
+        const nextTop = panelBesideTarget
+          ? Math.max(16, Math.min(window.innerHeight - cardHeight - 16, rect.top + (rect.height - cardHeight) / 2))
+          : roomBelow >= cardHeight + gap
           ? rect.bottom + gap
           : roomAbove >= cardHeight + gap
             ? rect.top - cardHeight - gap
             : Math.max(16, Math.min(window.innerHeight - cardHeight - 16, rect.bottom + gap));
         setPanelTop(nextTop);
-        setPanelLeft(Math.max(16, Math.min(rect.left + rect.width / 2 - 190, window.innerWidth - 396)));
+        const nextLeft = panelBesideTarget
+          ? roomRight >= cardWidth + gap + 16 ? rect.right + gap : rect.left - cardWidth - gap
+          : Math.max(16, Math.min(rect.left + rect.width / 2 - cardWidth / 2, window.innerWidth - cardWidth - 16));
+        setPanelLeft(nextLeft);
       };
       measure();
       window.addEventListener('resize', measure);
@@ -230,7 +247,7 @@ function WelcomeContent({ onStart, onSkip }: { onStart: () => void; onSkip: () =
     <div className="rembr-tour-mark" aria-hidden="true"><Compass size={26} /></div>
     <p className="rembr-tour-eyebrow">A quick look around</p>
     <h1 id="rembr-tour-title">Your saves, ready when you need them.</h1>
-    <p id="rembr-tour-description">In five quick stops, see how to save, search, organize, and rediscover the things worth keeping.</p>
+    <p id="rembr-tour-description">In six quick stops, learn to find and reference saves, add to your library, and follow ideas across the graph.</p>
     <div className="rembr-tour-actions">
       <button type="button" className="rembr-tour-secondary" onClick={onSkip}>Maybe later</button>
       <button type="button" data-tour-primary onClick={onStart} className="rembr-tour-primary">Take the tour <ArrowRight size={16} aria-hidden="true" /></button>

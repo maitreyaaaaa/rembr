@@ -144,7 +144,11 @@ function ProtectedShell() {
   const navigate = useNavigate();
   const explicitTourOpen = new URLSearchParams(location.search).get('tour') === '1';
   const [firstRunTourOpen, setFirstRunTourOpen] = useState(false);
-  const navigateForTour = useCallback((path: string) => navigate(`${path}?tour=1`), [navigate]);
+  const navigateForTour = useCallback((path: string) => {
+    const destination = new URL(path, window.location.origin);
+    destination.searchParams.set('tour', '1');
+    navigate({ pathname: destination.pathname, search: destination.search, hash: destination.hash });
+  }, [navigate]);
   const [accountDenied, setAccountDenied] = useState(false);
   const detailReturnTo = (location.state as { returnTo?: string } | null)?.returnTo;
   const detailReturnPath = detailReturnTo?.split(/[?#]/, 1)[0] ?? '';
@@ -359,7 +363,7 @@ function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promi
         {sidebarExpanded && <span className="min-w-0"><span className="block">Signed in as</span><span className="block truncate font-semibold text-foreground">{accountLabel}</span></span>}
       </Link>
       <nav className={`flex-1 space-y-1 p-3 ${sidebarExpanded ? '' : 'flex flex-col items-center'}`} aria-label="Main navigation">
-        {navItems.map((item) => <Link key={item.path} to={item.path} aria-label={item.label} aria-current={isActive(item.path, item.exact) ? 'page' : undefined}
+        {navItems.map((item) => <Link key={item.path} to={item.path} data-rembr-tour-target={item.path === '/app/add' ? 'add-saves-nav' : item.path === '/app/smart-collections' ? 'smart-collections-nav' : undefined} aria-label={item.label} aria-current={isActive(item.path, item.exact) ? 'page' : undefined}
           className={`flex items-center rounded-lg text-sm transition ${isActive(item.path, item.exact) ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'} ${sidebarExpanded ? 'gap-3 px-3 py-2.5' : 'h-11 w-11 justify-center'}`}>
           {item.icon}{sidebarExpanded && <span className="truncate">{item.label}</span>}
         </Link>)}
@@ -379,14 +383,14 @@ function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promi
     {moreOpen && <button type="button" className="mobile-navigation-backdrop md:hidden" onClick={() => setMoreOpen(false)} aria-label="Close more navigation" />}
     <nav className="mobile-bottom-navigation md:hidden" aria-label="Main navigation" onKeyDown={(event) => { if (event.key === 'Escape') setMoreOpen(false); }}>
       <div id="rembr-mobile-more" className="mobile-more-panel" role="group" aria-label="More sections" hidden={!moreOpen}>
-        <Link to="/app/smart-collections" onClick={() => setMoreOpen(false)} aria-current={isActive('/app/smart-collections') ? 'page' : undefined} className={`mobile-more-item ${isActive('/app/smart-collections') ? 'is-active' : ''}`}><SidebarIcon name="folder-2" /><span>Smart collections</span></Link>
+        <Link to="/app/smart-collections" data-rembr-tour-target="smart-collections-nav" onClick={() => setMoreOpen(false)} aria-current={isActive('/app/smart-collections') ? 'page' : undefined} className={`mobile-more-item ${isActive('/app/smart-collections') ? 'is-active' : ''}`}><SidebarIcon name="folder-2" /><span>Smart collections</span></Link>
         {externalIntegrationsEnabled && <Link to="/app/integrations" onClick={() => setMoreOpen(false)} aria-current={isActive('/app/integrations') ? 'page' : undefined} className={`mobile-more-item ${isActive('/app/integrations') ? 'is-active' : ''}`}><Network size={17} aria-hidden="true" /><span>Integrations</span></Link>}
         <Link to="/help" onClick={() => setMoreOpen(false)} className="mobile-more-item"><SidebarIcon name="book-open" /><span>Help &amp; tour</span></Link>
       </div>
       {[
         { path: '/app', label: 'Library', icon: <SidebarIcon name="book-saved" />, exact: true },
         { path: '/app/add', label: 'Add', icon: <SidebarIcon name="document-upload" />, add: true },
-      ].map((item) => <Link key={item.path} to={item.path} aria-current={isActive(item.path, item.exact) ? 'page' : undefined} className={`mobile-bottom-navigation-button ${isActive(item.path, item.exact) ? 'is-active' : ''} ${item.add ? 'is-add' : ''}`}>{item.icon}<span>{item.label}</span></Link>)}
+      ].map((item) => <Link key={item.path} to={item.path} data-rembr-tour-target={item.path === '/app/add' ? 'add-saves-nav' : undefined} aria-current={isActive(item.path, item.exact) ? 'page' : undefined} className={`mobile-bottom-navigation-button ${isActive(item.path, item.exact) ? 'is-active' : ''} ${item.add ? 'is-add' : ''}`}>{item.icon}<span>{item.label}</span></Link>)}
       <button type="button" onClick={() => setMoreOpen((open) => !open)} aria-expanded={moreOpen} aria-controls="rembr-mobile-more" className={`mobile-bottom-navigation-button ${mobileMoreActive || moreOpen ? 'is-active' : ''}`}><SidebarIcon name="more" /><span>More</span></button>
     </nav>
   </>;

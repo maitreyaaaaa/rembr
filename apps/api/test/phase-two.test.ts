@@ -165,6 +165,41 @@ test('item list filters, keyset pagination, metadata overrides and organization 
   });
 });
 
+test('item suggestions are owner scoped and do not create search feedback events', async () => {
+  await withApi(async (baseUrl, database) => {
+    const owner = await register(baseUrl, 'suggest-owner@example.test');
+    const other = await register(baseUrl, 'suggest-other@example.test');
+    await profile(baseUrl, owner.cookie, 'suggest_owner');
+    await profile(baseUrl, other.cookie, 'suggest_other');
+    const ownerCreated = await createPage(baseUrl, owner.cookie, 'https://example.com/design-reel');
+    const ownerItem = (await ownerCreated.json() as { item: { id: string } }).item;
+    await fetch(`${baseUrl}/api/items/${ownerItem.id}`, {
+      method: 'PATCH', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ titleOverride: 'Design reel inspiration', descriptionOverride: 'A saved idea about color and layout' }),
+    });
+    const otherCreated = await createPage(baseUrl, other.cookie, 'https://example.com/private-design');
+    const otherItem = (await otherCreated.json() as { item: { id: string } }).item;
+    await fetch(`${baseUrl}/api/items/${otherItem.id}`, {
+      method: 'PATCH', headers: { Cookie: other.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ titleOverride: 'Private design reference' }),
+    });
+
+    const before = (await database.prepare('SELECT count(*) AS count FROM search_events').get() as { count: number }).count;
+    const matching = await fetch(`${baseUrl}/api/items/suggestions?q=design`, { headers: { Cookie: owner.cookie } });
+    assert.equal(matching.status, 200);
+    const body = await matching.json() as { items: Array<{ id: string; title: string }>; searchEventId?: string };
+    assert.deepEqual(body.items.map((item) => item.id), [ownerItem.id]);
+    assert.equal(body.items[0]?.title, 'Design reel inspiration');
+    assert.equal(body.searchEventId, undefined);
+
+    const recent = await fetch(`${baseUrl}/api/items/suggestions`, { headers: { Cookie: owner.cookie } });
+    assert.deepEqual((await recent.json() as { items: Array<{ id: string }> }).items.map((item) => item.id), [ownerItem.id]);
+    const invalid = await fetch(`${baseUrl}/api/items/suggestions?q=${'x'.repeat(121)}`, { headers: { Cookie: owner.cookie } });
+    assert.equal(invalid.status, 400);
+    assert.equal((await database.prepare('SELECT count(*) AS count FROM search_events').get() as { count: number }).count, before);
+  });
+});
+
 test('an item can have at most five tags', async () => {
   await withApi(async (baseUrl, database) => {
     const owner = await register(baseUrl, 'tag-limit@example.test');
