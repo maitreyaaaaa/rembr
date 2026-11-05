@@ -28,6 +28,8 @@ const PricingPage = lazy(() => import('./features/marketing/PublicPages.js').the
 const LegalPage = lazy(() => import('./features/marketing/PublicPages.js').then(({ PortedLegalPage: page }) => ({ default: page })));
 const PasswordStrengthField = lazy(() => import('./components/PasswordStrengthField.js').then(({ PasswordStrengthField: field }) => ({ default: field })));
 const SmartCollectionsPage = lazy(() => import('./components/SmartCollectionsPage.js').then(({ SmartCollectionsPage: page }) => ({ default: page })));
+const externalIntegrationsEnabled = import.meta.env.VITE_EXTERNAL_INTEGRATIONS_ENABLED === 'true'
+  || (import.meta.env.DEV && import.meta.env.VITE_EXTERNAL_INTEGRATIONS_ENABLED !== 'false');
 
 
 
@@ -48,7 +50,7 @@ function AppRoutes() {
     <Route path="/cookies" element={<LegalPage kind="cookies" />} />
     <Route path="/login" element={<AuthPage />} />
     <Route path="/demo" element={<DemoWorkspacePage />} />
-    <Route path="/auth/workos/mcp" element={<WorkOSMcpConsentPage />} />
+    {externalIntegrationsEnabled && <Route path="/auth/workos/mcp" element={<WorkOSMcpConsentPage />} />}
     <Route path="/app/setup/profile" element={<SetupRoute />} />
     <Route path="/app/setup/onboarding" element={<Navigate to="/app" replace />} />
     <Route path="/app" element={<ProtectedShell />}>
@@ -68,9 +70,9 @@ function AppRoutes() {
       <Route path="settings/profile" element={<SettingsPage />} />
       <Route path="settings/preferences" element={<SettingsPage />} />
       <Route path="settings/advanced" element={<Navigate to="/app/graph" replace />} />
-      <Route path="settings/developer-access" element={<DeveloperAccessPage />} />
-      <Route path="integrations" element={<IntegrationsPage />} />
-      <Route path="settings/mcp-access" element={<McpAccessPage />} />
+      {externalIntegrationsEnabled && <Route path="settings/developer-access" element={<DeveloperAccessPage />} />}
+      {externalIntegrationsEnabled && <Route path="integrations" element={<IntegrationsPage />} />}
+      {externalIntegrationsEnabled && <Route path="settings/mcp-access" element={<McpAccessPage />} />}
     </Route>
     <Route path="*" element={<NotFoundPage />} />
   </Routes></Suspense></BrowserRouter>;
@@ -332,10 +334,10 @@ function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promi
     { path: '/app', label: 'Home', icon: <SidebarIcon name="book-saved" />, exact: true },
     { path: '/app/smart-collections', label: 'Smart collections', icon: <SidebarIcon name="folder-2" /> },
     { path: '/app/remember', label: 'Remember', icon: <Brain size={18} aria-hidden="true" /> },
-    { path: '/app/integrations', label: 'Integrations', icon: <Network size={18} aria-hidden="true" /> },
+    ...(externalIntegrationsEnabled ? [{ path: '/app/integrations', label: 'Integrations', icon: <Network size={18} aria-hidden="true" /> }] : []),
     { path: '/app/add', label: 'Add saves', icon: <SidebarIcon name="document-upload" /> },
   ];
-  const mobileMoreActive = location.pathname.startsWith('/app/smart-collections') || location.pathname === '/app/integrations' || location.pathname === '/how-to-use';
+  const mobileMoreActive = location.pathname.startsWith('/app/smart-collections') || (externalIntegrationsEnabled && location.pathname === '/app/integrations') || location.pathname === '/how-to-use';
   const accountLabel = session.profile?.username ? `@${session.profile.username}` : session.user.email;
   const avatar = session.profile?.avatarAssetUrl ?? session.profile?.avatarUrl;
   const userMark = session.profile?.username?.slice(0, 1) ?? session.user.email.slice(0, 1);
@@ -378,7 +380,7 @@ function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promi
     <nav className="mobile-bottom-navigation md:hidden" aria-label="Main navigation" onKeyDown={(event) => { if (event.key === 'Escape') setMoreOpen(false); }}>
       <div id="rembr-mobile-more" className="mobile-more-panel" role="group" aria-label="More sections" hidden={!moreOpen}>
         <Link to="/app/smart-collections" onClick={() => setMoreOpen(false)} aria-current={isActive('/app/smart-collections') ? 'page' : undefined} className={`mobile-more-item ${isActive('/app/smart-collections') ? 'is-active' : ''}`}><SidebarIcon name="folder-2" /><span>Smart collections</span></Link>
-        <Link to="/app/integrations" onClick={() => setMoreOpen(false)} aria-current={isActive('/app/integrations') ? 'page' : undefined} className={`mobile-more-item ${isActive('/app/integrations') ? 'is-active' : ''}`}><Network size={17} aria-hidden="true" /><span>Integrations</span></Link>
+        {externalIntegrationsEnabled && <Link to="/app/integrations" onClick={() => setMoreOpen(false)} aria-current={isActive('/app/integrations') ? 'page' : undefined} className={`mobile-more-item ${isActive('/app/integrations') ? 'is-active' : ''}`}><Network size={17} aria-hidden="true" /><span>Integrations</span></Link>}
         <Link to="/help" onClick={() => setMoreOpen(false)} className="mobile-more-item"><SidebarIcon name="book-open" /><span>Help &amp; tour</span></Link>
       </div>
       {[

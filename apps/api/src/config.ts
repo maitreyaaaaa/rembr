@@ -15,6 +15,7 @@ const environmentSchema = z.object({
   API_PORT: z.coerce.number().int().min(1).max(65535).default(Number(process.env.PORT ?? 4000)),
   WEB_ORIGIN: z.string().url().default(process.env.RENDER_EXTERNAL_URL ?? 'http://127.0.0.1:5173'),
   SERVE_WEB: z.enum(['true', 'false']).default('false').transform((value) => value === 'true'),
+  EXTERNAL_INTEGRATIONS_ENABLED: z.enum(['true', 'false']).default(process.env.NODE_ENV === 'production' ? 'false' : 'true').transform((value) => value === 'true'),
   STORAGE_BACKEND: z.enum(['local', 'supabase']).default('local'),
   DATABASE_URL: z.preprocess((value) => value === '' ? undefined : value, z.string().url().optional()),
   SUPABASE_URL: z.preprocess((value) => value === '' ? undefined : value, z.string().url().optional()),

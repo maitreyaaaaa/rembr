@@ -55,7 +55,9 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
   const mediaStorage = options.mediaStorage ?? new LocalMediaStorage(options.mediaDirectory ?? config.mediaDirectory);
   const demoOwnerId = options.demoOwnerId ?? config.REMBR_DEMO_OWNER_ID;
   const library = createLibraryService(database, assetStorage, mediaStorage);
-  const integrations = createIntegrationRouters(database, assetStorage, mediaStorage, options.validateUrl);
+  const integrations = config.EXTERNAL_INTEGRATIONS_ENABLED
+    ? createIntegrationRouters(database, assetStorage, mediaStorage, options.validateUrl)
+    : undefined;
   const semanticEmbeddingProvider = options.semanticEmbeddingProvider
     ?? (config.openRouterApiKey ? createOpenRouterEmbeddingProvider(config.openRouterApiKey) : undefined);
   const validateUrl = options.validateUrl ?? validatePublicUrl;
@@ -64,9 +66,17 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
   app.use((req, res, next) => {
     req.requestId = randomUUID();
     res.setHeader('X-Request-Id', req.requestId);
+    if (!config.EXTERNAL_INTEGRATIONS_ENABLED && (
+      req.path === '/mcp'
+      || req.path.startsWith('/.well-known/oauth-')
+      || req.path.startsWith('/api/auth/workos/mcp')
+    )) {
+      res.status(404).json(errorResponse('not_found', 'This integration is not available.', req.requestId));
+      return;
+    }
     next();
   });
-  if (config.WORKOS_API_KEY && config.WORKOS_AUTHKIT_DOMAIN && config.MCP_RESOURCE_URL) {
+  if (config.EXTERNAL_INTEGRATIONS_ENABLED && config.WORKOS_API_KEY && config.WORKOS_AUTHKIT_DOMAIN && config.MCP_RESOURCE_URL) {
     const mcpApp = createWorkOSMcpApp(database, assetStorage, mediaStorage, options.validateUrl);
     app.use((req, res, next) => {
       if (req.path === '/mcp' || req.path.startsWith('/.well-known/oauth-')) {
@@ -97,9 +107,11 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
   });
   app.use(express.json({ limit: '16kb', strict: true }));
   app.get('/api/health', (_req, res) => res.json({ status: 'ok' }));
-  app.use('/api', integrations.management);
-  app.use('/api', createWorkOSMcpAuthRouter(database));
-  app.use('/api/v1', integrations.publicApi);
+  if (integrations) {
+    app.use('/api', integrations.management);
+    app.use('/api', createWorkOSMcpAuthRouter(database));
+    app.use('/api/v1', integrations.publicApi);
+  }
 
   const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, limit: 10, standardHeaders: 'draft-8', legacyHeaders: false });
   app.post('/api/auth/register', authLimiter, async (req, res, next) => {
