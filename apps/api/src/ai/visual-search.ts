@@ -1,7 +1,8 @@
 import { z } from 'zod';
 import type { MetaJsonSchema } from './meta-client.js';
 
-export const VISUAL_SEARCH_DISCLOSURE_VERSION = '2026-10-29-v1';
+import { VISUAL_SEARCH_DISCLOSURE_VERSION } from '../auth/disclosures.js';
+export { VISUAL_SEARCH_DISCLOSURE_VERSION };
 export const VISUAL_SEARCH_MAX_UPLOAD_BYTES = 750 * 1024;
 export const VISUAL_SEARCH_MAX_QUERY_CHARACTERS = 120;
 export const VISUAL_SEARCH_MAX_RESULTS = 24;

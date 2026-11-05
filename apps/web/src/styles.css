@@ -1229,8 +1229,7 @@ body .smart-collection-groups > section.phase2-panel .phase2-collection-grid > l
 .library-composer-source-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .library-composer-source button { display: grid; width: 20px; height: 20px; flex: 0 0 auto; place-items: center; border: 0; border-radius: 50%; background: transparent; color: var(--text); font-size: 16px; cursor: pointer; }
 .library-composer-source button:hover { background: color-mix(in srgb, var(--primary) 18%, transparent); }
-.library-composer-consent { margin: 8px 0; }
-.library-composer-consent-note { margin: 8px 0; }
+.library-composer-ai-note { margin: 8px 0; }
 .library-composer-ask { display: block; margin: 8px 0 0 auto; }
 .library-search-composer-controls { display: flex; align-items: center; gap: 10px; }
 .library-ai-search-tools { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
@@ -1262,9 +1261,7 @@ body .smart-collection-groups > section.phase2-panel .phase2-collection-grid > l
 .library-ask-source button { display: grid; width: 24px; height: 24px; place-items: center; border: 0; border-radius: 50%; background: transparent; color: inherit; font-size: 18px; cursor: pointer; }
 .library-ask-form { display: grid; gap: 10px; }
 .library-ask-form textarea { width: 100%; min-height: 54px; resize: vertical; border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: var(--canvas); color: var(--text); font: inherit; }
-.library-ask-consent { display: flex; align-items: flex-start; gap: 9px; color: var(--muted); font-size: 12px; line-height: 1.5; }
-.library-ask-consent input { margin-top: 2px; accent-color: var(--primary); }
-.library-ask-consent a, .library-ask-privacy a { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
+.library-ask-privacy a { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
 .library-ask-privacy { margin: 0; color: var(--muted); font-size: 12px; }
 .library-ask-form .primary-button { justify-self: end; }
 .library-ask-result { margin-top: 16px; border-top: 1px solid var(--line); padding-top: 14px; }

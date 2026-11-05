@@ -237,7 +237,7 @@ test('grounded answers require explicit AI consent and cite only retrieved owner
     const item = (await created.json() as { item: { id: string } }).item;
     await fetch(`${baseUrl}/api/items/${item.id}`, { method: 'PATCH', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ titleOverride: 'Design systems', descriptionOverride: 'A reliable system for accessible product teams.' }) });
     const preference = await fetch(`${baseUrl}/api/knowledge/ai-preferences`, { headers: { Cookie: owner.cookie } });
-    assert.equal((await preference.json() as { preference: { enabled: boolean } }).preference.enabled, false);
+    assert.equal((await preference.json() as { preference: { enabled: boolean } }).preference.enabled, true);
     const consent = await fetch(`${baseUrl}/api/knowledge/ai-preferences`, {
       method: 'PUT', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled: true, disclosureVersion: AI_SEARCH_DISCLOSURE_VERSION }),

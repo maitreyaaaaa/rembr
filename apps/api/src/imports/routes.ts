@@ -1,7 +1,7 @@
 import express from 'express';
 import { z } from 'zod';
 import type { DatabaseHandle } from '../db/database.js';
-import { requireUser } from '../auth/sessions.js';
+import { requireCurrentTerms, requireUser } from '../auth/sessions.js';
 import { createProfileGate } from '../account/routes.js';
 import type { AssetStorage } from '../assets/storage.js';
 import { createImportService, ImportServiceError, IMPORT_FILE_LIMIT, IMPORT_TOTAL_LIMIT } from './service.js';
@@ -18,19 +18,20 @@ function fail(res: express.Response, status: number, code: string, message: stri
 export function createImportRouter(database: DatabaseHandle, assetStorage: AssetStorage, storage: ImportStorage,
   library: ReturnType<typeof createLibraryService>) {
   const router = express.Router(); const signedIn = requireUser(database); const profile = createProfileGate(database, assetStorage);
+  router.use(signedIn, requireCurrentTerms());
   const imports = createImportService(database, storage);
 
-  router.get('/imports', signedIn, profile, async (req, res) => res.json({ imports: await imports.list(req.user!.id) }));
-  router.get('/imports/:id', signedIn, profile, async (req, res) => {
+  router.get('/imports', profile, async (req, res) => res.json({ imports: await imports.list(req.user!.id) }));
+  router.get('/imports/:id', profile, async (req, res) => {
     const result = await imports.get(req.user!.id, param(req, 'id'));
     return result ? res.json(result) : fail(res, 404, 'not_found', 'Import not found.', req.requestId);
   });
-  router.get('/imports/:id/progress', signedIn, profile, async (req, res) => {
+  router.get('/imports/:id/progress', profile, async (req, res) => {
     const progress = await imports.progress(req.user!.id, param(req, 'id'));
     return progress ? res.json({ progress }) : fail(res, 404, 'not_found', 'Import not found.', req.requestId);
   });
 
-  router.post('/imports/:id/ai-analysis', signedIn, profile, async (req, res) => {
+  router.post('/imports/:id/ai-analysis', profile, async (req, res) => {
     const provider = await database.prepare(`SELECT meta_api_configured,last_heartbeat_at
       FROM ai_worker_status WHERE singleton=TRUE`).get() as { meta_api_configured: boolean | number; last_heartbeat_at: string } | undefined;
     const heartbeat = Date.parse(provider?.last_heartbeat_at ?? '');
@@ -43,13 +44,13 @@ export function createImportRouter(database: DatabaseHandle, assetStorage: Asset
       return res.json({ importId: param(req, 'id'), queued: result.queued, skipped: result.skipped, limit: 300 });
     } catch (cause) {
       if (cause instanceof ImportRepositoryError && cause.code === 'ai_consent_required') {
-        return fail(res, 409, 'ai_consent_required', 'Accept the Meta AI analysis disclosure before requesting analysis.', req.requestId);
+        return fail(res, 409, 'ai_consent_required', 'Accept the current Terms and Conditions before requesting AI analysis.', req.requestId);
       }
       return fail(res, 500, 'ai_queue_failed', 'Could not queue Instagram media analysis.', req.requestId);
     }
   });
 
-  router.post('/imports/:id/cancel', signedIn, profile, async (req, res) => {
+  router.post('/imports/:id/cancel', profile, async (req, res) => {
     try {
       const result = await imports.cancel(req.user!.id, param(req, 'id'));
       if (!result.cancelled) return fail(res, 409, 'upload_not_cancellable', 'This import can no longer be canceled.', req.requestId);
@@ -59,20 +60,20 @@ export function createImportRouter(database: DatabaseHandle, assetStorage: Asset
     }
   });
 
-  router.post('/imports/:id/jobs/cancel', signedIn, profile, async (req, res) => {
+  router.post('/imports/:id/jobs/cancel', profile, async (req, res) => {
     const result = await imports.cancelQueuedWork(req.user!.id, param(req, 'id'));
     if (!result.found) return fail(res, 404, 'not_found', 'Import not found.', req.requestId);
     return res.json({ importId: param(req, 'id'), cancelled: result.cancelled, active: result.active });
   });
 
-  router.post('/imports/:id/discard-created-items', signedIn, profile, async (req, res) => {
+  router.post('/imports/:id/discard-created-items', profile, async (req, res) => {
     const result = await imports.discardCreatedItems(req.user!.id, param(req, 'id'), (ownerId, itemId) => library.delete(ownerId, itemId));
     if (!result.found) return fail(res, 404, 'not_found', 'Import not found.', req.requestId);
     if (result.active > 0) return fail(res, 409, 'import_work_active', 'Cancel and wait for this import to stop before removing its items.', req.requestId);
     return res.json({ importId: param(req, 'id'), deleted: result.deleted, duplicatesPreserved: true });
   });
 
-  router.post('/imports', signedIn, profile, async (req, res) => {
+  router.post('/imports', profile, async (req, res) => {
     const parsed = createSchema.safeParse(req.body);
     if (!parsed.success) return fail(res, 400, 'invalid_import', 'Provide supported files with their sizes and chunk counts.', req.requestId);
     const total = parsed.data.files.reduce((sum, file) => sum + file.size, 0);
@@ -90,7 +91,7 @@ export function createImportRouter(database: DatabaseHandle, assetStorage: Asset
     }
   });
 
-  router.put('/imports/:id/files/:fileId/chunks/:chunkIndex', signedIn, profile,
+  router.put('/imports/:id/files/:fileId/chunks/:chunkIndex', profile,
     express.raw({ type: 'application/octet-stream', limit: IMPORT_FILE_LIMIT }), async (req, res) => {
       if (!Buffer.isBuffer(req.body)) return fail(res, 415, 'invalid_chunk_type', 'Upload each part as application/octet-stream.', req.requestId);
       const index = Number(param(req, 'chunkIndex'));

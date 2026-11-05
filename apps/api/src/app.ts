@@ -32,10 +32,12 @@ import { countPasswordCodePoints, hashNewPassword, validateNewPassword, verifyPa
 import { createIntegrationRouters } from './integrations/api-v1.js';
 import { createWorkOSMcpAuthRouter } from './auth/workos-mcp.js';
 import { createWorkOSMcpApp } from './mcp/routes.js';
+import { TERMS_VERSION } from './auth/terms.js';
+import { recordTermsAcceptance } from './auth/terms-consent.js';
 
 const emailSchema = z.string().trim().email().max(254).transform((email) => email.toLowerCase());
 const passwordSchema = z.string().refine((password) => countPasswordCodePoints(password) <= 128);
-export const TERMS_VERSION = '2026-11-05-v1';
+export { TERMS_VERSION };
 const registerSchema = z.object({ email: emailSchema, password: passwordSchema, rememberMe: z.boolean().default(false), acceptedTerms: z.literal(true) }).strict();
 const loginSchema = z.object({ email: emailSchema, password: passwordSchema.refine((password) => countPasswordCodePoints(password) > 0), rememberMe: z.boolean().default(false) }).strict();
 const captureSchema = z.object({ url: z.string().trim().min(8).max(2048) }).strict();
@@ -133,14 +135,7 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
       await database.transaction(async () => {
         await database.prepare('INSERT INTO users (id, email, password_hash, created_at, terms_version, terms_accepted_at) VALUES (?, ?, ?, ?, ?, ?)')
           .run(userId, parsed.data.email, passwordHash, now, TERMS_VERSION, now);
-        await database.prepare(`INSERT INTO ai_analysis_preferences (owner_id,enabled,updated_at)
-          VALUES (?,FALSE,?)`).run(userId, now);
-        await database.prepare(`INSERT INTO ai_search_preferences (owner_id,enabled,updated_at)
-          VALUES (?,FALSE,?)`).run(userId, now);
-        await database.prepare(`INSERT INTO ai_visual_search_preferences (owner_id,enabled,updated_at)
-          VALUES (?,FALSE,?)`).run(userId, now);
-        await database.prepare(`INSERT INTO semantic_search_preferences (owner_id,enabled,updated_at)
-          VALUES (?,FALSE,?)`).run(userId, now);
+        await recordTermsAcceptance(database, userId, now, new Date(now));
       })();
       await createSession(database, userId, res, parsed.data.rememberMe);
       res.status(201).json({ user: { id: userId, email: parsed.data.email } });

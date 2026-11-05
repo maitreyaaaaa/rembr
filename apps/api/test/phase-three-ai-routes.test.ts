@@ -8,7 +8,7 @@ import { AI_DISCLOSURE_VERSION } from '../src/ai/preferences.js';
 import { AI_SEARCH_DISCLOSURE_VERSION } from '../src/knowledge/ai-search-preferences.js';
 
 const password = 'correct-horse-battery-staple';
-test('AI media analysis requires separate disclosure consent and users can disable it', async () => {
+test('Terms-enabled AI media analysis can be disabled and stale grants fail closed', async () => {
   const database = await createTestDatabase();
   const server = createApp(database).listen(0, '127.0.0.1');
   await once(server, 'listening');

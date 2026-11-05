@@ -6,6 +6,7 @@ import { requireUser } from '../auth/sessions.js';
 import { detectImageMime, imageExtensionMatches, type AssetStorage } from '../assets/storage.js';
 import { AccountServiceError, createAccountService } from './service.js';
 import type { ProfileRow } from './repository.js';
+import { recordTermsAcceptance } from '../auth/terms-consent.js';
 
 const contentTypes = ['instagram', 'pinterest', 'web_pages_links', 'screenshots', 'documents_pdfs', 'voice_notes', 'notes', 'inspiration_ideas', 'videos_social_posts'] as const;
 const referralSources = ['whatsapp_friend', 'instagram', 'youtube', 'tiktok', 'x_twitter', 'reddit', 'linkedin', 'google_search', 'product_hunt', 'school_college', 'other'] as const;
@@ -45,6 +46,15 @@ export function createAccountRouter(database: DatabaseHandle, storage: AssetStor
       ...session,
       profile: publicProfile(req.user!.id, session.profile),
     });
+  });
+
+  router.post('/auth/accept-terms', signedIn, async (req, res) => {
+    const parsed = z.object({ acceptedTerms: z.literal(true) }).strict().safeParse(req.body);
+    if (!parsed.success) return error(res, 400, 'terms_acceptance_required', 'Accept the current Terms and Conditions to continue.', req.requestId);
+    const accountRow = await database.prepare('SELECT created_at FROM users WHERE id=?').get(req.user!.id) as { created_at: string } | undefined;
+    if (!accountRow) return error(res, 404, 'account_not_found', 'Account not found.', req.requestId);
+    await database.transaction(async () => recordTermsAcceptance(database, req.user!.id, accountRow.created_at))();
+    return res.json({ termsCurrent: true });
   });
 
   router.get('/profile', signedIn, async (req, res) => {

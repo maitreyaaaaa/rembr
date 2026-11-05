@@ -3,7 +3,7 @@ import { rateLimit } from 'express-rate-limit';
 import multer from 'multer';
 import { z } from 'zod';
 import type { DatabaseHandle } from '../db/database.js';
-import { requireUser } from '../auth/sessions.js';
+import { requireCurrentTerms, requireUser } from '../auth/sessions.js';
 import { createProfileGate } from '../account/routes.js';
 import type { AssetStorage } from '../assets/storage.js';
 import { consentedAtAfterAccountCreation } from '../auth/consent.js';
@@ -92,20 +92,20 @@ export function createVisualSearchRouter(database: DatabaseHandle, assetStorage:
     res.json({ preference: await preferences.get(req.user!.id, await options.providerAvailable()) });
   });
 
-  router.put('/ai/visual-search-preferences', signedIn, async (req, res) => {
+  router.put('/ai/visual-search-preferences', signedIn, requireCurrentTerms(), async (req, res) => {
     const parsed = updatePreferenceSchema.safeParse(req.body);
     if (!parsed.success) return fail(res, 400, 'invalid_visual_search_preference', 'Choose whether to enable image search.', req.requestId);
     if (parsed.data.enabled && parsed.data.disclosureVersion !== VISUAL_SEARCH_DISCLOSURE_VERSION) {
-      return fail(res, 400, 'visual_search_consent_required', 'Review and accept the current image-search disclosure before enabling it.', req.requestId);
+      return fail(res, 400, 'visual_search_consent_required', 'Accept the current Terms and Conditions before enabling image search.', req.requestId);
     }
     await preferences.set(req.user!.id, parsed.data.enabled);
     return res.json({ preference: await preferences.get(req.user!.id, await options.providerAvailable()) });
   });
 
-  router.post('/visual-search', signedIn, profile, visualSearchLimit, upload.single('image'), async (req, res) => {
+  router.post('/visual-search', signedIn, requireCurrentTerms(), profile, visualSearchLimit, upload.single('image'), async (req, res) => {
     const ownerId = req.user!.id;
     const preference = await preferences.get(ownerId, await options.providerAvailable());
-    if (!preference.enabled) return fail(res, 403, 'visual_search_consent_required', 'Enable the separate image-search disclosure in Settings before sending a selected image to Meta AI.', req.requestId);
+    if (!preference.enabled) return fail(res, 403, 'visual_search_consent_required', 'Accept the current Terms and Conditions before using image search.', req.requestId);
     if (!req.file) return fail(res, 400, 'visual_search_image_required', 'Choose a PNG, JPEG, or WebP image to search your library.', req.requestId);
     const detectedMime = detectImageMime(req.file.buffer);
     if (!detectedMime || !['image/png', 'image/jpeg', 'image/webp'].includes(detectedMime) || detectedMime !== req.file.mimetype) {

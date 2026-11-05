@@ -39,5 +39,5 @@ export const AI_DISCLOSURE_VERSION = '2026-10-29-v2';
 export const AI_SEARCH_DISCLOSURE_VERSION = '2026-10-29-v5';
 export const VISUAL_SEARCH_DISCLOSURE_VERSION = '2026-10-29-v1';
 export const SEMANTIC_SEARCH_DISCLOSURE_VERSION = '2026-10-30-v1';
-export interface Session { user: User; profile: Profile | null; profileComplete: boolean; accountStatus: 'active' | 'disabled' }
+export interface Session { user: User; profile: Profile | null; profileComplete: boolean; accountStatus: 'active' | 'disabled'; termsCurrent: boolean }
 export interface ApiError extends Error { status: number; code: string }

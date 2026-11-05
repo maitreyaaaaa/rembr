@@ -1,7 +1,7 @@
 import express from 'express';
 import { z } from 'zod';
 import type { DatabaseHandle } from '../db/database.js';
-import { requireUser } from '../auth/sessions.js';
+import { requireCurrentTerms, requireUser } from '../auth/sessions.js';
 import { AI_DISCLOSURE_VERSION, createAiPreferenceRepository } from './preferences.js';
 
 const updateSchema = z.object({ enabled: z.boolean(), disclosureVersion: z.string().optional() }).strict();
@@ -25,11 +25,11 @@ export function createAiRouter(database: DatabaseHandle) {
     res.json({ preference: await preferences.get(req.user!.id, await providerAvailable()) });
   });
 
-  router.put('/ai/preferences', signedIn, async (req, res) => {
+  router.put('/ai/preferences', signedIn, requireCurrentTerms(), async (req, res) => {
     const parsed = updateSchema.safeParse(req.body);
     if (!parsed.success) return fail(res, 400, 'invalid_ai_preference', 'Choose whether to enable Instagram media analysis.', req.requestId);
     if (parsed.data.enabled && parsed.data.disclosureVersion !== AI_DISCLOSURE_VERSION) {
-      return fail(res, 400, 'ai_consent_required', 'Review and accept the current media-analysis disclosure before enabling it.', req.requestId);
+      return fail(res, 400, 'ai_consent_required', 'Accept the current Terms and Conditions before enabling AI media analysis.', req.requestId);
     }
     await preferences.set(req.user!.id, parsed.data.enabled);
     return res.json({ preference: await preferences.get(req.user!.id, await providerAvailable()) });

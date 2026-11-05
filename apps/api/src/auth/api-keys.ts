@@ -85,10 +85,11 @@ export function requireApiKey(database: DatabaseHandle, requiredScope: ApiKeySco
     if (!match) return failure(res, 401, 'unauthorized', 'A valid Rembr API key is required.', req.requestId);
     const [, publicId, secret] = match;
     const row = await database.prepare(`SELECT k.id,k.owner_id AS "ownerId",k.secret_hash AS "secretHash",
-      k.scopes_json AS "scopesJson",k.expires_at AS "expiresAt",u.email,u.account_status AS "accountStatus"
+      k.scopes_json AS "scopesJson",k.expires_at AS "expiresAt",u.email,u.account_status AS "accountStatus",
+      u.terms_version AS "termsVersion"
       FROM personal_api_keys k JOIN users u ON u.id=k.owner_id
       WHERE k.public_id=? AND k.revoked_at IS NULL`).get(publicId) as {
-        id: string; ownerId: string; secretHash: string; scopesJson: string; expiresAt: string; email: string; accountStatus: string;
+        id: string; ownerId: string; secretHash: string; scopesJson: string; expiresAt: string; email: string; accountStatus: string; termsVersion: string | null;
       } | undefined;
     const actual = digest(secret!);
     const expected = Buffer.from(row?.secretHash ?? '0'.repeat(64), 'hex');
@@ -101,7 +102,7 @@ export function requireApiKey(database: DatabaseHandle, requiredScope: ApiKeySco
       res.setHeader('WWW-Authenticate', `Bearer error="insufficient_scope", scope="${requiredScope}"`);
       return failure(res, 403, 'insufficient_scope', `This key needs the ${requiredScope} scope.`, req.requestId);
     }
-    req.user = { id: row.ownerId, email: row.email, accountStatus: 'active' } satisfies AuthenticatedUser;
+    req.user = { id: row.ownerId, email: row.email, accountStatus: 'active', termsVersion: row.termsVersion } satisfies AuthenticatedUser;
     req.apiKeyId = row.id;
     req.apiKeyScopes = scopes;
     const lastUseCutoff = new Date(Date.now() - 5 * 60 * 1000).toISOString();

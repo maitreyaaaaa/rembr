@@ -30,14 +30,14 @@ function PageFrame({ title, eyebrow, children, onBack }) {
 }
 
 function TermsPage({ onBack }) {
-  return <PageFrame title="Terms and Conditions" eyebrow="Effective November 5, 2026 · version 2026-11-05-v1" onBack={onBack}>
-    <p className="mt-6 max-w-3xl text-sm leading-7 text-muted-foreground">These terms describe the Rembr service and the processing that occurs when you use it. By creating an account and checking the acceptance box, you agree to these terms.</p>
+  return <PageFrame title="Terms and Conditions" eyebrow="Effective November 5, 2026 · version 2026-11-05-v2" onBack={onBack}>
+    <p className="mt-6 max-w-3xl text-sm leading-7 text-muted-foreground">These terms describe the Rembr service and the processing that occurs when you use it. By creating an account or accepting an updated version, you agree to these terms, including the AI processing described below.</p>
     <div className="mt-10 grid gap-5">
       <TermsSection title="Your account and library">
         <p>Rembr lets you save public links, import supported archives, organize saved items, and search your library. Keep your sign-in details secure. You are responsible for the content you save and must have the right to submit it to Rembr for the features you use.</p>
       </TermsSection>
       <TermsSection title="AI-assisted features and external providers">
-        <p>Rembr uses AI providers to analyze eligible imported Instagram media, answer questions about your saved library, describe an image you choose for image search, and create embeddings for meaning-based search. Instagram import analysis may run automatically for eligible items after an import. Other features send relevant information when you choose to use them.</p>
+        <p>Accepting these terms is your consent for Rembr to use AI providers for the features below. Rembr may analyze eligible imported Instagram media automatically after an import, answer questions about your saved library, describe an image you select for image search, and create embeddings for meaning-based search. You can turn off an individual feature in Rembr.</p>
         <p>Depending on the feature, information sent may include saved titles, descriptions, captions, extracted page or note text, public Instagram media, a selected image, your search query, or recent messages from the same library conversation. Rembr sends only the information needed for the requested feature.</p>
         <p>Rembr uses Meta AI for media analysis, grounded answers, and image search. Meaning-based and live web search use OpenRouter, which may route requests to upstream providers. Those providers process submitted information under their own terms and privacy practices. AI results can be incomplete or inaccurate; review them before relying on them.</p>
       </TermsSection>

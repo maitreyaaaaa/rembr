@@ -68,7 +68,7 @@ test('API denies private library access without a verified session', async () =>
   });
 });
 
-test('registration records Terms acceptance without enabling AI features', async () => {
+test('accepting Terms enables the AI features described there', async () => {
   await withApi(async (baseUrl, database) => {
     const missingAcceptance = await fetch(`${baseUrl}/api/auth/register`, {
       method: 'POST', headers: { Origin: origin, 'Content-Type': 'application/json' },
@@ -78,14 +78,61 @@ test('registration records Terms acceptance without enabling AI features', async
 
     const accepted = await register(baseUrl, 'terms-accepted@example.test');
     const terms = await database.prepare('SELECT terms_version,terms_accepted_at FROM users WHERE id=?').get(accepted.user.user.id) as { terms_version: string; terms_accepted_at: string };
-    assert.equal(terms.terms_version, '2026-11-05-v1');
+    assert.equal(terms.terms_version, '2026-11-05-v2');
     assert.ok(terms.terms_accepted_at);
+    const preferences = await database.prepare(`SELECT (SELECT enabled FROM ai_analysis_preferences WHERE owner_id=?) AS "media",
+      (SELECT enabled FROM ai_search_preferences WHERE owner_id=?) AS "answers",
+      (SELECT enabled FROM ai_visual_search_preferences WHERE owner_id=?) AS "image",
+      (SELECT enabled FROM semantic_search_preferences WHERE owner_id=?) AS "semantic",
+      (SELECT consented_at FROM ai_analysis_preferences WHERE owner_id=?) AS "mediaConsent",
+      (SELECT consented_at FROM ai_search_preferences WHERE owner_id=?) AS "answerConsent",
+      (SELECT consented_at FROM ai_visual_search_preferences WHERE owner_id=?) AS "imageConsent",
+      (SELECT consented_at FROM semantic_search_preferences WHERE owner_id=?) AS "semanticConsent",
+      (SELECT created_at FROM users WHERE id=?) AS "createdAt"`)
+      .get(accepted.user.user.id, accepted.user.user.id, accepted.user.user.id, accepted.user.user.id,
+        accepted.user.user.id, accepted.user.user.id, accepted.user.user.id, accepted.user.user.id, accepted.user.user.id) as {
+          media: boolean; answers: boolean; image: boolean; semantic: boolean;
+          mediaConsent: string; answerConsent: string; imageConsent: string; semanticConsent: string; createdAt: string;
+        };
+    const createdAt = Date.parse(preferences.createdAt);
+    const consentTimes = [preferences.mediaConsent, preferences.answerConsent, preferences.imageConsent, preferences.semanticConsent].map(Date.parse);
+    assert.ok(consentTimes.every((consentedAt) => consentedAt > createdAt), JSON.stringify({ createdAt: preferences.createdAt, consents: [preferences.mediaConsent, preferences.answerConsent, preferences.imageConsent, preferences.semanticConsent] }));
+    assert.deepEqual({ media: preferences.media, answers: preferences.answers, image: preferences.image, semantic: preferences.semantic },
+      { media: true, answers: true, image: true, semantic: true });
+  });
+});
+
+test('existing users accept the updated Terms once before AI features are enabled', async () => {
+  await withApi(async (baseUrl, database) => {
+    const account = await register(baseUrl, 'terms-update@example.test');
+    await database.prepare("UPDATE users SET terms_version='2026-11-05-v1' WHERE id=?").run(account.user.user.id);
+    await database.prepare(`UPDATE ai_analysis_preferences SET enabled=FALSE,consent_version=NULL,consented_at=NULL WHERE owner_id=?`).run(account.user.user.id);
+    await database.prepare(`UPDATE ai_search_preferences SET enabled=FALSE,consent_version=NULL,consented_at=NULL WHERE owner_id=?`).run(account.user.user.id);
+    await database.prepare(`UPDATE ai_visual_search_preferences SET enabled=FALSE,consent_version=NULL,consented_at=NULL WHERE owner_id=?`).run(account.user.user.id);
+    await database.prepare(`UPDATE semantic_search_preferences SET enabled=FALSE,disclosure_version=NULL,consented_at=NULL WHERE owner_id=?`).run(account.user.user.id);
+
+    const session = await fetch(`${baseUrl}/api/auth/session`, { headers: { Cookie: account.cookie } });
+    assert.equal((await session.json() as { termsCurrent: boolean }).termsCurrent, false);
+    const blocked = await fetch(`${baseUrl}/api/ai/preferences`, {
+      method: 'PUT', headers: { Cookie: account.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: true, disclosureVersion: '2026-10-29-v2' }),
+    });
+    assert.equal(blocked.status, 403);
+    assert.equal((await blocked.json() as { error: { code: string } }).error.code, 'terms_update_required');
+
+    const accepted = await fetch(`${baseUrl}/api/auth/accept-terms`, {
+      method: 'POST', headers: { Cookie: account.cookie, Origin: origin, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ acceptedTerms: true }),
+    });
+    assert.equal(accepted.status, 200);
+    const refreshed = await fetch(`${baseUrl}/api/auth/session`, { headers: { Cookie: account.cookie } });
+    assert.equal((await refreshed.json() as { termsCurrent: boolean }).termsCurrent, true);
     const preferences = await database.prepare(`SELECT (SELECT enabled FROM ai_analysis_preferences WHERE owner_id=?) AS media,
       (SELECT enabled FROM ai_search_preferences WHERE owner_id=?) AS answers,
       (SELECT enabled FROM ai_visual_search_preferences WHERE owner_id=?) AS image,
       (SELECT enabled FROM semantic_search_preferences WHERE owner_id=?) AS semantic`)
-      .get(accepted.user.user.id, accepted.user.user.id, accepted.user.user.id, accepted.user.user.id) as { media: boolean; answers: boolean; image: boolean; semantic: boolean };
-    assert.deepEqual(preferences, { media: false, answers: false, image: false, semantic: false });
+      .get(account.user.user.id, account.user.user.id, account.user.user.id, account.user.user.id) as { media: boolean; answers: boolean; image: boolean; semantic: boolean };
+    assert.deepEqual(preferences, { media: true, answers: true, image: true, semantic: true });
   });
 });
 

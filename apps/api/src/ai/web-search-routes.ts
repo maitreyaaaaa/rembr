@@ -1,7 +1,7 @@
 import express from 'express';
 import { rateLimit } from 'express-rate-limit';
 import { z } from 'zod';
-import { requireUser } from '../auth/sessions.js';
+import { requireCurrentTerms, requireUser } from '../auth/sessions.js';
 import { createProfileGate } from '../account/routes.js';
 import type { AssetStorage } from '../assets/storage.js';
 import type { DatabaseHandle } from '../db/database.js';
@@ -21,7 +21,7 @@ export function createWebSearchRouter(database: DatabaseHandle, assetStorage: As
   const usage = createAiUsageRepository(database);
   const searchLimit = rateLimit({ windowMs: 15 * 60_000, limit: 8, standardHeaders: 'draft-8', legacyHeaders: false });
 
-  router.post('/web-search', signedIn, profile, searchLimit, async (req, res) => {
+  router.post('/web-search', signedIn, requireCurrentTerms(), profile, searchLimit, async (req, res) => {
     const parsed = querySchema.safeParse(req.body);
     if (!parsed.success) return fail(res, 400, 'invalid_web_search_query', 'Enter a search query between 2 and 120 characters.', req.requestId);
     if (!model) return fail(res, 503, 'web_search_unavailable', 'Live web search is not configured right now. Saved search is still available.', req.requestId);

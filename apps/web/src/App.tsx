@@ -119,7 +119,7 @@ function AuthPage() {
   return <><RembrAuthFrame title="Keep what you find. Find it again." description="Save a public page with its source and a readable copy." sideNote="Made for the long read">
     <div className="auth-card-heading"><h2 id="auth-form-title">{mode === 'login' ? 'Welcome back.' : 'Create your account.'}</h2></div>
       <div className="auth-tabs" role="tablist" aria-label="Account access"><button type="button" role="tab" aria-selected={mode === 'login'} onClick={() => { setMode('login'); setPassword(''); setTermsAccepted(false); setPasswordRevealed(false); setError(''); }}>Sign in</button><button type="button" role="tab" aria-selected={mode === 'register'} onClick={() => { setMode('register'); setPassword(''); setPasswordRevealed(false); setError(''); }}>Create account</button></div>
-      <form className="stack-form" onSubmit={(event) => void submit(event)}><label htmlFor="email">Email address</label><input id="email" autoComplete="email" type="email" required maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} />{mode === 'register' ? <PasswordStrengthField id="password" value={password} onValueChange={setPassword} disabled={busy} /> : <><label htmlFor="password">Password</label><div className="password-input-wrap"><input id="password" name="password" autoComplete="current-password" type={passwordRevealed ? 'text' : 'password'} required minLength={1} maxLength={128} value={password} onChange={(event) => setPassword(event.target.value)} /><button type="button" className="password-reveal" aria-label={passwordRevealed ? 'Hide password' : 'Show password'} aria-controls="password" aria-pressed={passwordRevealed} onClick={() => setPasswordRevealed((current) => !current)}>{passwordRevealed ? 'Hide' : 'Show'}</button></div></>}{mode === 'register' && <label className="auth-terms"><input type="checkbox" required checked={termsAccepted} onChange={(event) => setTermsAccepted(event.currentTarget.checked)} /><span className="auth-terms-icon"><FileCheck2 size={17} aria-hidden="true" /></span><span>I agree to the <a href="/terms" target="_blank" rel="noopener noreferrer">Terms and Conditions</a>, including the AI processing described there.</span></label>}<label className="auth-remember"><input type="checkbox" checked={rememberMe} onChange={(event) => setRememberMe(event.currentTarget.checked)} /><span>Keep me signed in on this browser for 30 days</span></label>{error && <p className="notice error" role="alert">{error}</p>}<button className="primary-button" type="submit" disabled={busy || (mode === 'register' && !termsAccepted)}>{busy ? (mode === 'register' ? 'Creating account…' : 'Signing in…') : mode === 'register' ? 'Create your library' : 'Sign in to Rembr'}</button></form>
+      <form className="stack-form" onSubmit={(event) => void submit(event)}><label htmlFor="email">Email address</label><input id="email" autoComplete="email" type="email" required maxLength={254} value={email} onChange={(event) => setEmail(event.target.value)} />{mode === 'register' ? <PasswordStrengthField id="password" value={password} onValueChange={setPassword} disabled={busy} /> : <><label htmlFor="password">Password</label><div className="password-input-wrap"><input id="password" name="password" autoComplete="current-password" type={passwordRevealed ? 'text' : 'password'} required minLength={1} maxLength={128} value={password} onChange={(event) => setPassword(event.target.value)} /><button type="button" className="password-reveal" aria-label={passwordRevealed ? 'Hide password' : 'Show password'} aria-controls="password" aria-pressed={passwordRevealed} onClick={() => setPasswordRevealed((current) => !current)}>{passwordRevealed ? 'Hide' : 'Show'}</button></div></>}{mode === 'register' && <label className="auth-terms"><input type="checkbox" required checked={termsAccepted} onChange={(event) => setTermsAccepted(event.currentTarget.checked)} /><span className="auth-terms-icon"><FileCheck2 size={17} aria-hidden="true" /></span><span>I agree to the <a href="/terms" target="_blank" rel="noopener noreferrer">Terms and Conditions</a>. This includes the AI processing described there.</span></label>}<label className="auth-remember"><input type="checkbox" checked={rememberMe} onChange={(event) => setRememberMe(event.currentTarget.checked)} /><span>Keep me signed in on this browser for 30 days</span></label>{error && <p className="notice error" role="alert">{error}</p>}<button className="primary-button" type="submit" disabled={busy || (mode === 'register' && !termsAccepted)}>{busy ? (mode === 'register' ? 'Creating account…' : 'Signing in…') : mode === 'register' ? 'Create your library' : 'Sign in to Rembr'}</button></form>
       <p className="privacy-note"><span>✳</span>Your library is private to your account. Rembr can save public pages.</p>
   </RembrAuthFrame>{demoPromptOpen && <div className="demo-choice-backdrop"><section className="demo-choice-dialog" role="dialog" aria-modal="true" aria-labelledby="demo-choice-title"><p className="demo-choice-kicker">A faster way to explore</p><h2 id="demo-choice-title">Take a look around first.</h2><p>Either log in or sign up with your own account and export your Instagram saves. Importing them takes a little time. Or enter the shared demo workspace now. Changes, imports, and profile edits in the demo are visible to other visitors.</p><Link className="demo-choice-primary" to="/demo" onClick={() => setDemoPromptOpen(false)}>Enter the demo workspace <ArrowRight size={18} aria-hidden="true" /></Link><button className="demo-choice-account" type="button" onClick={() => setDemoPromptOpen(false)}>Log in or sign up with my own account</button><button className="demo-choice-close" type="button" aria-label="Close demo introduction" onClick={() => setDemoPromptOpen(false)}>×</button></section></div>}</>;
 }
@@ -191,6 +191,7 @@ function ProtectedShell() {
   if (accountDenied) return <main className="phase2-centered"><section className="phase2-card"><h1>Account unavailable</h1><p>This account is disabled, so its library is unavailable.</p><Link className="quiet-button" to="/login">Back to sign in</Link></section></main>;
   if (error) return <main className="phase2-centered"><section className="phase2-card" role="alert"><h1>Your library could not load</h1><p>{error}</p><button className="quiet-button" type="button" onClick={() => void refresh()}>Try again</button></section></main>;
   if (!session) return <Navigate to={`/login?demo=1&returnTo=${encodeURIComponent(`${location.pathname}${location.search}`)}`} replace />;
+  if (!session.termsCurrent) return <TermsAcceptanceGate onAccepted={() => void refresh()} />;
   if (!session.profileComplete && !location.pathname.startsWith('/app/setup/')) return <Navigate to="/app/setup/profile" replace state={{ returnTo: `${location.pathname}${location.search}` }} />;
   const tourOpen = explicitTourOpen || firstRunTourOpen;
   return <div className="dashboard-shell flex h-screen overflow-hidden bg-black text-foreground">
@@ -209,6 +210,28 @@ function ProtectedShell() {
       navigate({ pathname: location.pathname, search: query.size ? `?${query.toString()}` : '' }, { replace: true });
     }} onNavigate={navigateForTour} />}
   </div>;
+}
+
+function TermsAcceptanceGate({ onAccepted }: { onAccepted: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  async function accept() {
+    setBusy(true); setError('');
+    try {
+      await api('/api/auth/accept-terms', { method: 'POST', body: JSON.stringify({ acceptedTerms: true }) });
+      onAccepted();
+    } catch (cause) { setError(messageOf(cause, 'Could not save your Terms acceptance.')); }
+    finally { setBusy(false); }
+  }
+  return <main className="phase2-centered"><section className="phase2-card" aria-labelledby="terms-update-title">
+    <p className="phase2-eyebrow">TERMS UPDATED</p>
+    <h1 id="terms-update-title">Please review the updated Terms.</h1>
+    <p>Rembr’s Terms include AI processing used by Instagram media analysis, library answers, image search, and meaning-based search. Depending on the feature, this may send saved text, public Instagram media, a selected image, or your question to Meta AI or OpenRouter.</p>
+    <p>Accepting the Terms enables these AI features. You can turn individual features off at any time.</p>
+    <p><a className="phase2-text-button" href="/terms" target="_blank" rel="noopener noreferrer">Read the full Terms and Conditions</a></p>
+    {error && <p className="notice error" role="alert">{error}</p>}
+    <button className="primary-button" type="button" disabled={busy} onClick={() => void accept()}>{busy ? 'Saving…' : 'Accept updated Terms and continue'}</button>
+  </section></main>;
 }
 
 function QuickAddDock() {

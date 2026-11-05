@@ -38,7 +38,6 @@ export function LibraryPage() {
   const [composerAnswerBusy, setComposerAnswerBusy] = useState(false);
   const [visualSearchPreference, setVisualSearchPreference] = useState<VisualSearchPreference | null>(null);
   const [visualPreferenceError, setVisualPreferenceError] = useState(false);
-  const [visualConsentAccepted, setVisualConsentAccepted] = useState(false);
   const [visualImage, setVisualImage] = useState<File | null>(null);
   const [visualPreview, setVisualPreview] = useState<string | null>(null);
   const [visualResult, setVisualResult] = useState<VisualSearchResult | null>(null);
@@ -57,10 +56,8 @@ export function LibraryPage() {
   const [answerBusy, setAnswerBusy] = useState(false);
   const [answerError, setAnswerError] = useState('');
   const [answerResult, setAnswerResult] = useState<LibraryAnswer | null>(null);
-  const [answerConsentAccepted, setAnswerConsentAccepted] = useState(false);
   const [aiPreference, setAiPreference] = useState<AiPreference | null>(null);
   const [semanticPreference, setSemanticPreference] = useState<SemanticSearchPreference | null>(null);
-  const [semanticConsentAccepted, setSemanticConsentAccepted] = useState(false);
   const [semanticIndexBusy, setSemanticIndexBusy] = useState(false);
   const [semanticIndexStatus, setSemanticIndexStatus] = useState('');
   const [items, setItems] = useState<SavedItem[]>([]); const [nextCursor, setNextCursor] = useState<string | null>(null); const [hasMore, setHasMore] = useState(false); const [searchEventIds, setSearchEventIds] = useState<Record<string, string>>({}); const [searchFeedback, setSearchFeedback] = useState<Record<string, 'helpful' | 'not_helpful'>>({});
@@ -150,7 +147,6 @@ export function LibraryPage() {
     setVisualBusy(true); setVisualError(''); setVisualFeedback({});
     try {
       if (!visualSearchPreference?.enabled) {
-        if (!visualConsentAccepted) { setVisualError('Review and accept the image-search disclosure before sending your selected image.'); return; }
         const saved = await api<{ preference: VisualSearchPreference }>('/api/ai/visual-search-preferences', {
           method: 'PUT', body: JSON.stringify({ enabled: true, disclosureVersion: VISUAL_SEARCH_DISCLOSURE_VERSION }),
         });
@@ -166,15 +162,15 @@ export function LibraryPage() {
     }
     finally { setVisualBusy(false); }
   }
-  async function updateVisualSearchConsent(enabled: boolean) {
+  async function updateVisualSearchPreference(enabled: boolean) {
     try {
       const saved = await api<{ preference: VisualSearchPreference }>('/api/ai/visual-search-preferences', {
         method: 'PUT', body: JSON.stringify({ enabled, ...(enabled ? { disclosureVersion: VISUAL_SEARCH_DISCLOSURE_VERSION } : {}) }),
       });
       setVisualSearchPreference(saved.preference);
-      if (!enabled) { setVisualConsentAccepted(false); setVisualResult(null); }
+      if (!enabled) setVisualResult(null);
       setVisualError('');
-    } catch (cause) { setVisualError(messageOf(cause, 'Could not update image-search consent.')); }
+    } catch (cause) { setVisualError(messageOf(cause, 'Could not update image-search settings.')); }
   }
   async function searchWebAndLibrary(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -221,7 +217,6 @@ export function LibraryPage() {
     let indexed = 0;
     try {
       if (!semanticPreference?.enabled) {
-        if (!semanticConsentAccepted) { setSemanticIndexStatus('Review and accept the meaning-based search disclosure before sending saved text.'); return; }
         const saved = await api<{ preference: SemanticSearchPreference }>('/api/semantic/preferences', {
           method: 'PUT', body: JSON.stringify({ enabled: true, disclosureVersion: SEMANTIC_SEARCH_DISCLOSURE_VERSION }),
         });
@@ -244,22 +239,21 @@ export function LibraryPage() {
       setSemanticIndexStatus(messageOf(cause, 'Indexing stopped. Try again when the service is available.'));
     } finally { setSemanticIndexBusy(false); }
   }
-  async function updateSemanticSearchConsent(enabled: boolean) {
+  async function updateSemanticSearchPreference(enabled: boolean) {
     try {
       const saved = await api<{ preference: SemanticSearchPreference }>('/api/semantic/preferences', {
         method: 'PUT', body: JSON.stringify({ enabled, ...(enabled ? { disclosureVersion: SEMANTIC_SEARCH_DISCLOSURE_VERSION } : {}) }),
       });
       setSemanticPreference(saved.preference);
-      if (!enabled) { setSemanticConsentAccepted(false); setSemanticIndexStatus('Meaning-based search is disabled and its saved index was removed.'); }
-    } catch (cause) { setSemanticIndexStatus(messageOf(cause, 'Could not update meaning-based search consent.')); }
+      if (!enabled) setSemanticIndexStatus('Meaning-based search is disabled and its saved index was removed.');
+    } catch (cause) { setSemanticIndexStatus(messageOf(cause, 'Could not update meaning-based search settings.')); }
   }
-  async function disableAiAnswerConsent() {
+  async function disableAiAnswers() {
     try {
       const saved = await api<{ preference: AiPreference }>('/api/knowledge/ai-preferences', {
         method: 'PUT', body: JSON.stringify({ enabled: false }),
       });
       setAiPreference(saved.preference);
-      setAnswerConsentAccepted(false);
       setLibraryAnswer(null); setComposerAnswer(null);
     } catch (cause) { setLibraryAnswerError(messageOf(cause, 'Could not disable AI answers.')); }
   }
@@ -279,7 +273,6 @@ export function LibraryPage() {
     setAnswerBusy(true); setAnswerError(''); setAnswerResult(null);
     try {
       if (!aiPreference.enabled) {
-        if (!answerConsentAccepted) { setAnswerError('Review and accept the AI disclosure before sending your selected saves.'); return; }
         const saved = await api<{ preference: AiPreference }>('/api/knowledge/ai-preferences', {
           method: 'PUT', body: JSON.stringify({ enabled: true, disclosureVersion: AI_SEARCH_DISCLOSURE_VERSION }),
         });
@@ -326,7 +319,6 @@ export function LibraryPage() {
     setComposerAnswerBusy(true); setComposerAnswerError(''); setComposerAnswer(null);
     try {
       if (!aiPreference.enabled) {
-        if (!answerConsentAccepted) { setComposerAnswerError('Review and accept the AI disclosure before sending your selected saves.'); return; }
         const saved = await api<{ preference: AiPreference }>('/api/knowledge/ai-preferences', {
           method: 'PUT', body: JSON.stringify({ enabled: true, disclosureVersion: AI_SEARCH_DISCLOSURE_VERSION }),
         });
@@ -356,11 +348,10 @@ export function LibraryPage() {
       <form className="library-ask-form" onSubmit={(event) => void askAboutSelected(event)}>
         <label className="visually-hidden" htmlFor="library-ask-question">Ask about your selected saves</label>
         <textarea id="library-ask-question" rows={2} maxLength={120} placeholder="What do these have in common?" value={answerQuestion} onChange={(event) => setAnswerQuestion(event.currentTarget.value)} />
-        {!aiPreference?.enabled && <label className="library-ask-consent"><input type="checkbox" checked={answerConsentAccepted} onChange={(event) => setAnswerConsentAccepted(event.currentTarget.checked)} /><span>Allow Rembr to send this question and excerpts from the selected saves to Meta AI for a grounded answer.</span></label>}
-        {aiPreference?.enabled && <><p className="library-ask-privacy">AI processing is enabled. Your question and selected excerpts will be sent to Meta AI.</p><button className="phase2-text-button" type="button" onClick={() => void disableAiAnswerConsent()}>Disable AI answers</button></>}
+        {aiPreference?.enabled && <><p className="library-ask-privacy">AI processing is enabled. Your question and selected excerpts will be sent to Meta AI.</p><button className="phase2-text-button" type="button" onClick={() => void disableAiAnswers()}>Disable AI answers</button></>}
         {aiPreference && !aiPreference.providerAvailable && <p className="library-ask-privacy">Grounded answers are temporarily unavailable. Your selected saves will not be sent.</p>}
         {answerError && <p className="notice error" role="alert">{answerError}</p>}
-        <button className="primary-button" type="submit" disabled={answerBusy || !answerQuestion.trim() || !aiPreference?.providerAvailable || (!aiPreference.enabled && !answerConsentAccepted)}>{answerBusy ? 'Thinking…' : `Ask about ${answerSources.length} ${answerSources.length === 1 ? 'save' : 'saves'}`}</button>
+        <button className="primary-button" type="submit" disabled={answerBusy || !answerQuestion.trim() || !aiPreference?.providerAvailable}>{answerBusy ? 'Thinking…' : `Ask about ${answerSources.length} ${answerSources.length === 1 ? 'save' : 'saves'}`}</button>
       </form>
       {answerResult && <div className="library-ask-result" aria-live="polite">{answerResult.claims?.length ? <ol className="library-ask-claims">{answerResult.claims.map((claim, index) => <li key={`${index}-${claim.text}`}><p>{claim.text}</p><div>{claim.citationIds.map((id) => { const citation = answerResult.citations.find((source) => source.id === id); return citation ? <SavedItemLink key={id} itemId={id}>{citation.title}</SavedItemLink> : null; })}</div></li>)}</ol> : <><p>{answerResult.answer}</p>{answerResult.citations.length > 0 && <ol>{answerResult.citations.map((citation) => <li key={citation.id}><SavedItemLink itemId={citation.id}>{citation.title}</SavedItemLink>{citation.snippet && <p>{citation.snippet}</p>}</li>)}</ol>}</>}</div>}
     </section>}
@@ -399,24 +390,21 @@ export function LibraryPage() {
             <button type="button" className={searchMode === 'saved' ? 'active' : ''} aria-pressed={searchMode === 'saved'} onClick={() => selectSearchMode('saved')}>Saved</button>
             <button type="button" data-rembr-tour-target="search-ai" className={searchMode === 'web' ? 'active' : ''} aria-pressed={searchMode === 'web'} onClick={() => { selectSearchMode('web'); setVisualResult(null); }}>AI + saved</button>
           </div>
-        {searchMode === 'saved' && visualImage && !visualSearchPreference?.enabled && <label className="library-ask-consent"><input type="checkbox" checked={visualConsentAccepted} onChange={(event) => setVisualConsentAccepted(event.currentTarget.checked)} /><span>Allow Rembr to send this image to Meta AI to describe it and search your saved library. The image and description are not saved.</span></label>}
-        {searchMode === 'saved' && visualImage && visualSearchPreference?.enabled && <><p className="library-ask-privacy">The selected image will be sent to Meta AI for visual search.</p><button className="phase2-text-button" type="button" onClick={() => void updateVisualSearchConsent(false)}>Disable image search</button></>}
-        {searchMode === 'saved' && visualImage && <button className="primary-button library-search-submit" type="submit" disabled={visualBusy || (!visualSearchPreference?.enabled && !visualConsentAccepted)}>{visualBusy ? 'Searching…' : 'Find similar saves'}</button>}
+        {searchMode === 'saved' && visualImage && visualSearchPreference?.enabled && <><p className="library-ask-privacy">The selected image will be sent to Meta AI for visual search.</p><button className="phase2-text-button" type="button" onClick={() => void updateVisualSearchPreference(false)}>Disable image search</button></>}
+        {searchMode === 'saved' && visualImage && <button className="primary-button library-search-submit" type="submit" disabled={visualBusy || !visualSearchPreference?.providerAvailable}>{visualBusy ? 'Searching…' : 'Find similar saves'}</button>}
           {searchMode === 'saved' && !visualImage && <span className="library-search-hint">Searches your library by keywords only</span>}
         </div>
         {searchMode === 'web' && composerSources.length > 0 && <>
-          {!aiPreference?.enabled && <label className="library-ask-consent library-composer-consent"><input type="checkbox" checked={answerConsentAccepted} onChange={(event) => setAnswerConsentAccepted(event.currentTarget.checked)} /><span>Allow Rembr to send this question and the selected saves to Meta AI for a grounded answer.</span></label>}
-          {aiPreference?.enabled && <><p className="library-ask-privacy library-composer-consent-note">Your question and selected saves will be sent to Meta AI.</p><button className="phase2-text-button" type="button" onClick={() => void disableAiAnswerConsent()}>Disable AI answers</button></>}
+          {aiPreference?.enabled && <><p className="library-ask-privacy library-composer-ai-note">Your question and selected saves will be sent to Meta AI.</p><button className="phase2-text-button" type="button" onClick={() => void disableAiAnswers()}>Disable AI answers</button></>}
           {composerAnswerError && <p className="notice error" role="alert">{composerAnswerError}</p>}
-          <button className="primary-button library-composer-ask" type="submit" disabled={composerAnswerBusy || !search.trim() || !aiPreference?.providerAvailable || (!aiPreference.enabled && !answerConsentAccepted)}>{composerAnswerBusy ? 'Thinking…' : `Ask about ${composerSources.length} ${composerSources.length === 1 ? 'save' : 'saves'}`}</button>
+          <button className="primary-button library-composer-ask" type="submit" disabled={composerAnswerBusy || !search.trim() || !aiPreference?.providerAvailable}>{composerAnswerBusy ? 'Thinking…' : `Ask about ${composerSources.length} ${composerSources.length === 1 ? 'save' : 'saves'}`}</button>
         </>}
       </form>
       {searchMode === 'web' && <div className="library-ai-search-tools">
         <div><strong>Meaning-based search</strong><p>{semanticPreference?.providerAvailable ? `${semanticPreference.indexedItems} of ${semanticPreference.eligibleItems} saved items indexed.` : 'Meaning-based search is unavailable; web and keyword search still work.'}</p></div>
-        {!semanticPreference?.enabled && <label className="library-ask-consent"><input type="checkbox" checked={semanticConsentAccepted} onChange={(event) => setSemanticConsentAccepted(event.currentTarget.checked)} /><span>Allow Rembr to send saved titles, descriptions, notes, and extracted text to the configured embedding provider to create a searchable index.</span></label>}
         {semanticPreference?.enabled && <p className="library-ask-privacy">Meaning-based search is enabled. Saved text is sent to the embedding provider when you update the index.</p>}
-        {semanticPreference?.enabled && <button className="phase2-text-button" type="button" onClick={() => void updateSemanticSearchConsent(false)}>Disable meaning-based search</button>}
-        <button className="quiet-button" type="button" disabled={semanticIndexBusy || !semanticPreference?.providerAvailable || (!semanticPreference.enabled && !semanticConsentAccepted)} onClick={() => void indexSemanticLibrary()}><RefreshCw size={14} aria-hidden="true" />{semanticIndexBusy ? 'Indexing…' : 'Update AI search index'}</button>
+        {semanticPreference?.enabled && <button className="phase2-text-button" type="button" onClick={() => void updateSemanticSearchPreference(false)}>Disable meaning-based search</button>}
+        <button className="quiet-button" type="button" disabled={semanticIndexBusy || !semanticPreference?.providerAvailable} onClick={() => void indexSemanticLibrary()}><RefreshCw size={14} aria-hidden="true" />{semanticIndexBusy ? 'Indexing…' : 'Update AI search index'}</button>
       </div>}
       {semanticIndexStatus && <p className="library-search-status" role="status">{semanticIndexStatus}</p>}
       {visualImage && <div className="visual-search-preview library-composer-preview"><img src={visualPreview ?? ''} alt="Selected image for private library search" /><div><span>{visualImage.name}</span><button className="phase2-text-button" type="button" disabled={visualBusy} onClick={() => chooseVisualImage(undefined)}>Remove image</button></div></div>}

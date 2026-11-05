@@ -1,7 +1,8 @@
 import type { DatabaseHandle } from '../db/database.js';
 import { consentedAtAfterAccountCreation } from '../auth/consent.js';
+import { AI_SEARCH_DISCLOSURE_VERSION } from '../auth/disclosures.js';
 
-export const AI_SEARCH_DISCLOSURE_VERSION = '2026-10-29-v5';
+export { AI_SEARCH_DISCLOSURE_VERSION };
 
 export function createAiSearchPreferenceRepository(database: DatabaseHandle) {
   return {

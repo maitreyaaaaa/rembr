@@ -3,8 +3,9 @@ import express from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import type { DatabaseHandle } from '../db/database.js';
-import { requireUser } from '../auth/sessions.js';
+import { requireCurrentTerms, requireUser } from '../auth/sessions.js';
 import { consentedAtAfterAccountCreation } from '../auth/consent.js';
+import { SEMANTIC_DISCLOSURE_VERSION } from '../auth/disclosures.js';
 import { createProfileGate } from '../account/routes.js';
 import type { AssetStorage } from '../assets/storage.js';
 import { AiBudgetExceededError, createAiUsageRepository } from '../ai/usage.js';
@@ -15,7 +16,7 @@ import { createSemanticEmbeddingRepository } from './semantic-embedding-reposito
 import { buildSemanticDocumentText, hashSemanticDocumentText } from './semantic-source.js';
 import type { createLibraryService } from './service.js';
 
-export const SEMANTIC_DISCLOSURE_VERSION = '2026-10-30-v1';
+export { SEMANTIC_DISCLOSURE_VERSION };
 const INDEX_BATCH_SIZE = 4;
 const EMBEDDING_RESERVATION_MICROUSD = 200;
 const EMBEDDING_MICROUSD_PER_TOKEN = 0.02;
@@ -126,11 +127,11 @@ export function createSemanticSearchRouter(input: {
     return res.json({ preference: await preference(req.user!.id) });
   });
 
-  router.put('/semantic/preferences', signedIn, async (req, res) => {
+  router.put('/semantic/preferences', signedIn, requireCurrentTerms(), async (req, res) => {
     const parsed = z.object({ enabled: z.boolean(), disclosureVersion: z.string().max(80).optional() }).strict().safeParse(req.body);
     if (!parsed.success) return fail(res, 400, 'invalid_semantic_preference', 'Choose whether to enable semantic search.', req.requestId);
     if (parsed.data.enabled && parsed.data.disclosureVersion !== SEMANTIC_DISCLOSURE_VERSION) {
-      return fail(res, 400, 'semantic_consent_required', 'Review and accept the current semantic-search disclosure before enabling it.', req.requestId);
+      return fail(res, 400, 'semantic_consent_required', 'Accept the current Terms and Conditions before enabling meaning-based search.', req.requestId);
     }
     const ownerId = req.user!.id;
     const now = new Date().toISOString();
@@ -151,7 +152,7 @@ export function createSemanticSearchRouter(input: {
     return res.json({ preference: await preference(ownerId) });
   });
 
-  router.post('/semantic/index', signedIn, profile, embeddingRateLimit, async (req, res) => {
+  router.post('/semantic/index', signedIn, requireCurrentTerms(), profile, embeddingRateLimit, async (req, res) => {
     const parsed = z.object({ afterId: z.string().max(160).optional() }).strict().safeParse(req.body);
     if (!parsed.success) return fail(res, 400, 'invalid_semantic_index_cursor', 'Restart semantic indexing from the beginning.', req.requestId);
     const ownerId = req.user!.id;
@@ -197,7 +198,7 @@ export function createSemanticSearchRouter(input: {
     }
   });
 
-  router.get('/semantic/search', signedIn, profile, searchRateLimit, async (req, res) => {
+  router.get('/semantic/search', signedIn, requireCurrentTerms(), profile, searchRateLimit, async (req, res) => {
     const parsed = z.object({
       q: z.string().trim().min(1).max(120),
       type: z.enum(['page','note']).optional(),

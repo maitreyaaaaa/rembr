@@ -11,9 +11,9 @@ The source-backed product surfaces remain present. The audit changed failed-impo
 | Notes, tags, collections, saved-item organization | PASS | PASS | API suite; manual UI flows remain |
 | Instagram imports, staging, parsing, deduplication, progress, cancellation, cleanup | PASS | PASS | API suite; COR-001 regression verifies final failed job settles import |
 | Media fetch/storage and cleanup | PASS | PASS | API tests; hosted storage credentials/state unverified |
-| AI analysis, preferences, provider budgets/limits | Implicit signup consent | Explicit opt-in required | API tests with simulated providers; live Meta provider untested |
-| Semantic search and consent | Implicit signup consent | Explicit opt-in required | API tests; live embeddings and hosted pgvector unverified |
-| Visual similarity search and consent | Implicit signup consent | Explicit opt-in required | API tests with controlled provider behavior; real model runtime untested |
+| AI analysis, preferences, provider budgets/limits | AI consent not clearly disclosed | Terms acceptance covers AI processing; feature can be disabled | API tests with simulated providers; live Meta provider untested |
+| Semantic search and consent | AI consent not clearly disclosed | Terms acceptance covers AI processing; feature can be disabled | API tests; live embeddings and hosted pgvector unverified |
+| Visual similarity search and consent | AI consent not clearly disclosed | Terms acceptance covers AI processing; feature can be disabled | API tests with controlled provider behavior; real model runtime untested |
 | Knowledge graph and Obsidian export | PASS | PASS | API suite/build; browser interaction manual |
 | Intent memory/recall prompts | PASS | PASS | API tests assert owner scoping and disclosure behavior |
 | Smart Collections | PASS | PASS | API tests/build; hosted persistence/background worker state unverified |

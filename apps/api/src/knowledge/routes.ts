@@ -1,7 +1,7 @@
 import express from 'express';
 import { rateLimit } from 'express-rate-limit';
 import type { DatabaseHandle } from '../db/database.js';
-import { requireUser } from '../auth/sessions.js';
+import { requireCurrentTerms, requireUser } from '../auth/sessions.js';
 import { createProfileGate } from '../account/routes.js';
 import type { AssetStorage } from '../assets/storage.js';
 import { createKnowledgeGraphRepository } from './graph.js';
@@ -70,11 +70,11 @@ export function createKnowledgeRouter(database: DatabaseHandle, storage: AssetSt
     return res.json({ preference: await aiSearchPreferences.get(req.user!.id, await providerAvailable()) });
   });
 
-  router.put('/knowledge/ai-preferences', signedIn, profile, async (req, res) => {
+  router.put('/knowledge/ai-preferences', signedIn, requireCurrentTerms(), profile, async (req, res) => {
     const parsed = preferenceSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: { code: 'invalid_ai_search_preference', message: 'Choose whether to enable grounded library answers.', requestId: req.requestId } });
     if (parsed.data.enabled && parsed.data.disclosureVersion !== AI_SEARCH_DISCLOSURE_VERSION) {
-      return res.status(400).json({ error: { code: 'ai_search_consent_required', message: 'Review and accept the current library AI disclosure before enabling it.', requestId: req.requestId } });
+      return res.status(400).json({ error: { code: 'ai_search_consent_required', message: 'Accept the current Terms and Conditions before enabling AI library answers.', requestId: req.requestId } });
     }
     await aiSearchPreferences.set(req.user!.id, parsed.data.enabled);
     return res.json({ preference: await aiSearchPreferences.get(req.user!.id, await providerAvailable()) });
@@ -126,7 +126,7 @@ export function createKnowledgeRouter(database: DatabaseHandle, storage: AssetSt
     return res.json({ outcome: parsed.data.outcome });
   });
 
-  router.post('/knowledge/answer', signedIn, profile, answerLimit, async (req, res) => {
+  router.post('/knowledge/answer', signedIn, requireCurrentTerms(), profile, answerLimit, async (req, res) => {
     const parsed = questionSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: { code: 'invalid_question', message: 'Enter a question up to 120 characters.', requestId: req.requestId } });
     const ownerId = req.user!.id;
@@ -257,7 +257,7 @@ export function createKnowledgeRouter(database: DatabaseHandle, storage: AssetSt
     return res.json(await savedItemSummaries.latest(req.user!.id, itemId, summaryContext(item as typeof item & { note?: { body: string } })));
   });
 
-  router.post('/knowledge/items/:itemId/summary', signedIn, profile, summaryLimit, async (req, res) => {
+  router.post('/knowledge/items/:itemId/summary', signedIn, requireCurrentTerms(), profile, summaryLimit, async (req, res) => {
     const itemIdValue = req.params.itemId;
     const itemId = Array.isArray(itemIdValue) ? itemIdValue[0] ?? '' : itemIdValue ?? '';
     const ownerId = req.user!.id;

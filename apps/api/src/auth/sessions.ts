@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type { NextFunction, Request, Response } from 'express';
 import type { DatabaseHandle } from '../db/database.js';
 import { config } from '../config.js';
+import { TERMS_VERSION } from './terms.js';
 
 const COOKIE_NAME = 'rembr_session';
 export const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
@@ -12,6 +13,7 @@ export interface AuthenticatedUser {
   id: string;
   email: string;
   accountStatus: 'active' | 'disabled';
+  termsVersion: string | null;
 }
 
 declare global {
@@ -73,7 +75,8 @@ export function requireUser(database: DatabaseHandle) {
     }
     const now = new Date().toISOString();
     const session = await database.prepare(`SELECT sessions.id AS "sessionId", sessions.created_at AS "createdAt",
-      sessions.expires_at AS "expiresAt", users.id, users.email, users.account_status AS "accountStatus"
+      sessions.expires_at AS "expiresAt", users.id, users.email, users.account_status AS "accountStatus",
+      users.terms_version AS "termsVersion"
       FROM sessions JOIN users ON users.id = sessions.user_id
       WHERE sessions.token_hash = ? AND sessions.expires_at > ?`)
       .get(digest(token), now) as (AuthenticatedUser & { sessionId: string; createdAt: string; expiresAt: string }) | undefined;
@@ -97,7 +100,17 @@ export function requireUser(database: DatabaseHandle) {
       res.cookie(COOKIE_NAME, token, cookieOptions(REMEMBERED_SESSION_TTL_MS));
     }
 
-    req.user = { id: session.id, email: session.email, accountStatus: session.accountStatus };
+    req.user = { id: session.id, email: session.email, accountStatus: session.accountStatus, termsVersion: session.termsVersion };
+    next();
+  };
+}
+
+export function requireCurrentTerms() {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (req.user?.termsVersion !== TERMS_VERSION) {
+      res.status(403).json({ error: { code: 'terms_update_required', message: 'Accept the current Terms and Conditions to use this feature.', requestId: req.requestId } });
+      return;
+    }
     next();
   };
 }

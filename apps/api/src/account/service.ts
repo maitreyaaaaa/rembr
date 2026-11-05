@@ -2,6 +2,7 @@ import type { DatabaseHandle } from '../db/database.js';
 import { createAssetService } from '../assets/service.js';
 import type { AssetStorage } from '../assets/storage.js';
 import { createAccountRepository } from './repository.js';
+import { TERMS_VERSION } from '../auth/terms.js';
 
 export class AccountServiceError extends Error {
   constructor(public readonly code: 'invalid_profile' | 'username_taken', message: string) { super(message); }
@@ -11,9 +12,9 @@ export function createAccountService(database: DatabaseHandle, storage: AssetSto
   const repository = createAccountRepository(database);
   const assets = createAssetService(database, storage);
   return {
-    async session(user: { id: string; email: string; accountStatus: string }) {
+    async session(user: { id: string; email: string; accountStatus: string; termsVersion: string | null }) {
       const profile = await repository.getProfile(user.id);
-      return { user: { id: user.id, email: user.email }, profile, profileComplete: Boolean(profile), accountStatus: user.accountStatus };
+      return { user: { id: user.id, email: user.email }, profile, profileComplete: Boolean(profile), accountStatus: user.accountStatus, termsCurrent: user.termsVersion === TERMS_VERSION };
     },
     getProfile(userId: string) { return repository.getProfile(userId); },
     hasProfile(userId: string) { return repository.hasProfile(userId); },

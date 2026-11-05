@@ -73,7 +73,7 @@ async function seedReadyItem(database: Awaited<ReturnType<typeof createTestDatab
     VALUES (?,?,?,?,?,?,?,?)`).run(`artifact-${id}`, ownerId, id, 'Weekend garden plan', 'Ideas for a small garden', 'Tomatoes, herbs, raised beds and sunlight.', now, now);
 }
 
-test('semantic indexing and hybrid search require separate disclosure consent', async () => {
+test('semantic indexing uses Terms consent and stale grants fail closed', async () => {
   const provider = new FakeEmbeddingProvider();
   await withApi(async (baseUrl, database) => {
     const cookie = await register(baseUrl, 'semantic-off@example.test');

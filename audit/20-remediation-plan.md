@@ -4,7 +4,7 @@
 
 - COR-001 (Medium, Tier 1): failed import-job finalization is awaited inside the transaction. Regression coverage reproduced the race before the fix and passes afterward. Commit `d57f6ef`.
 - CFG-001 (Medium, Likely, Tier 1): CI now grants only `contents: read` and checkout does not persist credentials. Commit `6568c27`.
-- SEC-001 (High, Confirmed, Tier 1): AI processing preferences default off; legacy signup-seeded preferences fail closed; provider work requires a current, explicit consent timestamp; users can revoke consent. Commit `4bc2266`, with explicit-consent test-fixture follow-up `a2542cd`.
+- SEC-001 (High, Confirmed, Tier 1): AI processing is covered by one informed Terms acceptance. New accounts record that acceptance and current AI disclosure versions; existing users must accept the updated Terms once before AI features work. Per-feature settings remain available to turn features off. Commit `4bc2266`, test follow-up `a2542cd`, and Terms-flow correction pending release.
 
 ## Deferred
 
