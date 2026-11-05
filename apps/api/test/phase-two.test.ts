@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -706,66 +705,6 @@ test('Smart Collections rules use existing summary, visual, OCR, and transcript 
     assert.deepEqual({ brands: analysisDetail.brands, tools: analysisDetail.tools, people: analysisDetail.people, repositories: analysisDetail.repositories }, {
       brands: ['Acme'], tools: ['Figma'], people: ['Ada Lovelace'], repositories: ['rembr/core'],
     });
-  });
-});
-
-test('Library Checkup reminders are owner-scoped and move through pending, due, done, and dismissed states', async () => {
-  await withApi(async (baseUrl, database) => {
-    const owner = await register(baseUrl, 'reminder-owner@example.test');
-    const other = await register(baseUrl, 'reminder-other@example.test');
-    await profile(baseUrl, owner.cookie, 'reminder_owner');
-    await profile(baseUrl, other.cookie, 'reminder_other');
-    const created = await createPage(baseUrl, owner.cookie, 'https://reminder-fixture.test/read-later');
-    const { item } = await created.json() as { item: { id: string } };
-    const create = await fetch(`${baseUrl}/api/knowledge/reminders`, { method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ itemId: item.id, preset: 'tomorrow', note: 'Review after class' }) });
-    assert.equal(create.status, 201);
-    const reminder = (await create.json() as { reminder: { id: string; remindAt: string; note: string } }).reminder;
-    assert.equal(reminder.note, 'Review after class');
-    assert.ok(Date.parse(reminder.remindAt) > Date.now());
-
-    const foreign = await fetch(`${baseUrl}/api/knowledge/reminders/${reminder.id}`, { method: 'PATCH', headers: { Cookie: other.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'done' }) });
-    assert.equal(foreign.status, 404);
-    const crossOwner = await fetch(`${baseUrl}/api/knowledge/reminders`, { method: 'POST', headers: { Cookie: other.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ itemId: item.id, preset: 'week' }) });
-    assert.equal(crossOwner.status, 404);
-
-    const otherSaved = await createPage(baseUrl, other.cookie, 'https://reminder-fixture.test/other-owner');
-    const { item: otherItem } = await otherSaved.json() as { item: { id: string } };
-    const ownerImportId = randomUUID();
-    const otherImportId = randomUUID();
-    const importTime = new Date().toISOString();
-    for (const [importId, accountId, existingItemId, sourceTitle] of [
-      [ownerImportId, owner.user.user.id, item.id, 'Imported board again'],
-      [otherImportId, other.user.user.id, otherItem.id, 'Other owner duplicate'],
-    ]) {
-      await database.prepare(`INSERT INTO imports (id,owner_id,request_id,source,status,created_at,updated_at)
-        VALUES (?,?,?,'pinterest','completed',?,?)`).run(importId, accountId, importId, importTime, importTime);
-      await database.prepare(`INSERT INTO import_entries (id,owner_id,import_id,item_id,source_platform,source_url,title,status,created_at)
-        VALUES (?,?,?,?, 'pinterest',?,?, 'duplicate',?)`).run(randomUUID(), accountId, importId, existingItemId, `https://pinterest.test/${importId}`, sourceTitle, importTime);
-    }
-
-    let checkup = await fetch(`${baseUrl}/api/knowledge/checkup`, { headers: { Cookie: owner.cookie } });
-    let body = (await checkup.json() as { checkup: { duplicateImports: { count: number; recent: Array<{ id: string; itemId: string; importedTitle: string; matchedItemTitle: string; sourcePlatform: string; importedAt: string }> }; dueReminders: unknown[]; upcomingReminders: Array<{ id: string }> } }).checkup;
-    assert.equal(body.duplicateImports.count, 1);
-    assert.deepEqual(body.duplicateImports.recent.map(({ itemId, importedTitle, matchedItemTitle, sourcePlatform }) => ({ itemId, importedTitle, matchedItemTitle, sourcePlatform })), [
-      { itemId: item.id, importedTitle: 'Imported board again', matchedItemTitle: item.title, sourcePlatform: 'pinterest' },
-    ]);
-    assert.equal(body.dueReminders.length, 0);
-    assert.deepEqual(body.upcomingReminders.map(({ id }) => id), [reminder.id]);
-    await database.prepare('UPDATE library_reminders SET remind_at=? WHERE owner_id=? AND id=?').run(new Date(Date.now() - 60_000).toISOString(), owner.user.user.id, reminder.id);
-    checkup = await fetch(`${baseUrl}/api/knowledge/checkup`, { headers: { Cookie: owner.cookie } });
-    body = (await checkup.json() as { checkup: { dueReminders: Array<{ id: string }>; upcomingReminders: unknown[] } }).checkup;
-    assert.deepEqual(body.dueReminders.map(({ id }) => id), [reminder.id]);
-    assert.equal(body.upcomingReminders.length, 0);
-    assert.equal((await fetch(`${baseUrl}/api/knowledge/reminders/${reminder.id}`, { method: 'PATCH', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'done' }) })).status, 200);
-    const done = await database.prepare('SELECT status,completed_at FROM library_reminders WHERE owner_id=? AND id=?').get(owner.user.user.id, reminder.id) as { status: string; completed_at: string | null };
-    assert.equal(done.status, 'done');
-    assert.ok(done.completed_at);
-
-    const second = await fetch(`${baseUrl}/api/knowledge/reminders`, { method: 'POST', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ itemId: item.id, preset: 'month' }) });
-    const secondId = (await second.json() as { reminder: { id: string } }).reminder.id;
-    assert.equal((await fetch(`${baseUrl}/api/knowledge/reminders/${secondId}`, { method: 'PATCH', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'dismissed' }) })).status, 200);
-    const dismissed = await database.prepare('SELECT status,completed_at FROM library_reminders WHERE owner_id=? AND id=?').get(owner.user.user.id, secondId) as { status: string; completed_at: string | null };
-    assert.deepEqual(dismissed, { status: 'dismissed', completed_at: null });
   });
 });
 

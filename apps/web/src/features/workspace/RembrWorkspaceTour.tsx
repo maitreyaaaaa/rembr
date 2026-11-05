@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { ArrowLeft, ArrowRight, BookmarkPlus, Check, CircleHelp, Compass, Library, Network, Settings2 } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { ArrowLeft, ArrowRight, BookmarkPlus, Check, Compass, Download, Search, Sparkles, Upload } from 'lucide-react';
 
 export interface RembrWorkspaceTourProps {
   /** Defaults to open for direct use; pass a value to control visibility. */
@@ -12,66 +13,63 @@ interface TourStep {
   title: string;
   description: string;
   path: string;
+  target: string;
   location: string;
-  icon: typeof Library;
-  action: string;
+  icon: typeof Compass;
 }
 
 const steps: TourStep[] = [
   {
-    title: 'Your library is the home for saved things.',
-    description: 'Browse saved pages and notes, search your library, and open any item to see its source and captured details.',
+    title: 'Find a save when you need it.',
+    description: 'Search your own library by keyword, or use AI + saved to combine web results with your saves when the provider is available.',
     path: '/app',
-    location: 'Library',
-    icon: Library,
-    action: 'Open library',
+    target: 'search-ai',
+    location: 'Your library',
+    icon: Search,
   },
   {
-    title: 'Add a page or write a note.',
-    description: 'Quick Add accepts a page link or a note. Rembr shows when a save is queued, processing, ready, or needs attention.',
-    path: '/app/add',
+    title: 'Save the good stuff in one tap.',
+    description: 'Quick Add takes a link or a note. Rembr keeps the original source and shows when a save is ready.',
+    path: '/app',
+    target: 'quick-add',
     location: 'Quick Add',
     icon: BookmarkPlus,
-    action: 'Open Quick Add',
   },
   {
-    title: 'Bring in saves from other services.',
-    description: 'The imports area shows import records and their progress, so you can review what was brought into your library.',
+    title: 'Bring your existing saves along.',
+    description: 'Import a supported archive, then follow its progress and review what was added or matched.',
     path: '/app/imports',
+    target: 'import-files',
     location: 'Imports',
-    icon: ArrowRight,
-    action: 'Open imports',
+    icon: Upload,
   },
   {
-    title: 'Revisit what you saved before.',
-    description: 'Checkup brings together older saves, items that need attention, import matches, and reminders you choose to set. Link checks only run when you ask.',
-    path: '/app/checkup',
-    location: 'Library checkup',
-    icon: CircleHelp,
-    action: 'Open checkup',
+    title: 'Let your library organize itself.',
+    description: 'Smart Collections group related saves from the notes, tags, folders, and analysis already in your library. You stay in control of every correction.',
+    path: '/app/smart-collections',
+    target: 'collections-refresh',
+    location: 'Smart Collections',
+    icon: Sparkles,
   },
   {
-    title: 'See connections across your library.',
-    description: 'The knowledge graph offers another view of relationships between the items saved in your Rembr library.',
+    title: 'See the ideas connected to each other.',
+    description: 'The Knowledge Graph maps themes across your saves. Export the full graph as an Obsidian vault or a portable JSON file.',
     path: '/app/graph',
-    location: 'Knowledge graph',
-    icon: Network,
-    action: 'Open graph',
-  },
-  {
-    title: 'Make your workspace yours.',
-    description: 'Visit settings to update your profile and preferences. Your account and library stay private to your account.',
-    path: '/app/settings/profile',
-    location: 'Settings',
-    icon: Settings2,
-    action: 'Open settings',
+    target: 'graph-export-tab',
+    location: 'Knowledge Graph',
+    icon: Download,
   },
 ];
 
+interface Rect { top: number; right: number; bottom: number; left: number; width: number; height: number }
+
 export function RembrWorkspaceTour({ open, onClose, onNavigate }: RembrWorkspaceTourProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
   const [internalOpen, setInternalOpen] = useState(open ?? true);
   const [stepIndex, setStepIndex] = useState<number | null>(null);
+  const [targetRect, setTargetRect] = useState<Rect | null>(null);
+  const [panelTop, setPanelTop] = useState<number | null>(null);
+  const [panelLeft, setPanelLeft] = useState<number | null>(null);
+  const cardRef = useRef<HTMLElement>(null);
   const isOpen = open ?? internalOpen;
   const activeStep = stepIndex === null ? null : steps[stepIndex];
 
@@ -80,11 +78,101 @@ export function RembrWorkspaceTour({ open, onClose, onNavigate }: RembrWorkspace
   }, [open]);
 
   useEffect(() => {
-    const dialog = dialogRef.current;
-    if (!dialog) return;
-    if (isOpen && !dialog.open) dialog.showModal();
-    if (!isOpen && dialog.open) dialog.close();
-  }, [isOpen]);
+    if (!activeStep) {
+      setTargetRect(null);
+      return undefined;
+    }
+
+    let frame = 0;
+    let attempt = 0;
+    let target: HTMLElement | null = null;
+    let alive = true;
+    const selector = `[data-rembr-tour-target="${activeStep.target}"]`;
+    const update = () => {
+      if (!alive) return;
+      const candidates = Array.from(document.querySelectorAll<HTMLElement>(selector));
+      target = candidates.find((candidate) => candidate.getClientRects().length > 0) ?? null;
+      if (!target) {
+        if (attempt++ < 30) frame = window.setTimeout(update, 80);
+        return;
+      }
+      target.scrollIntoView({ behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth', block: 'center', inline: 'center' });
+      const measure = () => {
+        if (!alive || !target) return;
+        const rect = target.getBoundingClientRect();
+        const padding = 10;
+        const next = {
+          top: Math.max(8, rect.top - padding),
+          left: Math.max(8, rect.left - padding),
+          right: Math.min(window.innerWidth - 8, rect.right + padding),
+          bottom: Math.min(window.innerHeight - 8, rect.bottom + padding),
+          width: Math.min(window.innerWidth - 16, rect.width + padding * 2),
+          height: Math.min(window.innerHeight - 16, rect.height + padding * 2),
+        };
+        setTargetRect(next);
+        const cardHeight = cardRef.current?.offsetHeight ?? 340;
+        const gap = 16;
+        const roomBelow = window.innerHeight - rect.bottom;
+        const roomAbove = rect.top;
+        const nextTop = roomBelow >= cardHeight + gap
+          ? rect.bottom + gap
+          : roomAbove >= cardHeight + gap
+            ? rect.top - cardHeight - gap
+            : Math.max(16, Math.min(window.innerHeight - cardHeight - 16, rect.bottom + gap));
+        setPanelTop(nextTop);
+        setPanelLeft(Math.max(16, Math.min(rect.left + rect.width / 2 - 190, window.innerWidth - 396)));
+      };
+      measure();
+      window.addEventListener('resize', measure);
+      window.addEventListener('scroll', measure, true);
+      const cleanup = () => {
+        alive = false;
+        window.removeEventListener('resize', measure);
+        window.removeEventListener('scroll', measure, true);
+      };
+      targetCleanup.current = cleanup;
+    };
+
+    update();
+    const card = cardRef.current;
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusTimer = window.setTimeout(() => card?.querySelector<HTMLElement>('[data-tour-primary]')?.focus(), 80);
+
+    return () => {
+      alive = false;
+      window.clearTimeout(frame);
+      window.clearTimeout(focusTimer);
+      targetCleanup.current?.();
+      targetCleanup.current = null;
+      previouslyFocused?.focus({ preventScroll: true });
+    };
+  }, [activeStep]);
+
+  useEffect(() => {
+    if (activeStep && onNavigate) {
+      onNavigate(activeStep.path);
+    }
+  }, [activeStep, onNavigate]);
+
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); closeTour(); }
+      if (event.key === 'ArrowRight' && activeStep) { event.preventDefault(); advance(); }
+      if (event.key === 'ArrowLeft' && activeStep) { event.preventDefault(); setStepIndex((index) => Math.max(0, (index ?? 0) - 1)); }
+      if (event.key === 'Tab') {
+        const focusable = cardRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled)');
+        if (!focusable?.length) return;
+        const first = focusable[0]; const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isOpen, activeStep]);
+
+  const targetCleanup = useRef<(() => void) | null>(null);
 
   function closeTour() {
     setStepIndex(null);
@@ -92,100 +180,85 @@ export function RembrWorkspaceTour({ open, onClose, onNavigate }: RembrWorkspace
     onClose();
   }
 
-  function startTour() {
-    setStepIndex(0);
+  function advance() {
+    if ((stepIndex ?? 0) >= steps.length - 1) closeTour();
+    else setStepIndex((current) => (current ?? 0) + 1);
   }
 
-  function handleCancel(event: React.SyntheticEvent<HTMLDialogElement>) {
-    event.preventDefault();
-    closeTour();
-  }
+  function startTour() { setStepIndex(0); }
 
-  return (
-    <dialog
-      ref={dialogRef}
-      className="m-0 max-h-[100dvh] w-full max-w-none bg-transparent p-4 text-foreground backdrop:bg-black/75 sm:p-6"
-      aria-labelledby="rembr-tour-title"
-      aria-describedby="rembr-tour-description"
-      onCancel={handleCancel}
-    >
-      <section className="mx-auto grid min-h-[min(540px,calc(100dvh-3rem))] w-full max-w-xl content-center overflow-hidden rounded-3xl border border-white/10 bg-card p-6 shadow-2xl shadow-black/40 motion-safe:animate-[card-arrive_420ms_cubic-bezier(.2,.8,.2,1)_both] motion-reduce:animate-none sm:p-9">
-        <div className="mb-6 flex items-center justify-between gap-4">
-          <span className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-1.5 font-mono text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">
-            <Compass className="h-3.5 w-3.5" aria-hidden="true" /> Workspace tour
-          </span>
-          <button type="button" onClick={closeTour} className="grid h-10 w-10 place-items-center rounded-full border border-white/10 text-muted-foreground transition hover:bg-white/5 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary motion-reduce:transition-none" aria-label="Close workspace tour">
-            <span aria-hidden="true" className="text-xl leading-none">×</span>
-          </button>
+  if (!isOpen || typeof document === 'undefined') return null;
+
+  const viewWidth = window.innerWidth;
+  const viewHeight = window.innerHeight;
+  const left = targetRect?.left ?? 0;
+  const right = targetRect?.right ?? viewWidth;
+  const top = targetRect?.top ?? 0;
+  const bottom = targetRect?.bottom ?? viewHeight;
+
+  return createPortal(
+    <div className={`rembr-tour-layer ${activeStep ? `is-guided ${targetRect ? 'has-target' : 'target-pending'}` : 'is-welcome'}`} onClick={(event) => { if (event.target === event.currentTarget) event.preventDefault(); }}>
+      {activeStep && targetRect ? <>
+        <div className="rembr-tour-dim rembr-tour-dim-top" style={{ height: top }} />
+        <div className="rembr-tour-dim rembr-tour-dim-bottom" style={{ top: bottom }} />
+        <div className="rembr-tour-dim rembr-tour-dim-left" style={{ top, width: left, height: Math.max(0, bottom - top) }} />
+        <div className="rembr-tour-dim rembr-tour-dim-right" style={{ top, left: right, height: Math.max(0, bottom - top) }} />
+        <div className="rembr-tour-focus" style={{ top, left, width: Math.max(24, right - left), height: Math.max(24, bottom - top) }} aria-hidden="true" />
+      </> : <div className="rembr-tour-welcome-wash" aria-hidden="true" />}
+
+      <section ref={cardRef} className={`rembr-tour-card ${activeStep ? 'rembr-tour-card-step' : 'rembr-tour-card-welcome'}`} role="dialog" aria-modal="true" aria-labelledby="rembr-tour-title" aria-describedby="rembr-tour-description" style={activeStep && panelTop !== null ? { top: panelTop, left: panelLeft ?? 16 } : undefined}>
+        <div className="rembr-tour-topline">
+          <span className="rembr-tour-badge"><Compass size={13} aria-hidden="true" /> Rembr tour</span>
+          <button type="button" className="rembr-tour-close" onClick={closeTour} aria-label="Close tour">×</button>
         </div>
 
-        {activeStep ? <StepContent
+        {activeStep ? <StepContent key={stepIndex}
           step={activeStep}
           stepIndex={stepIndex ?? 0}
           onBack={() => setStepIndex((current) => Math.max(0, (current ?? 0) - 1))}
-          onNext={() => {
-            if ((stepIndex ?? 0) === steps.length - 1) closeTour();
-            else setStepIndex((current) => (current ?? 0) + 1);
-          }}
+          onNext={advance}
           onSkip={closeTour}
-          onNavigate={onNavigate}
         /> : <WelcomeContent onStart={startTour} onSkip={closeTour} />}
       </section>
-    </dialog>
+    </div>,
+    document.body,
   );
 }
 
 function WelcomeContent({ onStart, onSkip }: { onStart: () => void; onSkip: () => void }) {
-  return <div>
-    <div className="mb-5 grid h-14 w-14 place-items-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/10" aria-hidden="true">
-      <Compass className="h-7 w-7" />
-    </div>
-    <p className="mb-2 font-mono text-[10px] font-semibold uppercase tracking-[0.2em] text-primary">A quick look around</p>
-    <h1 id="rembr-tour-title" className="font-display text-3xl font-bold tracking-tight text-foreground sm:text-4xl">Take a tour of Rembr?</h1>
-    <p id="rembr-tour-description" className="mt-4 max-w-lg text-sm leading-6 text-muted-foreground">In a few steps, see how to add a save, organize your library, and find things worth revisiting.</p>
-    <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-      <button type="button" onClick={onSkip} className="inline-flex min-h-11 items-center justify-center rounded-full border border-white/10 px-5 py-3 text-sm font-semibold text-muted-foreground transition hover:bg-white/5 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary motion-reduce:transition-none">Maybe later</button>
-      <button type="button" onClick={onStart} className="inline-flex min-h-11 items-center justify-center gap-2 rounded-full bg-primary px-5 py-3 text-sm font-semibold text-primary-foreground transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary motion-reduce:transition-none">Take the tour <ArrowRight className="h-4 w-4" aria-hidden="true" /></button>
+  return <div className="rembr-tour-welcome-copy">
+    <div className="rembr-tour-mark" aria-hidden="true"><Compass size={26} /></div>
+    <p className="rembr-tour-eyebrow">A quick look around</p>
+    <h1 id="rembr-tour-title">Your saves, ready when you need them.</h1>
+    <p id="rembr-tour-description">In five quick stops, see how to save, search, organize, and rediscover the things worth keeping.</p>
+    <div className="rembr-tour-actions">
+      <button type="button" className="rembr-tour-secondary" onClick={onSkip}>Maybe later</button>
+      <button type="button" data-tour-primary onClick={onStart} className="rembr-tour-primary">Take the tour <ArrowRight size={16} aria-hidden="true" /></button>
     </div>
   </div>;
 }
 
-function StepContent({ step, stepIndex, onBack, onNext, onSkip, onNavigate }: {
+function StepContent({ step, stepIndex, onBack, onNext, onSkip }: {
   step: TourStep;
   stepIndex: number;
   onBack: () => void;
   onNext: () => void;
   onSkip: () => void;
-  onNavigate?: (path: string) => void;
 }) {
   const StepIcon = step.icon;
-  const isLastStep = stepIndex === steps.length - 1;
   const progress = ((stepIndex + 1) / steps.length) * 100;
+  const isLast = stepIndex === steps.length - 1;
 
-  return <div aria-live="polite" aria-atomic="true">
-    <div className="mb-5 flex items-center justify-between gap-4">
-      <p className="font-mono text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">Step {stepIndex + 1} of {steps.length}</p>
-      <span className="text-xs font-semibold text-primary">{step.location}</span>
-    </div>
-    <div className="mb-5 h-1.5 overflow-hidden rounded-full bg-white/10" role="progressbar" aria-label="Tour progress" aria-valuemin={1} aria-valuemax={steps.length} aria-valuenow={stepIndex + 1}>
-      <span className="block h-full rounded-full bg-primary transition-[width] duration-300 motion-reduce:transition-none" style={{ width: `${progress}%` }} />
-    </div>
-    <div className="mb-6 grid h-12 w-12 place-items-center rounded-xl border border-primary/20 bg-primary/10 text-primary" aria-hidden="true"><StepIcon className="h-5 w-5" /></div>
-    <h2 id="rembr-tour-title" className="font-display text-2xl font-bold tracking-tight text-foreground sm:text-3xl">{step.title}</h2>
-    <p id="rembr-tour-description" className="mt-3 text-sm leading-6 text-muted-foreground">{step.description}</p>
-    {onNavigate && <button type="button" onClick={() => onNavigate(step.path)} className="mt-5 inline-flex min-h-10 items-center gap-2 rounded-full border border-primary/25 px-4 py-2 text-xs font-semibold text-primary transition hover:bg-primary/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary motion-reduce:transition-none">
-      {step.action}<ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
-    </button>}
-    <div className="mt-8 flex flex-wrap items-center justify-between gap-3 border-t border-white/10 pt-5">
-      <button type="button" onClick={onBack} disabled={stepIndex === 0} className="inline-flex min-h-10 items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold text-muted-foreground transition hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:cursor-not-allowed disabled:opacity-35 motion-reduce:transition-none">
-        <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back
-      </button>
-      <div className="ml-auto flex flex-wrap justify-end gap-2">
-        <button type="button" onClick={onSkip} className="inline-flex min-h-10 items-center justify-center rounded-full px-4 py-2 text-sm font-semibold text-muted-foreground transition hover:bg-white/5 hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary motion-reduce:transition-none">Skip tour</button>
-        <button type="button" onClick={onNext} className="inline-flex min-h-10 items-center justify-center gap-2 rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground transition hover:brightness-110 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary motion-reduce:transition-none">
-          {isLastStep ? <><Check className="h-4 w-4" aria-hidden="true" /> Finish</> : <>Next <ArrowRight className="h-4 w-4" aria-hidden="true" /></>}
-        </button>
-      </div>
+  return <div className="rembr-tour-step-content" aria-live="polite" aria-atomic="true">
+    <div className="rembr-tour-step-meta"><span>STEP {String(stepIndex + 1).padStart(2, '0')} <i>/</i> {String(steps.length).padStart(2, '0')}</span><span>{step.location}</span></div>
+    <div className="rembr-tour-progress" role="progressbar" aria-label="Tour progress" aria-valuemin={1} aria-valuemax={steps.length} aria-valuenow={stepIndex + 1}><span style={{ width: `${progress}%` }} /></div>
+    <div className="rembr-tour-step-icon"><StepIcon size={19} aria-hidden="true" /></div>
+    <h2 id="rembr-tour-title">{step.title}</h2>
+    <p id="rembr-tour-description">{step.description}</p>
+    <div className="rembr-tour-footer">
+      <button type="button" className="rembr-tour-back" onClick={onBack} disabled={stepIndex === 0}><ArrowLeft size={15} aria-hidden="true" /> Back</button>
+      <button type="button" className="rembr-tour-skip" onClick={onSkip}>Skip</button>
+      <button type="button" data-tour-primary className="rembr-tour-primary" onClick={onNext}>{isLast ? <>Finish <Check size={15} aria-hidden="true" /></> : <>Next <ArrowRight size={15} aria-hidden="true" /></>}</button>
     </div>
   </div>;
 }

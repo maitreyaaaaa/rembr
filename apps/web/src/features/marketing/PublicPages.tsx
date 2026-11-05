@@ -11,7 +11,7 @@ export function PortedHowToPage() {
 
 export function PortedHelpPage() {
   const navigate = useNavigate();
-  return <HelpCenterPage onBack={() => navigate('/')} onOpenApp={() => window.open('/app', '_blank', 'noopener,noreferrer')} onOpenHowTo={() => navigate('/how-to-use')} />;
+  return <HelpCenterPage onBack={() => navigate('/')} onOpenApp={() => window.open('/app', '_blank', 'noopener,noreferrer')} onOpenHowTo={() => navigate('/how-to-use')} onStartTour={() => navigate('/app?tour=1')} />;
 }
 
 export function PortedPricingPage() {

@@ -204,7 +204,6 @@ export function SettingsPage() {
             <Network size={17} aria-hidden="true" /><span>Advanced options</span><ChevronDown size={15} aria-hidden="true" className={advancedOpen ? 'is-expanded' : ''} />
           </button>
           {advancedOpen && <div id="settings-advanced-links" className="rembr-settings-subnav" aria-label="Advanced options">
-            <Link to="/app/checkup" aria-current={location.pathname === '/app/checkup' ? 'page' : undefined}><span className="rembr-settings-subnav-dot" aria-hidden="true" />Review</Link>
             <Link to="/app/graph" aria-current={location.pathname === '/app/graph' ? 'page' : undefined}><span className="rembr-settings-subnav-dot" aria-hidden="true" />Graph</Link>
           </div>}
         </nav>

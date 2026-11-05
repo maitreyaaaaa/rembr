@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { Check, Copy, Eye, EyeOff, KeyRound, Plus, X } from 'lucide-react';
+import { Check, Copy, KeyRound, Plus, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api } from '../../app/api.js';
 
@@ -18,7 +18,7 @@ export function DeveloperAccessPage() {
   const [scopes, setScopes] = useState<Scope[]>(['library:read', 'collections:read']);
   const [expiresInDays, setExpiresInDays] = useState(90);
   const [created, setCreated] = useState<ApiKeyCreated | null>(null);
-  const [revealCreated, setRevealCreated] = useState(false);
+  const [keyCopied, setKeyCopied] = useState(false);
   const [keyToRevoke, setKeyToRevoke] = useState<ApiKeyInfo | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -46,7 +46,7 @@ export function DeveloperAccessPage() {
       const result = await api<{ key: ApiKeyCreated }>('/api/developer-keys', {
         method: 'POST', body: JSON.stringify({ name, scopes, expiresInDays }),
       });
-      setCreated(result.key); setRevealCreated(false); setName(''); setShowCreateForm(false); await refresh();
+      setCreated(result.key); setKeyCopied(false); setName(''); setShowCreateForm(false); await refresh();
     } catch { setError('Could not create this key. Check its name and scopes, then try again.'); }
     finally { setBusy(false); }
   }
@@ -58,17 +58,22 @@ export function DeveloperAccessPage() {
   }
   async function copyKey() {
     if (!created) return;
-    try { await navigator.clipboard.writeText(created.token); setMessage('Key copied. Store it somewhere safe; Rembr will not show it again.'); }
+    try { await navigator.clipboard.writeText(created.token); setKeyCopied(true); setError(''); setMessage('API key copied. Store it somewhere safe; Rembr cannot show it again.'); }
     catch { setError('Copy was blocked. Select and copy the key manually.'); }
   }
 
   return <>
-    {error && <p className="notice error" role="alert">{error}</p>}
-    {message && <p className="notice success" role="status">{message}</p>}
-    {created && <section className="developer-secret-notice" aria-labelledby="new-key-title">
-      <div className="developer-secret-copy"><h2 id="new-key-title">Copy your new key now</h2><p>Shown once. Store it somewhere safe; Rembr cannot recover it later.</p></div>
-      <div className="developer-secret-value"><code>{revealCreated ? created.token : `${created.token.slice(0, 15)}${'•'.repeat(20)}${created.token.slice(-4)}`}</code><button type="button" aria-label={revealCreated ? 'Hide API key' : 'Show API key'} onClick={() => setRevealCreated((visible) => !visible)}>{revealCreated ? <EyeOff size={15} /> : <Eye size={15} />}</button><button type="button" aria-label="Copy API key" onClick={() => void copyKey()}><Copy size={15} /></button></div>
-    </section>}
+    {error && !created && <p className="notice error" role="alert">{error}</p>}
+    {message && !created && <p className="notice success" role="status">{message}</p>}
+    {created && <div className="developer-key-created-backdrop"><section className="developer-key-created-dialog" role="dialog" aria-modal="true" aria-labelledby="new-key-title" aria-describedby="new-key-warning">
+      <header><div className="developer-key-created-mark"><KeyRound size={18} aria-hidden="true" /></div><button type="button" aria-label="Close API key" onClick={() => setCreated(null)}><X size={17} aria-hidden="true" /></button></header>
+      <div className="developer-key-created-copy"><p className="developer-key-created-eyebrow">API KEY CREATED</p><h2 id="new-key-title">Copy your new key now</h2><p id="new-key-warning">This will be shown only once. Store it somewhere safe; Rembr cannot recover it later.</p></div>
+      <div className="developer-key-created-value"><textarea aria-label="New API key" autoFocus readOnly rows={2} value={created.token} onFocus={(event) => event.currentTarget.select()} />
+        <button className="primary-button" type="button" onClick={() => void copyKey()}>{keyCopied ? <Check size={15} aria-hidden="true" /> : <Copy size={15} aria-hidden="true" />}{keyCopied ? 'Copied' : 'Copy API key'}</button>
+      </div>
+      {error && <p className="notice error" role="alert">{error}</p>}
+      <footer><span>{message && keyCopied ? message : 'Keep this key private. Anyone with it can use its selected permissions.'}</span><button className="secondary-button" type="button" onClick={() => setCreated(null)}>Done</button></footer>
+    </section></div>}
     <section className="developer-access-card" aria-labelledby="active-keys-title">
       <header className="developer-access-heading">
         <div><h2 id="active-keys-title">API keys</h2><p>Keys inherit the permissions selected for them.</p></div>

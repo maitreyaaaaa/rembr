@@ -1,4 +1,4 @@
-import type { AiPreference, KnowledgeGraph, LibraryAnswer, LibraryCheckup, SavedItem, SemanticSearchPreference, VisualSearchPreference, VisualSearchResult, WebSearchResultView } from '../../app/contracts.js';
+import type { AiPreference, KnowledgeGraph, LibraryAnswer, SavedItem, SemanticSearchPreference, VisualSearchPreference, VisualSearchResult, WebSearchResultView } from '../../app/contracts.js';
 import { AI_SEARCH_DISCLOSURE_VERSION } from '../../app/contracts.js';
 import { api, prepareVisualSearchImage } from '../../app/api.js';
 import { messageOf } from '../../app/helpers.js';
@@ -7,13 +7,35 @@ import { Plus, RefreshCw } from 'lucide-react';
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { SavedItemLink } from '../../components/SavedItemLink.js';
 import { LibraryCardSkeletons, PortedLibraryGrid } from './LibraryCards.js';
-import { RembrCheckupPanel } from './RembrCheckupPanel.js';
 import { RembrKnowledgeGraphPanel } from '../knowledge/RembrKnowledgeGraphPanel.js';
+
+function mentionItemType(item: SavedItem): string {
+  if (item.kind === 'note') return 'Note';
+  if (/instagram\.com\/(?:[^/]+\/)?reel\//i.test(item.url)) return 'Reel';
+  if (item.media?.some((asset) => asset.mime?.startsWith('video/'))) return 'Video';
+  return 'Post';
+}
+
+function mentionItemSource(item: SavedItem): string {
+  try { return new URL(item.url).hostname.replace(/^www\./, ''); }
+  catch { return item.kind === 'note' ? 'Rembr note' : 'Saved item'; }
+}
 
 export function LibraryPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
   const visualSearchInputRef = useRef<HTMLInputElement>(null);
+  const composerInputRef = useRef<HTMLTextAreaElement>(null);
+  const mentionRequestRef = useRef(0);
+  const [composerSources, setComposerSources] = useState<SavedItem[]>([]);
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionRange, setMentionRange] = useState<{ start: number; end: number } | null>(null);
+  const [mentionSuggestions, setMentionSuggestions] = useState<SavedItem[]>([]);
+  const [mentionLoading, setMentionLoading] = useState(false);
+  const [activeMentionIndex, setActiveMentionIndex] = useState(0);
+  const [composerAnswer, setComposerAnswer] = useState<LibraryAnswer | null>(null);
+  const [composerAnswerError, setComposerAnswerError] = useState('');
+  const [composerAnswerBusy, setComposerAnswerBusy] = useState(false);
   const [visualSearchPreference, setVisualSearchPreference] = useState<VisualSearchPreference | null>(null);
   const [visualPreferenceError, setVisualPreferenceError] = useState(false);
   const [visualImage, setVisualImage] = useState<File | null>(null);
@@ -59,7 +81,32 @@ export function LibraryPage() {
     } catch (cause) { if (generation === itemListGenerationRef.current) setLoadMoreError(messageOf(cause, 'Could not load more saved items.')); }
     finally { if (generation === itemListGenerationRef.current) { loadingMoreRef.current = false; setLoadingMore(false); } }
   }, [hasMore, nextCursor, query]);
-  useEffect(() => { const timer = window.setTimeout(() => void load(), search.trim() ? 300 : 0); return () => window.clearTimeout(timer); }, [load, search]);
+  useEffect(() => {
+    if (searchMode === 'web' && mentionQuery !== null) return;
+    const timer = window.setTimeout(() => void load(), search.trim() ? 300 : 0);
+    return () => window.clearTimeout(timer);
+  }, [load, mentionQuery, search, searchMode]);
+  useEffect(() => {
+    if (mentionQuery === null || searchMode !== 'web') {
+      setMentionSuggestions([]); setMentionLoading(false); return;
+    }
+    const requestId = ++mentionRequestRef.current;
+    let active = true;
+    const timer = window.setTimeout(() => {
+      setMentionLoading(true);
+      void api<{ items: SavedItem[] }>(`/api/items/suggestions?q=${encodeURIComponent(mentionQuery)}`)
+        .then(({ items: results }) => {
+          if (active && mentionRequestRef.current === requestId) {
+            const selected = new Set(composerSources.map((item) => item.id));
+            setMentionSuggestions(results.filter((item) => !selected.has(item.id)));
+            setActiveMentionIndex(0);
+          }
+        })
+        .catch(() => { if (active && mentionRequestRef.current === requestId) setMentionSuggestions([]); })
+        .finally(() => { if (active && mentionRequestRef.current === requestId) setMentionLoading(false); });
+    }, 180);
+    return () => { active = false; window.clearTimeout(timer); };
+  }, [composerSources, mentionQuery, searchMode]);
   const loadVisualSearchPreference = useCallback(async () => {
     setVisualPreferenceError(false);
     try {
@@ -144,6 +191,8 @@ export function LibraryPage() {
     next.delete('cursor');
     setSearchParams(next);
     setWebSearchResult(null); setLibraryAnswer(null); setSemanticResults([]); setWebSearchError(''); setLibraryAnswerError(''); setSemanticSearchError('');
+    setMentionQuery(null); setMentionRange(null);
+    if (mode === 'saved') { setComposerSources([]); setComposerAnswer(null); setComposerAnswerError(''); }
     if (mode !== 'saved') { chooseVisualImage(undefined); setVisualResult(null); }
   }
   async function indexSemanticLibrary() {
@@ -197,8 +246,60 @@ export function LibraryPage() {
     } catch (cause) { setAnswerError(messageOf(cause, 'Rembr could not answer from those saves.')); }
     finally { setAnswerBusy(false); }
   }
+  function updateMentionQuery(value: string, caret: number) {
+    if (searchMode !== 'web') { setMentionQuery(null); setMentionRange(null); return; }
+    const prefix = value.slice(0, caret);
+    const match = /(^|[\s([{])@([^\s@]*)$/u.exec(prefix);
+    if (!match) { setMentionQuery(null); setMentionRange(null); return; }
+    const tokenStart = caret - (match[0] ?? '').length + (match[1] ?? '').length;
+    setMentionQuery(match[2] ?? '');
+    setMentionRange({ start: tokenStart, end: caret });
+    setActiveMentionIndex(0);
+  }
+  function selectMention(item: SavedItem) {
+    if (composerSources.some((source) => source.id === item.id)) return;
+    if (composerSources.length >= 8) {
+      setComposerAnswerError('Choose up to eight saved items for one question.');
+      setMentionQuery(null); setMentionRange(null); return;
+    }
+    const start = mentionRange?.start ?? search.length;
+    const end = mentionRange?.end ?? search.length;
+    setSearch(`${search.slice(0, start)}${search.slice(end)}`);
+    setComposerSources((current) => current.some((source) => source.id === item.id) ? current : [...current, item]);
+    setComposerAnswer(null); setComposerAnswerError('');
+    setMentionQuery(null); setMentionRange(null); setMentionSuggestions([]);
+    requestAnimationFrame(() => {
+      const input = composerInputRef.current;
+      input?.focus(); input?.setSelectionRange(start, start);
+    });
+  }
+  async function askAboutComposer(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const question = search.trim();
+    if (!question || !composerSources.length || composerAnswerBusy) return;
+    if (!aiPreference?.providerAvailable) { setComposerAnswerError('Grounded answers are temporarily unavailable. Your selected saves have not been sent.'); return; }
+    setComposerAnswerBusy(true); setComposerAnswerError(''); setComposerAnswer(null);
+    try {
+      if (!aiPreference.enabled) {
+        if (!answerConsentAccepted) { setComposerAnswerError('Review and accept the AI disclosure before sending your selected saves.'); return; }
+        const saved = await api<{ preference: AiPreference }>('/api/knowledge/ai-preferences', {
+          method: 'PUT', body: JSON.stringify({ enabled: true, disclosureVersion: AI_SEARCH_DISCLOSURE_VERSION }),
+        });
+        setAiPreference(saved.preference);
+      }
+      setComposerAnswer(await api<LibraryAnswer>('/api/knowledge/answer', {
+        method: 'POST', body: JSON.stringify({ question, sourceIds: composerSources.map((source) => source.id) }),
+      }));
+    } catch (cause) { setComposerAnswerError(messageOf(cause, 'Rembr could not answer from those saves.')); }
+    finally { setComposerAnswerBusy(false); }
+  }
+  function removeComposerSource(item: SavedItem) {
+    setComposerSources((current) => current.filter((source) => source.id !== item.id));
+    setComposerAnswer(null); setComposerAnswerError('');
+  }
   function submitComposer(event: FormEvent<HTMLFormElement>) {
-    if (searchMode === 'web') void searchWebAndLibrary(event);
+    if (searchMode === 'web' && composerSources.length) void askAboutComposer(event);
+    else if (searchMode === 'web') void searchWebAndLibrary(event);
     else event.preventDefault();
   }
   return <div className="library-page"><div className="phase2-page-heading"><div><h1>Your library</h1><p>Search saved pages and notes.</p></div></div>
@@ -221,17 +322,47 @@ export function LibraryPage() {
     <section className="library-search-composer" aria-label="Search your library or the web">
       <form onSubmit={submitComposer}>
         <label className="visually-hidden" htmlFor="library-search-composer-input">Search your saved posts, links, and notes</label>
-        <textarea id="library-search-composer-input" rows={1} maxLength={120} placeholder={searchMode === 'web' ? 'Search the web…' : 'Search your saved posts, links, and notes…'} value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter' && ((event.ctrlKey || event.metaKey) || (searchMode === 'web' && !event.shiftKey))) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
+        <textarea ref={composerInputRef} id="library-search-composer-input" rows={1} maxLength={120} placeholder={searchMode === 'web' ? 'Ask about your library… Type @ to add a post or reel' : 'Search your saved posts, links, and notes…'} value={search} aria-autocomplete={mentionQuery !== null ? 'list' : undefined} aria-expanded={mentionQuery !== null} aria-controls={mentionQuery !== null ? 'library-mention-suggestions' : undefined} aria-activedescendant={mentionQuery !== null && mentionSuggestions[activeMentionIndex] ? `library-mention-${mentionSuggestions[activeMentionIndex]!.id}` : undefined} onChange={(event) => { const value = event.currentTarget.value; setSearch(value); setComposerAnswer(null); setComposerAnswerError(''); updateMentionQuery(value, event.currentTarget.selectionStart); }} onKeyDown={(event) => {
+          if (mentionQuery !== null) {
+            if (event.key === 'ArrowDown' && mentionSuggestions.length) { event.preventDefault(); setActiveMentionIndex((index) => (index + 1) % mentionSuggestions.length); return; }
+            if (event.key === 'ArrowUp' && mentionSuggestions.length) { event.preventDefault(); setActiveMentionIndex((index) => (index - 1 + mentionSuggestions.length) % mentionSuggestions.length); return; }
+            if (event.key === 'Escape') { event.preventDefault(); setMentionQuery(null); setMentionRange(null); return; }
+            if (event.key === 'Enter' && !event.shiftKey) {
+              if (mentionSuggestions[activeMentionIndex]) { event.preventDefault(); selectMention(mentionSuggestions[activeMentionIndex]!); return; }
+              if (mentionLoading) { event.preventDefault(); return; }
+            }
+          }
+          if (event.key === 'Enter' && ((event.ctrlKey || event.metaKey) || (searchMode === 'web' && !event.shiftKey))) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); }
+        }} onBlur={() => window.setTimeout(() => { setMentionQuery(null); setMentionRange(null); }, 120)} />
+        {composerSources.length > 0 && <div className="library-composer-sources" aria-label={`${composerSources.length} referenced saves`}>
+          {composerSources.map((source) => <span className="library-composer-source" key={source.id}><span className="library-composer-source-type">{mentionItemType(source)}</span><span className="library-composer-source-title">{source.title || 'Untitled save'}</span><button type="button" aria-label={`Remove ${source.title || 'save'} reference`} onClick={() => removeComposerSource(source)}>×</button></span>)}
+        </div>}
+        {mentionQuery !== null && <div className="library-mention-menu" id="library-mention-suggestions" role="listbox" aria-label="Saved items to reference">
+          <div className="library-mention-menu-heading">{mentionQuery ? 'Matching saves' : 'Recent saves'}</div>
+          {mentionLoading && <p className="library-mention-menu-state" role="status">Finding saved items…</p>}
+          {!mentionLoading && mentionSuggestions.length === 0 && <p className="library-mention-menu-state">No matching saves. Try another title or caption.</p>}
+          {!mentionLoading && mentionSuggestions.map((item, index) => <button type="button" role="option" aria-selected={index === activeMentionIndex} id={`library-mention-${item.id}`} className="library-mention-option" key={item.id} onMouseDown={(event) => event.preventDefault()} onMouseEnter={() => setActiveMentionIndex(index)} onClick={() => selectMention(item)}>
+            {item.cover?.url ? <img className="library-mention-thumbnail" src={item.cover.url} alt="" /> : <span className="library-mention-thumbnail library-mention-placeholder" aria-hidden="true">{mentionItemType(item) === 'Reel' || mentionItemType(item) === 'Video' ? '▶' : '▤'}</span>}
+            <span className="library-mention-copy"><strong>{item.title || 'Untitled save'}</strong><span>{mentionItemSource(item)} · {mentionItemType(item)}{item.description ? ` · ${item.description}` : item.textPreview ? ` · ${item.textPreview}` : ''}</span></span>
+          </button>)}
+          <div className="library-mention-menu-footer">↑↓ to move · Enter to add · Esc to close</div>
+        </div>}
         <div className="library-search-composer-controls">
           <input ref={visualSearchInputRef} className="visually-hidden visual-search-input" id="visual-search-image" type="file" accept="image/png,image/jpeg,image/webp" aria-label="Choose an image to search your saved library" aria-describedby="visual-search-file-help" disabled={visualBusy} onChange={(event) => { const file = event.currentTarget.files?.[0]; chooseVisualImage(file); event.currentTarget.value = ''; if (file) { const next = new URLSearchParams(searchParams); next.delete('mode'); setSearchParams(next); } }} />
           <label className="library-search-add" htmlFor="visual-search-image" aria-label="Add an image to search your saved library"><Plus size={20} aria-hidden="true" /></label>
           <div className="library-search-mode" role="group" aria-label="Choose search mode">
             <button type="button" className={searchMode === 'saved' ? 'active' : ''} aria-pressed={searchMode === 'saved'} onClick={() => selectSearchMode('saved')}>Saved</button>
-            <button type="button" className={searchMode === 'web' ? 'active' : ''} aria-pressed={searchMode === 'web'} onClick={() => { selectSearchMode('web'); setVisualResult(null); }}>AI + saved</button>
+            <button type="button" data-rembr-tour-target="search-ai" className={searchMode === 'web' ? 'active' : ''} aria-pressed={searchMode === 'web'} onClick={() => { selectSearchMode('web'); setVisualResult(null); }}>AI + saved</button>
           </div>
           {searchMode === 'saved' && visualImage && <button className="primary-button library-search-submit" type="submit" disabled={visualBusy}>{visualBusy ? 'Searching…' : 'Find similar saves'}</button>}
           {searchMode === 'saved' && !visualImage && <span className="library-search-hint">Searches your library by keywords only</span>}
         </div>
+        {searchMode === 'web' && composerSources.length > 0 && <>
+          {!aiPreference?.enabled && <label className="library-ask-consent library-composer-consent"><input type="checkbox" checked={answerConsentAccepted} onChange={(event) => setAnswerConsentAccepted(event.currentTarget.checked)} /><span>Allow Rembr to send this question and the selected saves to Meta AI for a grounded answer. <Link to="/privacy" target="_blank" rel="noreferrer">Privacy details</Link></span></label>}
+          {aiPreference?.enabled && <p className="library-ask-privacy library-composer-consent-note">Your question and selected saves will be sent to Meta AI.</p>}
+          {composerAnswerError && <p className="notice error" role="alert">{composerAnswerError}</p>}
+          <button className="primary-button library-composer-ask" type="submit" disabled={composerAnswerBusy || !search.trim() || !aiPreference?.providerAvailable || (!aiPreference.enabled && !answerConsentAccepted)}>{composerAnswerBusy ? 'Thinking…' : `Ask about ${composerSources.length} ${composerSources.length === 1 ? 'save' : 'saves'}`}</button>
+        </>}
       </form>
       {searchMode === 'web' && <div className="library-ai-search-tools">
         <div><strong>Meaning-based search</strong><p>{semanticPreference?.providerAvailable ? `${semanticPreference.indexedItems} of ${semanticPreference.eligibleItems} saved items indexed.` : 'Meaning-based search is unavailable; web and keyword search still work.'}</p></div>
@@ -246,6 +377,8 @@ export function LibraryPage() {
       {visualBusy && <p className="phase2-state" role="status">Analyzing the selected image and searching your private library…</p>}
       {visualResult && <div className="visual-search-results" aria-live="polite"><p><strong>{visualResult.results.length} visual matches</strong></p>{visualResult.visualDescription && <p className="phase2-helper">Description used to find matches: {visualResult.visualDescription}</p>}{visualResult.results.length ? <ul className="phase2-manage-list">{visualResult.results.map((item) => <li key={item.id}><SavedItemLink itemId={item.id}>{item.title}</SavedItemLink><div className="phase2-card-actions"><button className="quiet-button" type="button" aria-label={`Mark ${item.title} helpful for this image search`} aria-pressed={visualFeedback[item.id] === 'helpful'} onClick={() => void rateVisualSearchResult(item, 'helpful')}>Helpful</button><button className="quiet-button" type="button" aria-label={`Mark ${item.title} not helpful for this image search`} aria-pressed={visualFeedback[item.id] === 'not_helpful'} onClick={() => void rateVisualSearchResult(item, 'not_helpful')}>Not helpful</button></div></li>)}</ul> : <p>No saved items matched the visual details. Try a different image or use text search.</p>}</div>}
     </section>
+    {composerAnswerBusy && <p className="phase2-state" role="status">Answering from your selected saves…</p>}
+    {composerAnswer && <section className="phase2-panel web-search-results" aria-labelledby="composer-answer-title"><h2 id="composer-answer-title">Answer from your selected saves</h2>{composerAnswer.claims?.length ? <ol className="library-ask-claims">{composerAnswer.claims.map((claim, index) => <li key={`${index}-${claim.text}`}><p>{claim.text}</p><div>{claim.citationIds.map((id) => { const citation = composerAnswer.citations.find((source) => source.id === id); return citation ? <SavedItemLink key={id} itemId={id}>{citation.title}</SavedItemLink> : null; })}</div></li>)}</ol> : <p>{composerAnswer.answer}</p>}</section>}
     {(webSearchError || libraryAnswerError || semanticSearchError) && <div className="notice error" role="alert"><span>{[webSearchError, libraryAnswerError, semanticSearchError].filter(Boolean).join(' ')}</span><button className="quiet-button" type="button" onClick={() => void searchWebAndLibrary({ preventDefault() {} } as FormEvent<HTMLFormElement>)}>Try again</button></div>}
     {webSearchBusy && <p className="phase2-state" role="status">Searching the web and your saved library…</p>}
     {semanticResults.length > 0 && <section className="phase2-panel semantic-search-results" aria-labelledby="semantic-search-results-title"><h2 id="semantic-search-results-title">Meaning matches from your library</h2><ul>{semanticResults.map((item) => <li key={item.id}><SavedItemLink itemId={item.id}>{item.title || 'Untitled save'}</SavedItemLink><span>{item.kind === 'note' ? 'Note' : 'Saved page'}</span></li>)}</ul></section>}
@@ -340,51 +473,5 @@ export function KnowledgeGraphPage() {
     exportingObsidian={exportingObsidian}
     exported={exported}
     obsidianExported={obsidianExported}
-  />;
-}
-
-export function LibraryCheckupPage() {
-  const navigate = useNavigate();
-  const [checkup, setCheckup] = useState<LibraryCheckup | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [checkingLinks, setCheckingLinks] = useState(false);
-  const [error, setError] = useState('');
-  const [reminderBusyId, setReminderBusyId] = useState('');
-  const load = useCallback(async () => {
-    setLoading(true); setError('');
-    try { setCheckup((await api<{ checkup: LibraryCheckup }>('/api/knowledge/checkup')).checkup); }
-    catch (cause) { setError(messageOf(cause, 'Could not review your library.')); }
-    finally { setLoading(false); }
-  }, []);
-  useEffect(() => { void load(); }, [load]);
-  async function scheduleReminder(itemId: string, preset: 'tomorrow' | 'week' | 'month', note: string) {
-    setReminderBusyId(itemId); setError('');
-    try { await api('/api/knowledge/reminders', { method: 'POST', body: JSON.stringify({ itemId, preset, note }) }); await load(); }
-    catch (cause) { setError(messageOf(cause, 'Could not set this reminder.')); }
-    finally { setReminderBusyId(''); }
-  }
-  async function updateReminder(reminderId: string, status: 'done' | 'dismissed') {
-    setReminderBusyId(reminderId); setError('');
-    try { await api(`/api/knowledge/reminders/${encodeURIComponent(reminderId)}`, { method: 'PATCH', body: JSON.stringify({ status }) }); await load(); }
-    catch (cause) { setError(messageOf(cause, 'Could not update this reminder.')); }
-    finally { setReminderBusyId(''); }
-  }
-  async function checkLinks() {
-    setCheckingLinks(true); setError('');
-    try { await api('/api/knowledge/links/check', { method: 'POST', body: JSON.stringify({ limit: 10 }) }); await load(); }
-    catch (cause) { setError(messageOf(cause, 'Could not check your saved links.')); }
-    finally { setCheckingLinks(false); }
-  }
-  return <RembrCheckupPanel
-    checkup={checkup}
-    loading={loading}
-    checkingLinks={checkingLinks}
-    reminderBusyId={reminderBusyId}
-    error={error}
-    onRetry={() => void load()}
-    onCheckLinks={() => void checkLinks()}
-    onOpenItem={(itemId) => navigate(`/app/items/${encodeURIComponent(itemId)}`, { state: { returnTo: '/app/checkup' } })}
-    onScheduleReminder={(itemId, preset, note) => void scheduleReminder(itemId, preset, note)}
-    onUpdateReminder={(reminderId, status) => void updateReminder(reminderId, status)}
   />;
 }

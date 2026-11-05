@@ -4,13 +4,10 @@ import type { DatabaseHandle } from '../db/database.js';
 import { requireUser } from '../auth/sessions.js';
 import { createProfileGate } from '../account/routes.js';
 import type { AssetStorage } from '../assets/storage.js';
-import { createLibraryCheckupRepository } from './checkup.js';
 import { createKnowledgeGraphRepository } from './graph.js';
 import { createObsidianExportRepository } from './obsidian-export.js';
-import { createLibraryLinkHealthRepository } from './link-health.js';
 import { createLibraryService } from '../library/service.js';
 import { tokenizeSearchTerms } from '../library/search-terms.js';
-import { checkPublicPage } from '../items/safe-fetch.js';
 import { createAiSearchPreferenceRepository, AI_SEARCH_DISCLOSURE_VERSION } from './ai-search-preferences.js';
 import { createAiUsageRepository, sparkCostMicroUsd, AiBudgetExceededError } from '../ai/usage.js';
 import { MAX_OUTPUT_TOKENS, MetaApiError, MUSE_SPARK_MODEL, type MetaJsonSchema } from '../ai/meta-client.js';
@@ -52,7 +49,6 @@ function summaryContext(item: { kind: string; title: string; description: string
 }
 
 export function createKnowledgeRouter(database: DatabaseHandle, storage: AssetStorage, options: {
-  checkLink?: typeof checkPublicPage;
   answerModel?: TextAnswerModel;
   providerAvailable?: () => Promise<boolean>;
 } = {}) {
@@ -61,9 +57,6 @@ export function createKnowledgeRouter(database: DatabaseHandle, storage: AssetSt
   const profile = createProfileGate(database, storage);
   const graph = createKnowledgeGraphRepository(database);
   const obsidianExport = createObsidianExportRepository(database);
-  const linkHealth = createLibraryLinkHealthRepository(database, options.checkLink);
-  const linkCheckLimit = rateLimit({ windowMs: 15 * 60 * 1000, limit: 5, standardHeaders: 'draft-8', legacyHeaders: false });
-  const checkup = createLibraryCheckupRepository(database);
   const library = createLibraryService(database, storage);
   const aiSearchPreferences = createAiSearchPreferenceRepository(database);
   const aiUsage = createAiUsageRepository(database);
@@ -99,12 +92,6 @@ export function createKnowledgeRouter(database: DatabaseHandle, storage: AssetSt
     return res.send(archive);
   });
 
-  router.get('/knowledge/checkup', signedIn, profile, async (req, res) => {
-    const ownerId = req.user!.id;
-    const [summary, health] = await Promise.all([checkup.get(ownerId), linkHealth.get(ownerId)]);
-    return res.json({ checkup: { ...summary, linkHealth: health } });
-  });
-
   router.patch('/knowledge/items/:id/memory', signedIn, profile, async (req, res) => {
     const parsed = z.object({ enabled: z.boolean(), reason: z.string().trim().max(240).default('') }).strict().safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: { code: 'invalid_memory_preference', message: 'Choose whether to remember this item and an optional reason up to 240 characters.', requestId: req.requestId } });
@@ -137,30 +124,6 @@ export function createKnowledgeRouter(database: DatabaseHandle, storage: AssetSt
     const recorded = await memoryRecall.respond(req.user!.id, promptId, parsed.data.outcome);
     if (!recorded) return res.status(409).json({ error: { code: 'recall_prompt_unavailable', message: 'This recall prompt is no longer available. Load the next prompt and try again.', requestId: req.requestId } });
     return res.json({ outcome: parsed.data.outcome });
-  });
-
-  router.post('/knowledge/links/check', signedIn, profile, linkCheckLimit, async (req, res) => {
-    const parsed = z.object({ limit: z.number().int().min(1).max(20).default(10) }).strict().safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: { code: 'invalid_link_check', message: 'Choose a check limit between 1 and 20.', requestId: req.requestId } });
-    const checked = await linkHealth.check(req.user!.id, parsed.data.limit);
-    return res.json({ checked, linkHealth: await linkHealth.get(req.user!.id) });
-  });
-
-  router.post('/knowledge/reminders', signedIn, profile, async (req, res) => {
-    const parsed = z.object({ itemId: z.string().uuid(), preset: z.enum(['tomorrow','week','month']).default('week'), note: z.string().trim().max(300).default('') }).strict().safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: { code: 'invalid_reminder', message: 'Choose a valid item and reminder time.', requestId: req.requestId } });
-    const reminder = await checkup.createReminder(req.user!.id, parsed.data.itemId, parsed.data.preset, parsed.data.note);
-    if (!reminder) return res.status(404).json({ error: { code: 'not_found', message: 'Saved item not found.', requestId: req.requestId } });
-    return res.status(201).json({ reminder });
-  });
-
-  router.patch('/knowledge/reminders/:id', signedIn, profile, async (req, res) => {
-    const parsed = z.object({ status: z.enum(['done','dismissed']) }).strict().safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: { code: 'invalid_reminder', message: 'Choose done or dismissed.', requestId: req.requestId } });
-    const value = req.params.id;
-    const reminderId = Array.isArray(value) ? value[0] ?? '' : value ?? '';
-    if (!await checkup.updateReminder(req.user!.id, reminderId, parsed.data.status)) return res.status(404).json({ error: { code: 'not_found', message: 'Pending reminder not found.', requestId: req.requestId } });
-    return res.json({ id: reminderId, status: parsed.data.status });
   });
 
   router.post('/knowledge/answer', signedIn, profile, answerLimit, async (req, res) => {

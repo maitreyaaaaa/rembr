@@ -409,7 +409,7 @@ export function RembrKnowledgeGraphPanel({
 
         <aside className="rounded-2xl border border-white/10 bg-white/[0.025] p-4 sm:p-5" aria-label="Graph details and tools">
           <div className="grid grid-cols-2 gap-1 rounded-xl border border-white/10 bg-black p-1" role="tablist" aria-label="Graph panel">
-            {(['details', 'export'] as const).map((key) => <button key={key} type="button" role="tab" aria-selected={tab === key} onClick={() => setTab(key)} className={`rounded-lg px-2 py-2 text-xs font-semibold transition sm:px-3 ${tab === key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'}`}>{titleCase(key)}</button>)}
+            {(['details', 'export'] as const).map((key) => <button key={key} data-rembr-tour-target={key === 'export' ? 'graph-export-tab' : undefined} type="button" role="tab" aria-selected={tab === key} onClick={() => setTab(key)} className={`rounded-lg px-2 py-2 text-xs font-semibold transition sm:px-3 ${tab === key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-white/5 hover:text-foreground'}`}>{titleCase(key)}</button>)}
           </div>
 
           {tab === 'details' && <div className="mt-5">

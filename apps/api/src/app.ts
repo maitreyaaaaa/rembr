@@ -26,7 +26,7 @@ import { createSmartCollectionRouter } from './smart-collections/routes.js';
 import { LocalAssetStorage, type AssetStorage } from './assets/storage.js';
 import { LocalMediaStorage, type MediaStorage } from './media/storage.js';
 import type { DatabaseHandle } from './db/database.js';
-import { CaptureError, checkPublicPage, validatePublicUrl } from './items/safe-fetch.js';
+import { CaptureError, validatePublicUrl } from './items/safe-fetch.js';
 import { createLibraryService } from './library/service.js';
 import { createOpenRouterEmbeddingProvider } from './library/openrouter-embedding-provider.js';
 import { createSemanticSearchRouter } from './library/semantic-routes.js';
@@ -48,7 +48,7 @@ function errorResponse(code: string, message: string, requestId?: string) {
   return { error: { code, message, ...(requestId ? { requestId } : {}) } };
 }
 
-export function createApp(database: DatabaseHandle, options: { validateUrl?: typeof validatePublicUrl; checkLink?: typeof checkPublicPage; assetDirectory?: string; assetStorage?: AssetStorage; importDirectory?: string; importStorage?: ImportStorage; mediaDirectory?: string; mediaStorage?: MediaStorage; demoOwnerId?: string; answerModel?: { countTextInputTokens(prompt: string, outputSchema?: MetaJsonSchema): Promise<number>; analyzeText(prompt: string, outputSchema?: MetaJsonSchema): Promise<{ text: string; inputTokens: number; outputTokens: number }> }; imageSearchModel?: VisualSearchModel; providerAvailable?: () => Promise<boolean>; semanticEmbeddingProvider?: EmbeddingProvider } = {}) {
+export function createApp(database: DatabaseHandle, options: { validateUrl?: typeof validatePublicUrl; assetDirectory?: string; assetStorage?: AssetStorage; importDirectory?: string; importStorage?: ImportStorage; mediaDirectory?: string; mediaStorage?: MediaStorage; demoOwnerId?: string; answerModel?: { countTextInputTokens(prompt: string, outputSchema?: MetaJsonSchema): Promise<number>; analyzeText(prompt: string, outputSchema?: MetaJsonSchema): Promise<{ text: string; inputTokens: number; outputTokens: number }> }; imageSearchModel?: VisualSearchModel; providerAvailable?: () => Promise<boolean>; semanticEmbeddingProvider?: EmbeddingProvider } = {}) {
   const app = express();
   const assetStorage = options.assetStorage ?? new LocalAssetStorage(options.assetDirectory ?? config.assetDirectory);
   const importStorage = options.importStorage ?? new LocalImportStorage(options.importDirectory ?? config.importDirectory);
@@ -200,7 +200,7 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
   }));
   app.use('/api', createWebSearchRouter(database, assetStorage,
     config.openRouterApiKey ? createOpenRouterWebSearchModel(config.openRouterApiKey, config.openRouterWebSearchModel) : undefined));
-  app.use('/api', createKnowledgeRouter(database, assetStorage, { checkLink: options.checkLink,
+  app.use('/api', createKnowledgeRouter(database, assetStorage, {
     answerModel: options.answerModel ?? answerClient, providerAvailable }));
   app.use('/api', createSmartCollectionRouter(database, assetStorage));
 

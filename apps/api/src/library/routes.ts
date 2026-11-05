@@ -61,6 +61,12 @@ export function createLibraryRouter(database: DatabaseHandle, storage: AssetStor
     }
   });
 
+  router.get('/items/suggestions', signedIn, profile, async (req, res) => {
+    const parsed = z.object({ q: z.string().trim().max(120).default('') }).strict().safeParse(req.query);
+    if (!parsed.success) return apiError(res, 400, 'invalid_query', 'Enter a search up to 120 characters.', req.requestId);
+    return res.json({ items: await library.suggest(req.user!.id, parsed.data.q, 8) });
+  });
+
   router.get('/items/:id', signedIn, profile, async (req, res) => {
     const item = await library.get(req.user!.id, param(req, 'id'));
     if (!item) return apiError(res, 404, 'not_found', 'Saved item not found.', req.requestId);

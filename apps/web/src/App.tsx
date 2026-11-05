@@ -2,19 +2,20 @@ import type { ApiError, Profile, SavedItem, Session } from './app/contracts.js';
 import { api, apiWithProgress } from './app/api.js';
 import { messageOf, sameAppPath } from './app/helpers.js';
 import { lazy, Suspense, useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
-import { ArrowRight, Brain, FileCheck2, FileText, Link2, Plus, Upload, X } from 'lucide-react';
+import { ArrowRight, Brain, ChevronRight, FileCheck2, FileText, Link2, Network, Plus, Upload, X } from 'lucide-react';
 import { BrowserRouter, Link, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AvatarUpload } from './components/AvatarUpload.js';
 import { RembrAuthFrame } from './features/auth/RembrAuthFrame.js';
 import { RembrWorkspaceTour } from './features/workspace/RembrWorkspaceTour.js';
 import { AppShellSkeleton } from './components/ui/LoadingStates.jsx';
 import { GlobalButtonTooltips } from './components/ui/GlobalButtonTooltips.js';
-import { LibraryPage, KnowledgeGraphPage, LibraryCheckupPage } from './features/library/pages.js';
+import { LibraryPage, KnowledgeGraphPage } from './features/library/pages.js';
 import { AddPage, ImportsPage, ImportDetailPage } from './features/imports/pages.js';
 import { ItemDetailPage, ItemEditPage, NoteEditorPage } from './features/items/pages.js';
 import { SettingsPage } from './features/settings/SettingsPage.js';
 import { DeveloperAccessPage } from './features/settings/DeveloperAccessPage.js';
 import { McpAccessPage } from './features/settings/McpAccessPage.js';
+import { IntegrationsPage } from './features/integrations/IntegrationsPage.js';
 import { WorkOSMcpConsentPage } from './features/auth/WorkOSMcpConsentPage.js';
 import { DemoWorkspacePage } from './features/demo/DemoWorkspacePage.js';
 import { MemoryRecallPage } from './features/knowledge/MemoryRecallPage.js';
@@ -62,12 +63,13 @@ function AppRoutes() {
       <Route path="smart-collections" element={<SmartCollectionsPage request={api} />} />
       <Route path="smart-collections/:collectionId" element={<SmartCollectionsPage request={api} />} />
       <Route path="graph" element={<KnowledgeGraphPage />} />
-      <Route path="checkup" element={<LibraryCheckupPage />} />
+      <Route path="checkup" element={<Navigate to="/app" replace />} />
       <Route path="remember" element={<MemoryRecallPage />} />
       <Route path="settings/profile" element={<SettingsPage />} />
       <Route path="settings/preferences" element={<SettingsPage />} />
-      <Route path="settings/advanced" element={<Navigate to="/app/checkup" replace />} />
+      <Route path="settings/advanced" element={<Navigate to="/app/graph" replace />} />
       <Route path="settings/developer-access" element={<DeveloperAccessPage />} />
+      <Route path="integrations" element={<IntegrationsPage />} />
       <Route path="settings/mcp-access" element={<McpAccessPage />} />
     </Route>
     <Route path="*" element={<NotFoundPage />} />
@@ -138,16 +140,32 @@ function ProtectedShell() {
   const { session, setSession, loading, error, refresh } = useSession();
   const location = useLocation();
   const navigate = useNavigate();
-  const tourOpen = new URLSearchParams(location.search).get('tour') === '1';
+  const explicitTourOpen = new URLSearchParams(location.search).get('tour') === '1';
+  const [firstRunTourOpen, setFirstRunTourOpen] = useState(false);
+  const navigateForTour = useCallback((path: string) => navigate(`${path}?tour=1`), [navigate]);
   const [accountDenied, setAccountDenied] = useState(false);
   const detailReturnTo = (location.state as { returnTo?: string } | null)?.returnTo;
   const detailReturnPath = detailReturnTo?.split(/[?#]/, 1)[0] ?? '';
   const detailBackground = /^\/app\/items\/[^/]+$/.test(location.pathname)
-    ? detailReturnPath === '/app/checkup' ? <LibraryCheckupPage /> : detailReturnPath === '/app/graph' ? <KnowledgeGraphPage /> : <LibraryPage />
+    ? detailReturnPath === '/app/graph' ? <KnowledgeGraphPage /> : <LibraryPage />
     : null;
   const hasDetailBackground = Boolean(detailBackground);
   const isFullScreenSettings = location.pathname === '/app/settings/profile' || location.pathname === '/app/settings/preferences' || location.pathname === '/app/settings/advanced';
-  const isSensitiveAccess = location.pathname === '/app/settings/developer-access' || location.pathname === '/app/settings/mcp-access';
+  const isSensitiveAccess = location.pathname === '/app/settings/developer-access' || location.pathname === '/app/integrations' || location.pathname === '/app/settings/mcp-access';
+
+  useEffect(() => {
+    const userId = session?.user.id;
+    if (!userId || explicitTourOpen) return;
+    const seenKey = `rembr:workspace-tour:v1:${userId}`;
+    try {
+      if (!window.localStorage.getItem(seenKey)) {
+        window.localStorage.setItem(seenKey, 'seen');
+        setFirstRunTourOpen(true);
+      }
+    } catch {
+      setFirstRunTourOpen(true);
+    }
+  }, [explicitTourOpen, session?.user.id]);
 
   useEffect(() => {
     const handle = (event: Event) => {
@@ -168,22 +186,22 @@ function ProtectedShell() {
   if (error) return <main className="phase2-centered"><section className="phase2-card" role="alert"><h1>Your library could not load</h1><p>{error}</p><button className="quiet-button" type="button" onClick={() => void refresh()}>Try again</button></section></main>;
   if (!session) return <Navigate to={`/login?demo=1&returnTo=${encodeURIComponent(`${location.pathname}${location.search}`)}`} replace />;
   if (!session.profileComplete && !location.pathname.startsWith('/app/setup/')) return <Navigate to="/app/setup/profile" replace state={{ returnTo: `${location.pathname}${location.search}` }} />;
+  const tourOpen = explicitTourOpen || firstRunTourOpen;
   return <div className="dashboard-shell flex h-screen overflow-hidden bg-black text-foreground">
-    <AppNav session={session} onLogout={async () => { await api('/api/auth/logout', { method: 'POST' }); setSession(null); navigate('/login', { replace: true }); }} />
-    <main className="rembr-dashboard-main min-w-0 flex-1 overflow-y-auto">
-      {detailBackground && <div className="rembr-detail-underlay" aria-hidden="true" inert><div className="phase2-main">{detailBackground}</div></div>}
-      <div className={hasDetailBackground ? 'rembr-detail-route' : isFullScreenSettings ? 'rembr-settings-route' : isSensitiveAccess ? 'rembr-sensitive-route' : undefined}><div className={`phase2-main ${isFullScreenSettings ? 'phase2-main-settings' : isSensitiveAccess ? 'phase2-main-sensitive' : ''}`}><Outlet context={{ session, setSession }} /></div></div>
-    </main>
-    {!hasDetailBackground && <QuickAddDock />}
-    {tourOpen && <RembrWorkspaceTour
-      open
-      onClose={() => {
-        const query = new URLSearchParams(location.search);
-        query.delete('tour');
-        navigate({ pathname: location.pathname, search: query.size ? `?${query.toString()}` : '' }, { replace: true });
-      }}
-      onNavigate={(path) => navigate(`${path}?tour=1`)}
-    />}
+    <div className="rembr-tour-underlay" aria-hidden={tourOpen} inert={tourOpen}>
+      <AppNav session={session} onLogout={async () => { await api('/api/auth/logout', { method: 'POST' }); setSession(null); navigate('/login', { replace: true }); }} />
+      <main className="rembr-dashboard-main min-w-0 flex-1 overflow-y-auto">
+        {detailBackground && <div className="rembr-detail-underlay" aria-hidden="true" inert><div className="phase2-main">{detailBackground}</div></div>}
+        <div className={hasDetailBackground ? 'rembr-detail-route' : isFullScreenSettings ? 'rembr-settings-route' : isSensitiveAccess ? 'rembr-sensitive-route' : undefined}><div className={`phase2-main ${isFullScreenSettings ? 'phase2-main-settings' : isSensitiveAccess ? 'phase2-main-sensitive' : ''}`}><AppBreadcrumbs /><Outlet context={{ session, setSession }} /></div></div>
+      </main>
+      {!hasDetailBackground && <QuickAddDock />}
+    </div>
+    {tourOpen && <RembrWorkspaceTour open onClose={() => {
+      setFirstRunTourOpen(false);
+      const query = new URLSearchParams(location.search);
+      query.delete('tour');
+      navigate({ pathname: location.pathname, search: query.size ? `?${query.toString()}` : '' }, { replace: true });
+    }} onNavigate={navigateForTour} />}
   </div>;
 }
 
@@ -232,7 +250,7 @@ function QuickAddDock() {
   }
 
   return <>
-    <button className="quick-add-trigger" type="button" aria-label="Quick add to your library" aria-expanded={open} onClick={() => { setOpen(true); setView('menu'); }}><Plus aria-hidden="true" /></button>
+    <button className="quick-add-trigger" data-rembr-tour-target="quick-add" type="button" aria-label="Quick add to your library" aria-expanded={open} onClick={() => { setOpen(true); setView('menu'); }}><Plus aria-hidden="true" /></button>
     {open && <div className="quick-add-layer">
       <button className="quick-add-backdrop" type="button" aria-label="Close quick add" onClick={close} />
       <section className="quick-add-panel" role="dialog" aria-modal="true" aria-labelledby="quick-add-title">
@@ -265,6 +283,45 @@ function SidebarIcon({ name }: { name: string }) {
   return <img className="rembr-sidebar-icon" src={`/iconsax/${name}.svg`} alt="" aria-hidden="true" draggable={false} />;
 }
 
+function SidebarMenuIcon() {
+  return <svg className="sidebar-menu-icon" viewBox="0 0 20 20" fill="none" aria-hidden="true">
+    <path d="M3 5h14M3 10h14M3 15h14" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+  </svg>;
+}
+
+function AppBreadcrumbs() {
+  const { pathname } = useLocation();
+  const itemId = pathname.match(/^\/app\/items\/([^/]+)/)?.[1];
+  let parents: Array<{ label: string; to: string }> = [];
+  let current = 'Home';
+
+  if (pathname === '/app/add') current = 'Add saves';
+  else if (pathname === '/app/imports') current = 'Imports';
+  else if (pathname.startsWith('/app/imports/')) { parents = [{ label: 'Imports', to: '/app/imports' }]; current = 'Import details'; }
+  else if (pathname === '/app/smart-collections') current = 'Smart collections';
+  else if (pathname.startsWith('/app/smart-collections/')) { parents = [{ label: 'Smart collections', to: '/app/smart-collections' }]; current = 'Collection'; }
+  else if (pathname === '/app/graph') current = 'Knowledge graph';
+  else if (pathname === '/app/remember') current = 'Remember';
+  else if (pathname === '/app/integrations') current = 'Integrations';
+  else if (pathname === '/app/notes/new') current = 'New note';
+  else if (pathname.startsWith('/app/notes/')) { parents = [{ label: 'Saved note', to: pathname.replace(/\/edit$/, '') }]; current = 'Edit'; }
+  else if (pathname.startsWith('/app/settings/')) {
+    parents = [{ label: 'Settings', to: '/app/settings/profile' }];
+    current = pathname.endsWith('/mcp-access') ? 'MCP access'
+      : pathname.endsWith('/developer-access') ? 'API keys'
+        : pathname.endsWith('/preferences') ? 'Preferences' : 'Profile';
+  } else if (itemId && pathname.endsWith('/edit')) {
+    parents = [{ label: 'Saved item', to: `/app/items/${itemId}` }]; current = 'Edit';
+  } else if (itemId) current = 'Saved item';
+  else if (pathname === '/how-to-use') current = 'How to use';
+
+  return <nav className="app-breadcrumbs" aria-label="Breadcrumb">
+    {current === 'Home' ? <span aria-current="page">Home</span> : <Link to="/app">Home</Link>}
+    {parents.map((parent) => <span className="app-breadcrumb-part" key={parent.to}><ChevronRight size={13} aria-hidden="true" /><Link to={parent.to}>{parent.label}</Link></span>)}
+    {current !== 'Home' && <span className="app-breadcrumb-part" aria-current="page"><ChevronRight size={13} aria-hidden="true" /><span>{current}</span></span>}
+  </nav>;
+}
+
 function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promise<void> }) {
   const [logoutBusy, setLogoutBusy] = useState(false);
   const [expanded, setExpanded] = useState(false);
@@ -272,12 +329,13 @@ function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promi
   const location = useLocation();
   const sidebarExpanded = expanded;
   const navItems = [
-    { path: '/app', label: 'Saved library', icon: <SidebarIcon name="book-saved" />, exact: true },
+    { path: '/app', label: 'Home', icon: <SidebarIcon name="book-saved" />, exact: true },
     { path: '/app/smart-collections', label: 'Smart collections', icon: <SidebarIcon name="folder-2" /> },
     { path: '/app/remember', label: 'Remember', icon: <Brain size={18} aria-hidden="true" /> },
+    { path: '/app/integrations', label: 'Integrations', icon: <Network size={18} aria-hidden="true" /> },
     { path: '/app/add', label: 'Add saves', icon: <SidebarIcon name="document-upload" /> },
   ];
-  const mobileMoreActive = location.pathname.startsWith('/app/smart-collections') || location.pathname === '/how-to-use';
+  const mobileMoreActive = location.pathname.startsWith('/app/smart-collections') || location.pathname === '/app/integrations' || location.pathname === '/how-to-use';
   const accountLabel = session.profile?.username ? `@${session.profile.username}` : session.user.email;
   const avatar = session.profile?.avatarAssetUrl ?? session.profile?.avatarUrl;
   const userMark = session.profile?.username?.slice(0, 1) ?? session.user.email.slice(0, 1);
@@ -291,7 +349,7 @@ function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promi
           <SidebarIcon name="arrow-left-02" />{sidebarExpanded && <img className="rembr-official-logo app-nav-brand" src="/brand/rembr-wordmark.svg?v=20261101" alt="Rembr" />}
         </Link>
         <button type="button" onClick={() => setExpanded((value) => !value)} aria-label={expanded ? 'Collapse sidebar' : 'Expand sidebar'} aria-expanded={expanded} className="grid h-11 w-11 shrink-0 place-items-center rounded-lg text-muted-foreground transition hover:bg-white/5 hover:text-primary">
-          <SidebarIcon name={expanded ? 'sidebar-left' : 'sidebar-right'} />
+          <SidebarMenuIcon />
         </button>
       </div>
       <Link to="/app/settings/profile" aria-label={`Signed in as ${accountLabel}`} className={`flex items-center border-b border-white/5 text-xs text-muted-foreground transition hover:bg-white/5 hover:text-foreground ${sidebarExpanded ? 'gap-3 px-5 py-3' : 'justify-center px-3 py-3'}`}>
@@ -305,7 +363,7 @@ function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promi
         </Link>)}
       </nav>
       <div className="flex flex-col gap-2 border-t border-white/5 p-3">
-        <Link to="/how-to-use" className={`flex h-11 items-center rounded-lg text-sm text-muted-foreground transition hover:bg-white/5 hover:text-foreground ${sidebarExpanded ? 'gap-3 px-3' : 'w-11 justify-center'}`} aria-label="How to use"><SidebarIcon name="book-open" />{sidebarExpanded && <span>How to use</span>}</Link>
+        <Link to="/help" className={`flex h-11 items-center rounded-lg text-sm text-muted-foreground transition hover:bg-white/5 hover:text-foreground ${sidebarExpanded ? 'gap-3 px-3' : 'w-11 justify-center'}`} aria-label="Help and tour"><SidebarIcon name="book-open" />{sidebarExpanded && <span>Help &amp; tour</span>}</Link>
         <div className={`flex gap-2 ${sidebarExpanded ? 'flex-row' : 'flex-col items-center'}`}>
           <Link to="/app/settings/profile" className={`flex h-11 shrink-0 items-center rounded-lg text-sm text-muted-foreground transition hover:bg-white/5 hover:text-foreground ${sidebarExpanded ? 'flex-1 gap-3 px-3' : 'w-11 justify-center'}`} aria-label="Settings"><SidebarIcon name="setting-2" />{sidebarExpanded && <span>Settings</span>}</Link>
           <button type="button" className="danger-button grid h-11 w-11 shrink-0 place-items-center rounded-lg transition" aria-label="Sign out" disabled={logoutBusy} onClick={handleLogout}><SidebarIcon name="logout-01" /></button>
@@ -320,7 +378,8 @@ function AppNav({ session, onLogout }: { session: Session; onLogout: () => Promi
     <nav className="mobile-bottom-navigation md:hidden" aria-label="Main navigation" onKeyDown={(event) => { if (event.key === 'Escape') setMoreOpen(false); }}>
       <div id="rembr-mobile-more" className="mobile-more-panel" role="group" aria-label="More sections" hidden={!moreOpen}>
         <Link to="/app/smart-collections" onClick={() => setMoreOpen(false)} aria-current={isActive('/app/smart-collections') ? 'page' : undefined} className={`mobile-more-item ${isActive('/app/smart-collections') ? 'is-active' : ''}`}><SidebarIcon name="folder-2" /><span>Smart collections</span></Link>
-        <Link to="/how-to-use" onClick={() => setMoreOpen(false)} className="mobile-more-item"><SidebarIcon name="book-open" /><span>How to use</span></Link>
+        <Link to="/app/integrations" onClick={() => setMoreOpen(false)} aria-current={isActive('/app/integrations') ? 'page' : undefined} className={`mobile-more-item ${isActive('/app/integrations') ? 'is-active' : ''}`}><Network size={17} aria-hidden="true" /><span>Integrations</span></Link>
+        <Link to="/help" onClick={() => setMoreOpen(false)} className="mobile-more-item"><SidebarIcon name="book-open" /><span>Help &amp; tour</span></Link>
       </div>
       {[
         { path: '/app', label: 'Library', icon: <SidebarIcon name="book-saved" />, exact: true },

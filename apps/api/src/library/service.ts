@@ -85,6 +85,12 @@ export function createLibraryService(database: DatabaseHandle, storage: AssetSto
       }
       return { items: page.items, nextCursor, hasMore: page.hasMore, searchEventId };
     },
+    async suggest(ownerId: string, search: string, limit = 8) {
+      const page = await repository.list(ownerId, {
+        search, sort: search.trim() ? 'relevance' : 'created_desc', matchMode: 'terms', limit,
+      });
+      return Promise.all(page.items);
+    },
     async recordSearchFeedback(ownerId: string, input: { searchEventId: string; itemId: string; rating: 'helpful' | 'not_helpful' }) {
       const exists = await database.prepare(`SELECT 1 FROM search_event_results WHERE owner_id=? AND event_id=? AND item_id=?`).get(ownerId, input.searchEventId, input.itemId);
       if (!exists) throw new LibraryServiceError('not_found', 'This item was not part of that search.');

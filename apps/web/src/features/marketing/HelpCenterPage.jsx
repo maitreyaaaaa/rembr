@@ -10,11 +10,12 @@ import {
   useState,
 } from './AppShared.jsx';
 import { AnimatedFeatureSelect } from './Common.jsx';
+import { Compass } from 'lucide-react';
 const SUPPORT_EMAIL = import.meta.env.VITE_CONTACT_EMAIL?.trim() ?? '';
 
 const SUPPORT_TOPIC_OPTIONS = ['Import help', 'Login or account', 'Browser capture', 'Search results', 'Data and privacy', 'Other'];
 
-function HelpCenterPage({ onBack, onOpenApp, onOpenHowTo }) {
+function HelpCenterPage({ onBack, onOpenApp, onOpenHowTo, onStartTour }) {
   const mailto = SUPPORT_EMAIL ? `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('Rembr support request')}` : '/contact';
   const [supportForm, setSupportForm] = useState({
     email: '',
@@ -75,6 +76,13 @@ function HelpCenterPage({ onBack, onOpenApp, onOpenHowTo }) {
               className="inline-flex items-center gap-2 rounded-full border border-white/15 px-6 py-4 text-sm transition hover:bg-white/5"
             >
               <FileText className="h-4 w-4" /> Import guides
+            </button>
+            <button
+              type="button"
+              onClick={onStartTour}
+              className="inline-flex items-center gap-2 rounded-full border border-primary/35 bg-primary/10 px-6 py-4 text-sm font-semibold text-primary transition hover:bg-primary/15"
+            >
+              <Compass className="h-4 w-4" /> Take the product tour
             </button>
           </div>
         </section>

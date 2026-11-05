@@ -32,11 +32,6 @@ export interface KnowledgeGraphGroup { id: string; type: string; label: string; 
 export interface KnowledgeGraphNode { id: string; type: string; label: string; itemId?: string; itemCount?: number }
 export interface KnowledgeGraphLink { id: string; source: string; target: string; type: string }
 export interface KnowledgeGraph { nodes: KnowledgeGraphNode[]; links: KnowledgeGraphLink[]; groups: KnowledgeGraphGroup[]; stats: { indexedItems: number; conceptNodes: number; links: number }; truncated: boolean }
-export interface CheckupItem { id: string; title: string; status: string; created_at: string }
-export interface CheckupReminder { id: string; itemId: string; remindAt: string; status: 'pending'; reason: string; note: string; item: CheckupItem }
-export interface DuplicateImport { id: string; itemId: string; importedTitle: string; matchedItemTitle: string; sourcePlatform: string; importedAt: string }
-export interface LinkHealthCheck { id: string; itemId: string; title: string; status: 'ok' | 'broken' | 'unknown'; sourceUrl: string; finalUrl: string | null; httpStatus: number | null; errorCode: string; errorMessage: string; checkedAt: string }
-export interface LibraryCheckup { generatedAt: string; summary: { savedItems: number; unorganizedItems: number; needsAttention: number; olderSaves: number }; duplicateImports: { count: number; recent: DuplicateImport[] }; linkHealth: { checkedItems: number; brokenCount: number; unknownCount: number; lastCheckedAt: string | null; brokenLinks: LinkHealthCheck[] }; needsAttention: CheckupItem[]; olderSaves: CheckupItem[]; dueReminders: CheckupReminder[]; upcomingReminders: CheckupReminder[]; weeklyRediscovery: CheckupItem[]; dailyPick: CheckupItem | null; readOnly: true }
 export interface LibraryAnswer { question: string; answer: string; claims?: Array<{ text: string; citationIds: string[] }>; citations: Array<{ id: string; title: string; snippet: string }>; resultIds: string[]; searchEventId: string | null; mode: 'lexical-excerpts' | 'grounded-ai' }
 export interface LibraryChatTurn { role: 'user' | 'assistant'; content: string; response?: LibraryAnswer }
 export interface SavedItemSummary { id: string; itemId: string; generation: number; model: string; promptVersion: string; sourceCharacters: number; summary: string; createdAt: string; stale?: boolean }
