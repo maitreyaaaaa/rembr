@@ -19,7 +19,9 @@
     "lint": "npm run lint --workspaces --if-present",
     "test": "npm run test --workspaces --if-present",
     "build": "npm run build --workspaces --if-present",
-    "check": "npm run typecheck && npm run lint && npm test && npm run build"
+    "routes:inventory": "npm run routes:inventory --workspace @rembr/api",
+    "routes:check": "npm run routes:check --workspace @rembr/api",
+    "check": "npm run routes:check && npm run typecheck && npm run lint && npm test && npm run build"
   },
   "devDependencies": {
     "concurrently": "^9.2.1"

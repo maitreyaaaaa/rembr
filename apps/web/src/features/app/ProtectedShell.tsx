@@ -1,15 +1,17 @@
 import { api } from '../../app/api.js';
 import { messageOf } from '../../app/helpers.js';
-import { useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useState } from 'react';
 import { Link, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { AppShellSkeleton } from '../../components/ui/LoadingStates.jsx';
 import { RembrWorkspaceTour } from '../workspace/RembrWorkspaceTour.js';
-import { LibraryPage } from '../library/pages.js';
-import { KnowledgeGraphPage } from '../knowledge/KnowledgeGraphPage.js';
+import { lazyPage } from './lazyPage.js';
 import { useSession } from '../auth/useSession.js';
 import { AppBreadcrumbs } from './AppBreadcrumbs.js';
 import { AppNav } from './AppNavigation.js';
 import { QuickAddDock } from './QuickAddDock.js';
+
+const LibraryPage = lazyPage(() => import('../library/pages.js'), 'LibraryPage');
+const KnowledgeGraphPage = lazyPage(() => import('../knowledge/KnowledgeGraphPage.js'), 'KnowledgeGraphPage');
 
 export function ProtectedShell() {
   const { session, setSession, loading, error, refresh } = useSession();
@@ -26,7 +28,7 @@ export function ProtectedShell() {
   const detailReturnTo = (location.state as { returnTo?: string } | null)?.returnTo;
   const detailReturnPath = detailReturnTo?.split(/[?#]/, 1)[0] ?? '';
   const detailBackground = /^\/app\/items\/[^/]+$/.test(location.pathname)
-    ? detailReturnPath === '/app/graph' ? <KnowledgeGraphPage /> : <LibraryPage />
+    ? <Suspense fallback={<div className="phase2-state" role="status">Loading your library…</div>}>{detailReturnPath === '/app/graph' ? <KnowledgeGraphPage /> : <LibraryPage />}</Suspense>
     : null;
   const hasDetailBackground = Boolean(detailBackground);
   const isFullScreenSettings = location.pathname === '/app/settings/profile' || location.pathname === '/app/settings/preferences' || location.pathname === '/app/settings/advanced';
