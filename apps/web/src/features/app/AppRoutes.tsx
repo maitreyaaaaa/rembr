@@ -3,7 +3,7 @@ import { BrowserRouter, Link, Navigate, Route, Routes } from 'react-router-dom';
 import { api } from '../../app/api.js';
 import { lazyPage } from './lazyPage.js';
 import { ProtectedShell } from './ProtectedShell.js';
-import { externalIntegrationsEnabled } from './feature-flags.js';
+import { integrationsPageEnabled } from './feature-flags.js';
 
 const LibraryPage = lazyPage(() => import('../library/pages.js'), 'LibraryPage');
 const KnowledgeGraphPage = lazyPage(() => import('../knowledge/KnowledgeGraphPage.js'), 'KnowledgeGraphPage');
@@ -46,7 +46,7 @@ export function AppRoutes() {
     <Route path="/cookies" element={<LegalPage kind="cookies" />} />
     <Route path="/login" element={<AuthPage />} />
     <Route path="/demo" element={<DemoWorkspacePage />} />
-    {externalIntegrationsEnabled && <Route path="/auth/workos/mcp" element={<WorkOSMcpConsentPage />} />}
+    <Route path="/auth/workos/mcp" element={<WorkOSMcpConsentPage />} />
     <Route path="/app/setup/profile" element={<SetupRoute />} />
     <Route path="/app/setup/onboarding" element={<Navigate to="/app" replace />} />
     <Route path="/app" element={<ProtectedShell />}>
@@ -66,9 +66,9 @@ export function AppRoutes() {
       <Route path="settings/profile" element={<SettingsPage />} />
       <Route path="settings/preferences" element={<SettingsPage />} />
       <Route path="settings/advanced" element={<Navigate to="/app/graph" replace />} />
-      {externalIntegrationsEnabled && <Route path="settings/developer-access" element={<DeveloperAccessPage />} />}
-      {externalIntegrationsEnabled && <Route path="integrations" element={<IntegrationsPage />} />}
-      {externalIntegrationsEnabled && <Route path="settings/mcp-access" element={<McpAccessPage />} />}
+      <Route path="settings/developer-access" element={<DeveloperAccessPage />} />
+      {integrationsPageEnabled && <Route path="integrations" element={<IntegrationsPage />} />}
+      <Route path="settings/mcp-access" element={<McpAccessPage />} />
     </Route>
     <Route path="*" element={<NotFoundPage />} />
   </Routes></Suspense></BrowserRouter>;

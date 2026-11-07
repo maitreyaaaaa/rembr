@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseHandle } from '../db/database.js';
-import { tokenizeSearchTerms } from './search-terms.js';
+import { fuzzySearchPattern, tokenizeSearchTerms } from './search-terms.js';
 
 export interface ItemListQuery {
   search: string; type?: 'page' | 'note'; status?: string; tagId?: string;
@@ -34,6 +34,13 @@ const SEARCH_CONCEPTS: Record<string, string[]> = {
 };
 function queryGroups(value: string): string[][] {
   return tokenizeSearchTerms(value).map((token) => SEARCH_CONCEPTS[token] ?? [token]);
+}
+function fuzzySearchPatterns(value: string): string[] {
+  return tokenizeSearchTerms(value)
+    .filter((token) => /^[a-z]{4,18}$/.test(token))
+    .slice(0, 5)
+    .map((token) => fuzzySearchPattern(token))
+    .filter((pattern): pattern is string => pattern !== null);
 }
 function searchPattern(value: string, allowInflection = false): string {
   const normalized = value.normalize('NFKC').trim();
@@ -76,6 +83,21 @@ function termScoreSql(group: string[]): string {
 }
 function termScoreParams(group: string[]): string[] {
   return TERM_SCORE_FIELDS.flatMap((field) => group.flatMap((term) => Array.from({ length: field.placeholders }, () => searchPattern(term, true))));
+}
+function fuzzyTermScoreSql(): string {
+  return `+ (CASE WHEN COALESCE(saved_items.title_override,saved_items.title) ~* ? THEN 12 ELSE 0 END
+    + CASE WHEN COALESCE(saved_items.description_override,saved_items.description,'') ~* ? THEN 7 ELSE 0 END
+    + CASE WHEN saved_items.original_url ~* ? THEN 4 ELSE 0 END
+    + CASE WHEN COALESCE(extracted_artifacts.text_content,'') ~* ? THEN 4 ELSE 0 END
+    + CASE WHEN EXISTS (SELECT 1 FROM notes WHERE notes.owner_id=saved_items.owner_id AND notes.item_id=saved_items.id AND notes.body ~* ?) THEN 5 ELSE 0 END
+    + CASE WHEN EXISTS (SELECT 1 FROM item_memory_settings memory WHERE memory.owner_id=saved_items.owner_id AND memory.item_id=saved_items.id AND memory.reason ~* ?) THEN 5 ELSE 0 END
+    + CASE WHEN EXISTS (SELECT 1 FROM ai_analysis_results analysis WHERE analysis.owner_id=saved_items.owner_id AND analysis.item_id=saved_items.id
+      AND (COALESCE(analysis.summary,'') || ' ' || COALESCE(analysis.visual_description,'') || ' ' || COALESCE(analysis.ocr_text,'') || ' ' || COALESCE(analysis.transcript,'') || ' '
+        || COALESCE(analysis.keywords_json,'') || ' ' || COALESCE(analysis.tags_json,'') || ' ' || COALESCE(analysis.brands_json,'') || ' ' || COALESCE(analysis.tools_json,'') || ' '
+        || COALESCE(analysis.people_json,'') || ' ' || COALESCE(analysis.repositories_json,'')) ~* ?) THEN 4 ELSE 0 END)`;
+}
+function fuzzyTermScoreParams(patterns: string[]): string[] {
+  return patterns.flatMap((pattern) => Array.from({ length: 7 }, () => pattern));
 }
 
 function toItem(row: Row) {
@@ -202,12 +224,16 @@ export function createLibraryRepository(database: DatabaseHandle) {
           clauses.push(`(${SEARCH_FIELDS})`);
           params.push(...Array.from({ length: SEARCH_FIELD_PLACEHOLDERS }, () => safeSearch));
         } else {
-          for (const group of queryGroups(query.search)) {
-            clauses.push(`(${group.map(() => `(${SEARCH_FIELDS})`).join(' OR ')})`);
-            for (const term of group) {
-              const pattern = searchPattern(term, true);
-              params.push(...Array.from({ length: SEARCH_FIELD_PLACEHOLDERS }, () => pattern));
+          const groups = queryGroups(query.search);
+          const tokens = tokenizeSearchTerms(query.search);
+          for (const [index, group] of groups.entries()) {
+            const patterns = group.map((term) => searchPattern(term, true));
+            if (index < tokens.length && /^[a-z]{4,18}$/.test(tokens[index]!)) {
+              const fuzzyPattern = fuzzySearchPattern(tokens[index]!);
+              if (fuzzyPattern) patterns.push(fuzzyPattern);
             }
+            clauses.push(`(${patterns.map(() => `(${SEARCH_FIELDS})`).join(' OR ')})`);
+            for (const pattern of patterns) params.push(...Array.from({ length: SEARCH_FIELD_PLACEHOLDERS }, () => pattern));
           }
         }
       }
@@ -248,9 +274,11 @@ export function createLibraryRepository(database: DatabaseHandle) {
             OR analysis.brands_json ~* ? OR analysis.tools_json ~* ?
             OR analysis.people_json ~* ? OR analysis.repositories_json ~* ?)) THEN 15 ELSE 0 END
         ${query.matchMode === 'phrase' ? '' : queryGroups(query.search).map((group) => termScoreSql(group)).join(' ')}
+        ${query.matchMode === 'phrase' ? '' : fuzzySearchPatterns(query.search).map(() => fuzzyTermScoreSql()).join(' ')}
         )` : 'NULL';
       const scoreParams = query.sort === 'relevance' && query.search.trim() ? [query.search, ...Array.from({ length: SEARCH_FIELD_PLACEHOLDERS }, () => safeSearch),
-        ...(query.matchMode === 'phrase' ? [] : queryGroups(query.search).flatMap((group) => termScoreParams(group)))] : [];
+        ...(query.matchMode === 'phrase' ? [] : queryGroups(query.search).flatMap((group) => termScoreParams(group))),
+        ...(query.matchMode === 'phrase' ? [] : fuzzyTermScoreParams(fuzzySearchPatterns(query.search)))] : [];
       const rows = await database.prepare(`WITH ranked_items AS (
           SELECT saved_items.*, COALESCE(saved_items.title_override,saved_items.title) AS effective_title,
             COALESCE(saved_items.description_override,saved_items.description) AS effective_description,

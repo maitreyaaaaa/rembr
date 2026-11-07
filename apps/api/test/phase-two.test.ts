@@ -47,6 +47,34 @@ async function createPage(baseUrl: string, cookie: string, url: string) {
   return fetch(`${baseUrl}/api/items`, { method: 'POST', headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' }, body: JSON.stringify({ url }) });
 }
 
+test('saved search recovers a one-letter typo while keeping short terms exact and results owner-scoped', async () => {
+  await withApi(async (baseUrl) => {
+    const owner = await register(baseUrl, 'fuzzy-search-owner@example.test');
+    const other = await register(baseUrl, 'fuzzy-search-other@example.test');
+    await profile(baseUrl, owner.cookie, 'fuzzy_owner');
+    await profile(baseUrl, other.cookie, 'fuzzy_other');
+    const ownPage = await createPage(baseUrl, owner.cookie, 'https://fixture.test/feral-ui');
+    const ownItem = (await ownPage.json() as { item: { id: string } }).item;
+    assert.equal((await fetch(`${baseUrl}/api/items/${ownItem.id}`, {
+      method: 'PATCH', headers: { Cookie: owner.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ titleOverride: 'Feral UI', descriptionOverride: 'A UI library' }),
+    })).status, 200);
+    const foreignPage = await createPage(baseUrl, other.cookie, 'https://fixture.test/feral-ui');
+    const foreignItem = (await foreignPage.json() as { item: { id: string } }).item;
+    assert.equal((await fetch(`${baseUrl}/api/items/${foreignItem.id}`, {
+      method: 'PATCH', headers: { Cookie: other.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ titleOverride: 'Feral UI' }),
+    })).status, 200);
+
+    const typoResponse = await fetch(`${baseUrl}/api/items?search=${encodeURIComponent('Fera UI')}&sort=relevance`, { headers: { Cookie: owner.cookie } });
+    assert.equal(typoResponse.status, 200);
+    assert.deepEqual((await typoResponse.json() as { items: Array<{ id: string }> }).items.map(({ id }) => id), [ownItem.id]);
+
+    const shortTypo = await fetch(`${baseUrl}/api/items?search=${encodeURIComponent('Fera UX')}`, { headers: { Cookie: owner.cookie } });
+    assert.deepEqual((await shortTypo.json() as { items: unknown[] }).items, []);
+  });
+});
+
 test('Phase 2 profile gate, onboarding skip, and disabled-account checks are enforced server-side', async () => {
   await withApi(async (baseUrl, database) => {
     const account = await register(baseUrl, 'gate@example.test');

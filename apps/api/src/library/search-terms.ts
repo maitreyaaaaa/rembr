@@ -14,3 +14,25 @@ export function tokenizeSearchTerms(value: string): string[] {
   const meaningful = tokens.filter((token) => !SEARCH_STOP_WORDS.has(token));
   return meaningful.length ? meaningful : tokens.length ? tokens : normalized.trim() ? [normalized.trim()] : [];
 }
+
+/** Build a PostgreSQL word-boundary regex for terms one edit away from an ASCII query word. */
+export function fuzzySearchPattern(value: string): string | null {
+  const term = value.normalize('NFKC').toLowerCase();
+  if (!/^[a-z]{4,18}$/.test(term)) return null;
+
+  const alternatives = new Set<string>();
+  const alphabet = 'abcdefghijklmnopqrstuvwxyz';
+  for (let index = 0; index < term.length; index += 1) {
+    alternatives.add(`${term.slice(0, index)}${term.slice(index + 1)}`);
+    const replacements = alphabet.replace(term[index]!, '');
+    alternatives.add(`${term.slice(0, index)}[${replacements}]${term.slice(index + 1)}`);
+    if (index + 1 < term.length && term[index] !== term[index + 1]) {
+      alternatives.add(`${term.slice(0, index)}${term[index + 1]}${term[index]}${term.slice(index + 2)}`);
+    }
+  }
+  for (let index = 0; index <= term.length; index += 1) {
+    alternatives.add(`${term.slice(0, index)}[a-z]${term.slice(index)}`);
+  }
+
+  return `(^|[^[:alnum:]])(${[...alternatives].join('|')})([^[:alnum:]]|$)`;
+}

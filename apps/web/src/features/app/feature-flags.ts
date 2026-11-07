@@ -1,3 +1,3 @@
-export const externalIntegrationsEnabled = import.meta.env.VITE_EXTERNAL_INTEGRATIONS_ENABLED === 'true'
-  || (import.meta.env.DEV && import.meta.env.VITE_EXTERNAL_INTEGRATIONS_ENABLED !== 'false');
+export const integrationsPageEnabled = import.meta.env.VITE_INTEGRATIONS_PAGE_ENABLED === 'true'
+  || (import.meta.env.DEV && import.meta.env.VITE_INTEGRATIONS_PAGE_ENABLED !== 'false');
 

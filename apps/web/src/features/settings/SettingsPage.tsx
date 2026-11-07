@@ -8,8 +8,6 @@ import { useShell } from '../../app/shell-context.js';
 import { contentOptions, referralOptions } from '../../app/onboarding-options.js';
 
 type SettingsSection = 'profile' | 'preferences';
-const externalIntegrationsEnabled = import.meta.env.VITE_EXTERNAL_INTEGRATIONS_ENABLED === 'true'
-  || (import.meta.env.DEV && import.meta.env.VITE_EXTERNAL_INTEGRATIONS_ENABLED !== 'false');
 const sectionItems: Array<{ id: SettingsSection; label: string; icon: typeof UserRound }> = [
   { id: 'profile', label: 'Profile', icon: UserRound },
   { id: 'preferences', label: 'Preferences', icon: SlidersHorizontal },
@@ -212,8 +210,8 @@ export function SettingsPage() {
         <p className="rembr-settings-rail-label rembr-settings-tools-label">TOOLS</p>
         <nav className="rembr-settings-quick-links" aria-label="More settings">
           <Link to="/app/imports"><Upload size={16} aria-hidden="true" /><span>Imports</span><ArrowUpRight size={13} aria-hidden="true" /></Link>
-          {externalIntegrationsEnabled && <Link to="/app/settings/developer-access"><Code2 size={16} aria-hidden="true" /><span>Developer access</span><ArrowUpRight size={13} aria-hidden="true" /></Link>}
-          {externalIntegrationsEnabled && <Link to="/app/settings/mcp-access"><Network size={16} aria-hidden="true" /><span>MCP access</span><ArrowUpRight size={13} aria-hidden="true" /></Link>}
+          <Link to="/app/settings/developer-access"><Code2 size={16} aria-hidden="true" /><span>Developer access</span><ArrowUpRight size={13} aria-hidden="true" /></Link>
+          <Link to="/app/settings/mcp-access"><Network size={16} aria-hidden="true" /><span>MCP access</span><ArrowUpRight size={13} aria-hidden="true" /></Link>
         </nav>
         <div className="rembr-settings-account"><span className="rembr-settings-account-avatar">{(session.profile?.username?.[0] ?? session.user.email[0] ?? 'R').toUpperCase()}</span><span><strong>{session.profile?.username ? `@${session.profile.username}` : 'Your account'}</strong><small>{session.user.email}</small></span></div>
       </aside>

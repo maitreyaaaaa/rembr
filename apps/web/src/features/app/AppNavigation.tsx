@@ -2,7 +2,7 @@ import type { Session } from '../../app/contracts.js';
 import { useState } from 'react';
 import { Brain, Network } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
-import { externalIntegrationsEnabled } from './feature-flags.js';
+import { integrationsPageEnabled } from './feature-flags.js';
 
 function SidebarIcon({ name }: { name: string }) {
   return <img className="rembr-sidebar-icon" src={`/iconsax/${name}.svg`} alt="" aria-hidden="true" draggable={false} />;
@@ -24,10 +24,10 @@ export function AppNav({ session, onLogout }: { session: Session; onLogout: () =
     { path: '/app', label: 'Home', icon: <SidebarIcon name="book-saved" />, exact: true },
     { path: '/app/smart-collections', label: 'Smart collections', icon: <SidebarIcon name="folder-2" /> },
     { path: '/app/remember', label: 'Remember', icon: <Brain size={18} aria-hidden="true" /> },
-    ...(externalIntegrationsEnabled ? [{ path: '/app/integrations', label: 'Integrations', icon: <Network size={18} aria-hidden="true" /> }] : []),
+    ...(integrationsPageEnabled ? [{ path: '/app/integrations', label: 'Integrations', icon: <Network size={18} aria-hidden="true" /> }] : []),
     { path: '/app/add', label: 'Add saves', icon: <SidebarIcon name="document-upload" /> },
   ];
-  const mobileMoreActive = location.pathname.startsWith('/app/smart-collections') || (externalIntegrationsEnabled && location.pathname === '/app/integrations') || location.pathname === '/how-to-use';
+  const mobileMoreActive = location.pathname.startsWith('/app/smart-collections') || (integrationsPageEnabled && location.pathname === '/app/integrations') || location.pathname === '/how-to-use';
   const accountLabel = session.profile?.username ? `@${session.profile.username}` : session.user.email;
   const avatar = session.profile?.avatarAssetUrl ?? session.profile?.avatarUrl;
   const userMark = session.profile?.username?.slice(0, 1) ?? session.user.email.slice(0, 1);
@@ -70,7 +70,7 @@ export function AppNav({ session, onLogout }: { session: Session; onLogout: () =
     <nav className="mobile-bottom-navigation md:hidden" aria-label="Main navigation" onKeyDown={(event) => { if (event.key === 'Escape') setMoreOpen(false); }}>
       <div id="rembr-mobile-more" className="mobile-more-panel" role="group" aria-label="More sections" hidden={!moreOpen}>
         <Link to="/app/smart-collections" data-rembr-tour-target="smart-collections-nav" onClick={() => setMoreOpen(false)} aria-current={isActive('/app/smart-collections') ? 'page' : undefined} className={`mobile-more-item ${isActive('/app/smart-collections') ? 'is-active' : ''}`}><SidebarIcon name="folder-2" /><span>Smart collections</span></Link>
-        {externalIntegrationsEnabled && <Link to="/app/integrations" onClick={() => setMoreOpen(false)} aria-current={isActive('/app/integrations') ? 'page' : undefined} className={`mobile-more-item ${isActive('/app/integrations') ? 'is-active' : ''}`}><Network size={17} aria-hidden="true" /><span>Integrations</span></Link>}
+        {integrationsPageEnabled && <Link to="/app/integrations" onClick={() => setMoreOpen(false)} aria-current={isActive('/app/integrations') ? 'page' : undefined} className={`mobile-more-item ${isActive('/app/integrations') ? 'is-active' : ''}`}><Network size={17} aria-hidden="true" /><span>Integrations</span></Link>}
         <Link to="/help" onClick={() => setMoreOpen(false)} className="mobile-more-item"><SidebarIcon name="book-open" /><span>Help &amp; tour</span></Link>
       </div>
       {[
