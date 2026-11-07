@@ -1,6 +1,7 @@
 import type { Asset, AiAnalysisView, SavedItem, Tag } from '../../app/contracts.js';
 import { api } from '../../app/api.js';
 import { messageOf, sameAppPath } from '../../app/helpers.js';
+import posthog from '../../posthog.js';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { RembrDetailDrawer, type RembrDetailAction } from './RembrDetailDrawer.js';
@@ -69,6 +70,7 @@ export function ItemDetailPage() {
     setError('');
     try {
       await api(`/api/items/${encodeURIComponent(item.id)}/job/${action}`, { method: 'POST' });
+      posthog.capture('item_processing_action_requested', { action });
       await load();
     } catch (cause) {
       setError(messageOf(cause, `Could not ${action} this job.`));
@@ -85,6 +87,7 @@ export function ItemDetailPage() {
       await api(`/api/knowledge/items/${encodeURIComponent(item.id)}/memory`, {
         method: 'PATCH', body: JSON.stringify({ enabled, reason }),
       });
+      posthog.capture('memory_preference_updated', { enabled });
       await load(true);
     } catch (cause) {
       setError(messageOf(cause, 'Could not update this memory preference.'));
@@ -141,7 +144,7 @@ export function ItemDetailPage() {
 export function ItemEditPage() {
   const { itemId = '' } = useParams(); const navigate = useNavigate(); const location = useLocation(); const returnTo = sameAppPath((location.state as { returnTo?: string } | null)?.returnTo); const [item, setItem] = useState<SavedItem | null>(null); const [title, setTitle] = useState(''); const [description, setDescription] = useState(''); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false); const [error, setError] = useState('');
   useEffect(() => { let alive = true; void api<{ item: SavedItem }>(`/api/items/${encodeURIComponent(itemId)}`).then(({ item: result }) => { if (alive) { setItem(result); setTitle(result.titleOverride ?? result.title); setDescription(result.descriptionOverride ?? result.description); } }).catch((cause) => { if (alive) setError(messageOf(cause, 'Could not load this item.')); }).finally(() => { if (alive) setLoading(false); }); return () => { alive = false; }; }, [itemId]);
-  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setBusy(true); setError(''); try { await api(`/api/items/${encodeURIComponent(itemId)}`, { method: 'PATCH', body: JSON.stringify({ titleOverride: title, descriptionOverride: description }) }); navigate(`/app/items/${encodeURIComponent(itemId)}`, { replace: true, state: { returnTo } }); } catch (cause) { setError(messageOf(cause, 'Could not update item details.')); } finally { setBusy(false); } }
+  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setBusy(true); setError(''); try { await api(`/api/items/${encodeURIComponent(itemId)}`, { method: 'PATCH', body: JSON.stringify({ titleOverride: title, descriptionOverride: description }) }); posthog.capture('item_details_updated'); navigate(`/app/items/${encodeURIComponent(itemId)}`, { replace: true, state: { returnTo } }); } catch (cause) { setError(messageOf(cause, 'Could not update item details.')); } finally { setBusy(false); } }
   if (loading) return <div className="phase2-state" role="status">Loading item…</div>;
   if (!item) return <ErrorState message={error || 'This item was not found.'} />;
   return <><div className="phase2-back"><Link to={`/app/items/${encodeURIComponent(itemId)}`} state={{ returnTo }}>← Cancel and return</Link></div><PageHeader title="Edit page details" description="These changes affect the title and description in your library, not the saved page." /><section className="phase2-panel phase2-narrow"><form className="phase2-form" onSubmit={(event) => void submit(event)}><label htmlFor="item-title">Title</label><input id="item-title" maxLength={240} value={title} onChange={(event) => setTitle(event.target.value)} /><label htmlFor="item-description">Description</label><textarea id="item-description" rows={5} maxLength={2000} value={description} onChange={(event) => setDescription(event.target.value)} />{error && <p className="notice error" role="alert">{error}</p>}<button className="primary-button" disabled={busy}>{busy ? 'Saving…' : 'Save changes'}</button></form></section></>;
@@ -153,7 +156,7 @@ export function NoteEditorPage() {
   const imagePreviews = useMemo(() => images.map((file) => ({ file, url: URL.createObjectURL(file) })), [images]);
   useEffect(() => () => imagePreviews.forEach((preview) => URL.revokeObjectURL(preview.url)), [imagePreviews]);
   useEffect(() => { if (!itemId) return; let alive = true; void api<{ item: SavedItem }>(`/api/items/${encodeURIComponent(itemId)}`).then(({ item }) => { if (!alive) return; setTitle(item.titleOverride ?? item.title); setBody(item.note?.body ?? ''); setLinksText(item.note?.links?.join('\n') ?? ''); setExistingAssets(item.note?.assets ?? []); }).catch((cause) => { if (alive) setError(messageOf(cause, 'Could not load this note.')); }).finally(() => { if (alive) setLoading(false); }); return () => { alive = false; }; }, [itemId]);
-  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setError(''); const links = linksText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean); if (links.length > 20) { setError('Add up to 20 links.'); return; } try { for (const value of links) { const parsed = new URL(value); if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error(); } } catch { setError('Each note link must be a complete HTTP or HTTPS URL.'); return; } if (images.some((image) => image.size > 5 * 1024 * 1024)) { setError('Each image must be 5 MiB or smaller.'); return; } setBusy(true); const form = new FormData(); form.set('title', title.trim() || 'Untitled note'); form.set('body', body); form.set('links', JSON.stringify(links)); images.forEach((image) => form.append('images', image)); try { const path = editing ? `/api/notes/${encodeURIComponent(itemId!)}` : '/api/notes'; const result = await api<{ item: SavedItem }>(path, { method: editing ? 'PATCH' : 'POST', body: form }); navigate(`/app/items/${encodeURIComponent(result.item.id)}`, { state: { returnTo } }); } catch (cause) { setError(messageOf(cause, 'Could not save this note.')); } finally { setBusy(false); } }
+  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setError(''); const links = linksText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean); if (links.length > 20) { setError('Add up to 20 links.'); return; } try { for (const value of links) { const parsed = new URL(value); if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error(); } } catch { setError('Each note link must be a complete HTTP or HTTPS URL.'); return; } if (images.some((image) => image.size > 5 * 1024 * 1024)) { setError('Each image must be 5 MiB or smaller.'); return; } setBusy(true); const form = new FormData(); form.set('title', title.trim() || 'Untitled note'); form.set('body', body); form.set('links', JSON.stringify(links)); images.forEach((image) => form.append('images', image)); try { const path = editing ? `/api/notes/${encodeURIComponent(itemId!)}` : '/api/notes'; const result = await api<{ item: SavedItem }>(path, { method: editing ? 'PATCH' : 'POST', body: form }); posthog.capture('note_saved', { action: editing ? 'updated' : 'created', entry_point: 'editor', image_count: images.length, link_count: links.length }); navigate(`/app/items/${encodeURIComponent(result.item.id)}`, { state: { returnTo } }); } catch (cause) { setError(messageOf(cause, 'Could not save this note.')); } finally { setBusy(false); } }
   async function removeAsset(asset: Asset) { if (!itemId || !window.confirm('Remove this image from the note?')) return; setError(''); try { await api(`/api/notes/${encodeURIComponent(itemId)}/assets/${encodeURIComponent(asset.id)}`, { method: 'DELETE' }); setExistingAssets((current) => current.filter((entry) => entry.id !== asset.id)); } catch (cause) { setError(messageOf(cause, 'Could not remove image.')); } }
   if (loading) return <div className="phase2-state" role="status">Loading note…</div>;
   const linkCount = linksText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).length;

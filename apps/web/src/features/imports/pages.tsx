@@ -1,6 +1,7 @@
 import { AI_DISCLOSURE_VERSION, type AiPreference, type SavedItem } from '../../app/contracts.js';
 import { api } from '../../app/api.js';
 import { date, messageOf } from '../../app/helpers.js';
+import posthog, { posthogLog } from '../../posthog.js';
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Progress } from '../../components/ui/progress.js';
@@ -11,7 +12,7 @@ import { PageHeader, ErrorState } from '../../app/RouteStates.js';
 export function AddPage() {
   const [url, setUrl] = useState(''); const [files, setFiles] = useState<File[]>([]); const [busy, setBusy] = useState(false); const [progress, setProgress] = useState(0); const [error, setError] = useState(''); const [activeImportId, setActiveImportId] = useState(''); const navigate = useNavigate();
   const uploadController = useRef<AbortController | null>(null); const idempotencyKey = useRef<string | null>(null);
-  async function submitUrl(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setBusy(true); setError(''); try { const body = await api<{ item: SavedItem; duplicate: boolean }>('/api/items', { method: 'POST', body: JSON.stringify({ url }) }); navigate(`/app/items/${encodeURIComponent(body.item.id)}`, { state: { returnTo: '/app' } }); } catch (cause) { setError(messageOf(cause, 'Could not save that page.')); } finally { setBusy(false); } }
+  async function submitUrl(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setBusy(true); setError(''); try { const body = await api<{ item: SavedItem; duplicate: boolean }>('/api/items', { method: 'POST', body: JSON.stringify({ url }) }); posthog.capture('item_saved', { content_type: 'page', entry_point: 'add_page', duplicate: body.duplicate }); navigate(`/app/items/${encodeURIComponent(body.item.id)}`, { state: { returnTo: '/app' } }); } catch (cause) { setError(messageOf(cause, 'Could not save that page.')); } finally { setBusy(false); } }
   async function submitFiles(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault(); setError('');
     const total = files.reduce((sum, file) => sum + file.size, 0);
@@ -24,6 +25,8 @@ export function AddPage() {
       const key = idempotencyKey.current ?? crypto.randomUUID(); idempotencyKey.current = key;
       const manifest = await api<{ importId: string; status: string; files: Array<{ fileId: string }> }>('/api/imports', { method: 'POST', headers: { 'Idempotency-Key': key }, body: JSON.stringify({ files: metadata }) });
       manifestId = manifest.importId; setActiveImportId(manifestId);
+      posthog.capture('import_started', { file_count: files.length, total_bytes: total });
+      posthogLog.info('import upload started', { file_count: files.length, total_bytes: total });
       if (!['uploading', 'staged'].includes(manifest.status)) { idempotencyKey.current = null; navigate(`/app/imports/${encodeURIComponent(manifestId)}`); return; }
       let uploaded = 0;
       for (let fileIndex = 0; fileIndex < files.length; fileIndex += 1) {

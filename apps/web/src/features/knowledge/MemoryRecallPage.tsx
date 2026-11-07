@@ -3,6 +3,7 @@ import { Brain, ArrowUpRight, Check, Clock3, Eye, LoaderCircle, SkipForward } fr
 import { Link } from 'react-router-dom';
 import { api } from '../../app/api.js';
 import { messageOf } from '../../app/helpers.js';
+import posthog from '../../posthog.js';
 import type { SavedItem } from '../../app/contracts.js';
 import { ErrorState, PageHeader } from '../../app/RouteStates.js';
 
@@ -49,6 +50,7 @@ export function MemoryRecallPage() {
     setBusy(true); setError('');
     try {
       await api(`/api/knowledge/recall/prompts/${encodeURIComponent(queue.prompt.id)}/respond`, { method: 'POST', body: JSON.stringify({ outcome: value }) });
+      posthog.capture('memory_recall_responded', { outcome: value });
       setOutcome(value);
       if (value === 'skipped') setMessage('Skipped. This will not count as forgotten.');
       else setMessage(value === 'remembered' ? 'Nice. Rembr will give this one more time before it returns.' : 'Thanks. Rembr will bring this one back sooner.');

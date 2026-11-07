@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react';
 import { ArrowRight, LoaderCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../../app/api.js';
+import type { Session } from '../../app/contracts.js';
 import { messageOf } from '../../app/helpers.js';
+import posthog from '../../posthog.js';
 
 export function DemoWorkspacePage() {
   const navigate = useNavigate();
@@ -12,6 +14,11 @@ export function DemoWorkspacePage() {
     setError('');
     try {
       await api('/api/auth/demo', { method: 'POST' });
+      const session = await api<Session>('/api/auth/session');
+      posthog.identify(session.user.id, {
+        email: session.user.email,
+        ...(session.profile?.username ? { username: session.profile.username } : {}),
+      });
       navigate('/app', { replace: true });
     } catch (cause) { setError(messageOf(cause, 'The demo workspace could not be opened.')); }
   }
