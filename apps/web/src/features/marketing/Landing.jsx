@@ -1,5 +1,6 @@
 import {
   avatarUrlForSession,
+  BrandLogo,
   getProfile,
   gsap,
   identifyPostHogUser,
