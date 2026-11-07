@@ -16,6 +16,18 @@ import { claimNextJob, processNextJob } from '../src/worker/process-job.js';
 const origin = 'http://127.0.0.1:5173';
 const password = 'correct-horse-battery-staple';
 
+test('Content Security Policy permits PostHog analytics while retaining same-origin defaults', async () => {
+  await withApi(async (baseUrl) => {
+    const response = await fetch(`${baseUrl}/api/health`);
+    const policy = response.headers.get('content-security-policy') ?? '';
+
+    assert.match(policy, /script-src[^;]*https:\/\/\*\.posthog\.com/);
+    assert.match(policy, /connect-src[^;]*https:\/\/\*\.posthog\.com/);
+    assert.match(policy, /worker-src[^;]*blob:[^;]*data:/);
+    assert.match(policy, /default-src 'self'/);
+  });
+});
+
 async function withApi(run: (baseUrl: string, database: Awaited<ReturnType<typeof createTestDatabase>>) => Promise<void>) {
   const database = await createTestDatabase();
   const app = createApp(database, {

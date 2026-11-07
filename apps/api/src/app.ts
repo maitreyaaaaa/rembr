@@ -60,7 +60,15 @@ export function createApp(database: DatabaseHandle, options: { validateUrl?: typ
     ?? (config.openRouterApiKey ? createOpenRouterEmbeddingProvider(config.openRouterApiKey) : undefined);
   const validateUrl = options.validateUrl ?? validatePublicUrl;
   app.disable('x-powered-by');
-  app.use(helmet());
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        scriptSrc: ["'self'", 'https://*.posthog.com'],
+        connectSrc: ["'self'", 'https://*.posthog.com'],
+        workerSrc: ["'self'", 'blob:', 'data:'],
+      },
+    },
+  }));
   app.use((req, res, next) => {
     req.requestId = randomUUID();
     res.setHeader('X-Request-Id', req.requestId);
