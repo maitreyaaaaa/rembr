@@ -1,6 +1,7 @@
 import type { Profile, Session } from '../../app/contracts.js';
 import { api, apiWithProgress } from '../../app/api.js';
 import { messageOf, sameAppPath } from '../../app/helpers.js';
+import posthog from '../../posthog.js';
 import { useRef, useState, type FormEvent } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { AvatarUpload } from '../../components/AvatarUpload.js';
@@ -44,7 +45,9 @@ function ProfileForm({ session, onComplete }: { session: Session; onComplete: ()
         if (visibleFor > 0) await new Promise((resolve) => window.setTimeout(resolve, visibleFor));
       }
       else body = await api('/api/profile', { method: 'PATCH', body: JSON.stringify({ username, ...(avatarCleared ? { avatarUrl: '' } : avatarUrlChanged ? { avatarUrl } : {}) }) });
-      setProfile(body.profile); await onComplete();
+      setProfile(body.profile);
+      posthog.capture('profile_setup_completed', { avatar_configured: Boolean(body.profile.avatarUrl || body.profile.avatarAssetUrl) });
+      await onComplete();
     } catch (cause) {
       const message = messageOf(cause, 'Could not save your profile.');
       if (avatar) setAvatarUploadError(`${message.replace(/[.!?]+$/, '')}. Your previous photo is unchanged.`);

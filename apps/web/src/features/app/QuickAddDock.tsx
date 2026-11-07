@@ -1,6 +1,7 @@
 import type { SavedItem } from '../../app/contracts.js';
 import { api } from '../../app/api.js';
 import { messageOf } from '../../app/helpers.js';
+import posthog from '../../posthog.js';
 import { useEffect, useState, type FormEvent } from 'react';
 import { FileText, Link2, Plus, Upload, X } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
@@ -29,6 +30,7 @@ export function QuickAddDock() {
     event.preventDefault(); setBusy(true); setError('');
     try {
       const result = await api<{ item: SavedItem }>('/api/items', { method: 'POST', body: JSON.stringify({ url }) });
+      posthog.capture('item_saved', { content_type: 'page', entry_point: 'quick_add' });
       close(); navigate(`/app/items/${encodeURIComponent(result.item.id)}`, { state: { returnTo: '/app' } });
     } catch (cause) { setError(messageOf(cause, 'Could not save that page.')); }
     finally { setBusy(false); }
@@ -44,6 +46,7 @@ export function QuickAddDock() {
     const form = new FormData(); form.set('title', title.trim() || 'Untitled note'); form.set('body', body); form.set('links', JSON.stringify(noteLinks)); images.forEach((image) => form.append('images', image));
     try {
       const result = await api<{ item: SavedItem }>('/api/notes', { method: 'POST', body: form });
+      posthog.capture('note_saved', { action: 'created', entry_point: 'quick_add', image_count: images.length, link_count: noteLinks.length });
       close(); navigate(`/app/items/${encodeURIComponent(result.item.id)}`, { state: { returnTo: '/app' } });
     } catch (cause) { setError(messageOf(cause, 'Could not save this note.')); }
     finally { setBusy(false); }

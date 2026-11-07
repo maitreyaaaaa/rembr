@@ -1,6 +1,7 @@
 import type { ApiError, Session } from '../../app/contracts.js';
 import { api } from '../../app/api.js';
 import { messageOf, sameAppPath } from '../../app/helpers.js';
+import posthog, { posthogLog } from '../../posthog.js';
 import { lazy, useEffect, useState, type FormEvent } from 'react';
 import { ArrowRight, FileCheck2 } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
@@ -36,7 +37,9 @@ export function AuthPage() {
     void api<Session>('/api/auth/session').then((session) => {
       if (active) navigate(!session.termsCurrent ? '/app' : session.profileComplete ? returnTo : '/app/setup/profile', { replace: true, state: { returnTo } });
     }).catch((cause) => {
-      if (active && (cause as ApiError).status !== 401) setError(messageOf(cause, 'Could not verify your current session.'));
+      if (!active) return;
+      if ((cause as ApiError).status === 401) posthog.reset();
+      else setError(messageOf(cause, 'Could not verify your current session.'));
     });
     return () => { active = false; };
   }, [navigate, returnTo]);
@@ -46,6 +49,12 @@ export function AuthPage() {
     try {
       await api(`/api/auth/${mode === 'register' ? 'register' : 'login'}`, { method: 'POST', body: JSON.stringify({ email, password, rememberMe, ...(mode === 'register' ? { acceptedTerms: termsAccepted } : {}) }) });
       const session = await api<Session>('/api/auth/session');
+      posthog.identify(session.user.id, {
+        email: session.user.email,
+        ...(session.profile?.username ? { username: session.profile.username } : {}),
+      });
+      posthog.capture('authentication_completed', { method: mode });
+      posthogLog.info('authentication completed', { method: mode });
       navigate(!session.termsCurrent ? '/app' : session.profileComplete ? returnTo : '/app/setup/profile', { replace: true, state: { returnTo } });
     } catch (cause) { setError(messageOf(cause, 'Sign in failed. Try again.')); }
     finally { setBusy(false); }

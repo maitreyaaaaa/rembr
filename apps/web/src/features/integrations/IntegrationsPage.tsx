@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Check, Copy, ExternalLink, LockKeyhole, Network, ShieldCheck } from 'lucide-react';
 import { PageHeader } from '../../app/RouteStates.js';
+import posthog from '../../posthog.js';
 
 type ClientName = 'Claude' | 'ChatGPT';
 
@@ -11,6 +12,7 @@ export function IntegrationsPage() {
   const [copyError, setCopyError] = useState(false);
 
   async function copyServerAddress(client?: ClientName) {
+    if (client) posthog.capture('integration_setup_started', { client: client.toLowerCase() });
     try {
       await navigator.clipboard.writeText(endpoint);
       setCopied(true);

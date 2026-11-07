@@ -2,6 +2,7 @@ import type { AiPreference, LibraryAnswer, SavedItem, SemanticSearchPreference, 
 import { AI_SEARCH_DISCLOSURE_VERSION, SEMANTIC_SEARCH_DISCLOSURE_VERSION, VISUAL_SEARCH_DISCLOSURE_VERSION } from '../../app/contracts.js';
 import { api, prepareVisualSearchImage } from '../../app/api.js';
 import { messageOf } from '../../app/helpers.js';
+import posthog from '../../posthog.js';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { Plus, RefreshCw } from 'lucide-react';
 import { Link, useLocation, useSearchParams } from 'react-router-dom';
@@ -134,7 +135,7 @@ export function LibraryPage() {
   useEffect(() => () => { if (visualPreview) URL.revokeObjectURL(visualPreview); }, [visualPreview]);
   function updateSort(value: string) { const next = new URLSearchParams(searchParams); if (value === 'created_desc') next.delete('sort'); else next.set('sort', value); next.delete('cursor'); setSearchParams(next); }
   function setSearch(value: string) { setWebSearchResult(null); setLibraryAnswer(null); setWebSearchError(''); setLibraryAnswerError(''); const next = new URLSearchParams(searchParams); if (value) { next.set('search', value); if (!searchParams.has('sort')) next.set('sort', 'relevance'); } else { next.delete('search'); if (next.get('sort') === 'relevance') next.delete('sort'); } next.delete('cursor'); setSearchParams(next, { replace: true }); }
-  async function remove(item: SavedItem) { if (!window.confirm(`Remove “${item.title}” and its child data from your library?`)) return; try { await api(`/api/items/${encodeURIComponent(item.id)}`, { method: 'DELETE' }); await load(); } catch (cause) { setError(messageOf(cause, 'Could not remove item.')); } }
+  async function remove(item: SavedItem) { if (!window.confirm(`Remove “${item.title}” and its child data from your library?`)) return; try { await api(`/api/items/${encodeURIComponent(item.id)}`, { method: 'DELETE' }); posthog.capture('item_removed', { content_type: item.kind }); await load(); } catch (cause) { setError(messageOf(cause, 'Could not remove item.')); } }
   async function rateSearchResult(item: SavedItem, rating: 'helpful' | 'not_helpful') { const searchEventId = searchEventIds[item.id]; if (!searchEventId) return; setError(''); try { await api('/api/search/feedback', { method: 'POST', body: JSON.stringify({ searchEventId, itemId: item.id, rating }) }); setSearchFeedback((current) => ({ ...current, [item.id]: rating })); } catch (cause) { setError(messageOf(cause, 'Could not save search feedback.')); } }
   function chooseVisualImage(file: File | undefined) {
     setVisualError(''); setVisualResult(null); setVisualFeedback({});
@@ -155,7 +156,9 @@ export function LibraryPage() {
       }
       const image = await prepareVisualSearchImage(visualImage);
       const form = new FormData(); form.set('image', image, image.name);
-      setVisualResult(await api<VisualSearchResult>('/api/visual-search', { method: 'POST', body: form }));
+      const result = await api<VisualSearchResult>('/api/visual-search', { method: 'POST', body: form });
+      setVisualResult(result);
+      posthog.capture('visual_search_completed', { result_count: result.results.length });
     } catch (cause) {
       setVisualError(cause instanceof Error && !('status' in cause)
         ? cause.message
@@ -192,6 +195,13 @@ export function LibraryPage() {
     else setLibraryAnswerError(messageOf(library.reason, 'Your saved library could not be searched.'));
     if (semantic.status === 'fulfilled') setSemanticResults(semantic.value.items);
     else setSemanticSearchError(messageOf(semantic.reason, 'Meaning-based library search could not be completed.'));
+    if (web.status === 'fulfilled' || library.status === 'fulfilled' || semantic.status === 'fulfilled') {
+      posthog.capture('web_and_library_search_completed', {
+        web_search_available: web.status === 'fulfilled',
+        library_answer_available: library.status === 'fulfilled',
+        semantic_search_available: semantic.status === 'fulfilled',
+      });
+    }
     setWebSearchBusy(false);
   }
   async function rateVisualSearchResult(item: SavedItem, rating: 'helpful' | 'not_helpful') {

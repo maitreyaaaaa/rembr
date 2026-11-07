@@ -1,5 +1,6 @@
 import { api } from '../../app/api.js';
 import { messageOf } from '../../app/helpers.js';
+import posthog from '../../posthog.js';
 import { Suspense, useCallback, useEffect, useState } from 'react';
 import { Link, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { AppShellSkeleton } from '../../components/ui/LoadingStates.jsx';
@@ -52,9 +53,11 @@ export function ProtectedShell() {
     const handle = (event: Event) => {
       const custom = event as CustomEvent<{ status: number; code: string }>;
       if (custom.detail.status === 401) {
+        posthog.reset();
         setSession(null);
         navigate(`/login?returnTo=${encodeURIComponent(`${location.pathname}${location.search}`)}`, { replace: true });
       } else if (custom.detail.status === 403 && custom.detail.code === 'account_disabled') {
+        posthog.reset();
         setSession(null); setAccountDenied(true);
       }
     };
@@ -71,7 +74,7 @@ export function ProtectedShell() {
   const tourOpen = explicitTourOpen || firstRunTourOpen;
   return <div className="dashboard-shell flex h-screen overflow-hidden bg-black text-foreground">
     <div className="rembr-tour-underlay" aria-hidden={tourOpen} inert={tourOpen}>
-      <AppNav session={session} onLogout={async () => { await api('/api/auth/logout', { method: 'POST' }); setSession(null); navigate('/login', { replace: true }); }} />
+      <AppNav session={session} onLogout={async () => { await api('/api/auth/logout', { method: 'POST' }); posthog.reset(); setSession(null); navigate('/login', { replace: true }); }} />
       <main className="rembr-dashboard-main min-w-0 flex-1 overflow-y-auto">
         {detailBackground && <div className="rembr-detail-underlay" aria-hidden="true" inert><div className="phase2-main">{detailBackground}</div></div>}
         <div className={hasDetailBackground ? 'rembr-detail-route' : isFullScreenSettings ? 'rembr-settings-route' : isSensitiveAccess ? 'rembr-sensitive-route' : undefined}><div className={`phase2-main ${isFullScreenSettings ? 'phase2-main-settings' : isSensitiveAccess ? 'phase2-main-sensitive' : ''}`}><AppBreadcrumbs /><Outlet context={{ session, setSession }} /></div></div>
